@@ -56,5 +56,8 @@ frame of posterior draws, one column per contrast; \code{policy_contrast_matrix}
 weighted design-matrix rows, one per stratum.
 }
 \seealso{
+\code{marginaleffects::avg_predictions}, which \code{\link{estimand}} uses on
+the response scale, where this route uses the coefficients directly.
+
 \code{\link{estimand}}, \code{\link{nest_policy}}
 }

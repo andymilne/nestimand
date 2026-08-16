@@ -38,7 +38,7 @@ fitting_mode(spec, engine = "marginaleffects", priors = NULL)
   \item{unrealized}{what to do with rows naming combinations that do not exist: drop them, or stop.}
   \item{data}{data from which covariate means are taken.}
   \item{covariates}{hold covariates at their means, or keep the supplied values.}
-  \item{engine}{the estimand engine the fit is intended for; \code{"emmeans"} requires the chain form.}
+  \item{engine}{the package the estimands will be computed with; \code{"emmeans"} reads the nesting from the formula and so requires the chain form, where \code{"marginaleffects"} works from the cell factor.}
   \item{priors}{declared priors, which may pin the parameterization.}
   \item{x}{an object to print.}
 }
