@@ -535,8 +535,8 @@ spc <- nesting_spec(dat, response ~ chord_type * inversion + training +
                     (chord_type * inversion | participant),
                     "inversion %in% chord_type", fit = "brms")
 cp <- chain_priors(spc)
-chk("chain: fixed design is 16 informative-plus-empty columns of rank 10",
-    cp$fixed$columns == 16 && cp$fixed$rank == 10)
+chk("chain: fixed design is 16 columns beyond the intercept, of rank 11",
+    cp$fixed$columns == 16 && cp$fixed$rank == 11)
 chk("chain: three structural zeros and three identification constraints, fixed",
     sum(cp$table$part == "fixed" & cp$table$kind == "structural zero") == 3 &&
     sum(cp$table$part == "fixed" & cp$table$kind == "identification constraint") == 3)
@@ -814,5 +814,66 @@ chk("versions: a nested variable's versions are the strata it occurs in",
     identical(versions_of(sp, "inversion")[["none"]], "aug"))
 chk("versions: a root variable's versions are unchanged",
     identical(sort(versions_of(sp, "chord_type")[["maj"]]), c("0", "1", "2")))
+
+## ---- bounds: one row per contrast, correctly paired ------------------------
+bi <- attr(estimand(mf, inversion, self_check = FALSE), "nestimand")$bounds
+chk("bounds: one row per contrast, not recycled against a longer vector",
+    nrow(bi) == 3 && !anyDuplicated(bi$term))
+chk("bounds: each estimate lies inside its own interval",
+    all(bi$estimate >= bi$policy_low - 1e-8) &&
+    all(bi$estimate <= bi$policy_high + 1e-8))
+chk("bounds: the vertex policies respect the stratum restriction",
+    nrow(policy_vertices(sp, "inversion")) == 27)
+## the same estimand under permuted levels: the canonical direction follows the
+## declared order, so a contrast may be reported the other way round, with its
+## interval negated and swapped - the substance is unchanged
+dperm <- dat
+set.seed(7); dperm$inversion <- factor(dperm$inversion,
+                                       levels = c("none", sample(c("0", "1", "2"))))
+spp <- nesting_spec(dperm, response ~ chord_type * inversion + training,
+                    "inversion %in% chord_type")
+bp <- attr(estimand(nest_fit(spp), inversion, self_check = FALSE), "nestimand")$bounds
+chk("bounds: invariant under level permutation, up to contrast direction",
+    isTRUE(all.equal(sort(abs(bi$estimate)), sort(abs(bp$estimate)), tolerance = 1e-8)) &&
+    isTRUE(all.equal(sort(abs(c(bi$policy_low, bi$policy_high))),
+                     sort(abs(c(bp$policy_low, bp$policy_high))), tolerance = 1e-8)))
+chk("labels: the engine's own label column is not left contradicting the estimate",
+    { d <- as.data.frame(estimand(mf, chord_type, bounds = FALSE, self_check = FALSE))
+      lc <- mfx_term_column(d)
+      identical(as.character(d[[lc]]), d$term) })
+chk("target: a variable holding the name is read for its value",
+    { tv <- "inversion"
+      nrow(as.data.frame(estimand(mf, tv, bounds = FALSE, self_check = FALSE))) == 3 })
+chk("model: an inline call is named safely in the emitted code",
+    any(grepl("^model <- lm",
+        attr(estimand(nest_fit(sp), chord_type, bounds = FALSE,
+                      self_check = FALSE), "nestimand")$code)))
+
+## ---- the declarations must identify the model whatever the level order -----
+## The sentinel need not be the reference level. Where it is not, the empty and
+## the redundant columns fall differently, and the count of each changes; what
+## must not change is that together they leave exactly a full-rank model.
+sent_last <- dat
+sent_last$inversion <- factor(sent_last$inversion, levels = c("0", "1", "2", "none"))
+for (lv in list(list("first", dat), list("sentinel last", sent_last))) {
+  sp_l <- nesting_spec(lv[[2]], response ~ chord_type * inversion + training,
+                       "inversion %in% chord_type", fit = "brms")
+  z <- zero_columns(cell_formula(sp_l, "effects"), sp_l$data)
+  X <- stats::model.matrix(cell_formula(sp_l, "effects"), sp_l$data)
+  chk(paste0("declarations identify the model exactly (", lv[[1]], ")"),
+      ncol(X) - length(z$structural) - length(z$identification) == qr(X)$rank)
+}
+sp_last <- nesting_spec(sent_last, response ~ chord_type * inversion + training,
+                        "inversion %in% chord_type")
+m_last <- nest_fit(sp_last)
+chk("sentinel last: the estimand is unchanged",
+    abs(as.data.frame(estimand(m_last, chord_type, bounds = FALSE,
+                               self_check = FALSE))$estimate[3] + 0.6779) < 1e-4)
+chk("sentinel last: the nested contrast still excludes the sentinel",
+    { d <- as.data.frame(estimand(m_last, inversion, bounds = FALSE,
+                                  self_check = FALSE))
+      nrow(d) == 3 && !any(grepl("none", d$term)) })
+chk("sentinel last: the effect basis is still square and full rank",
+    { A <- effect_basis(sp_last); nrow(A) == 10 && qr(A)$rank == 10 })
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

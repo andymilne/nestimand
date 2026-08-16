@@ -23,8 +23,17 @@ estimand <- function(model, target, policy = "equal", at = NULL,
          "has no linear-map form here; use scale = \"response\".")
   if (!inherits(spec, "nesting_spec"))
     stop("`spec` must be a nesting_spec object, as returned by nesting_spec().")
+  ## A bare name is read as the variable itself - estimand(m, chord_type) - but
+  ## a name that holds the target as a string is read for its value, so that
+  ## the target can be supplied programmatically.
   tg <- substitute(target)
-  if (is.name(tg)) target <- deparse(tg)
+  if (is.name(tg)) {
+    lit <- deparse(tg)
+    target <- if (lit %in% spec$cell_vars) lit else
+      tryCatch({ v <- eval(tg, .env)
+                 if (is.character(v) && length(v) == 1L) v else lit },
+               error = function(e) lit)
+  }
   if (!target %in% spec$cell_vars)
     stop("`", target, "` is not one of the declared categorical nesting ",
          "variables (", paste(spec$cell_vars, collapse = ", "), "). Contrasts ",
@@ -40,12 +49,18 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   restricted <- !is.null(deg) && length(deg$drop)
   if (!restricted) deg <- NULL
 
+  ## The model and the declaration may be supplied as expressions rather than
+  ## as named objects - estimand(nest_fit(sp), ...) - and an expression cannot
+  ## be assigned to in the emitted code.
+  syntactic <- function(x) grepl("^[.A-Za-z][.A-Za-z0-9._]*$", x)
   model_name <- deparse(substitute(model))
+  if (!syntactic(model_name)) model_name <- "model"
   ## When the declaration came from the fit, refer to it by the name it had
   ## when the model was fitted, so the emitted code reads as the user wrote it.
   spec_name  <- if (recovered)
     (if (is.null(attr(model, "nestimand_spec_name"))) "spec"
-     else attr(model, "nestimand_spec_name")) else deparse(spec_expr)
+     else attr(model, "nestimand_spec_name")) else paste(deparse(spec_expr), collapse = "")
+  if (!syntactic(spec_name)) spec_name <- "spec"
   data_name <- if (missing(data)) paste0(spec_name, "$data")
                else paste(deparse(substitute(data)), collapse = " ")
   if (is.null(data)) { data <- spec$data; data_name <- paste0(spec_name, "$data") }
@@ -154,8 +169,9 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
     if (isTRUE(bounds))
       body <- c(body,
         "## partial-identification bounds over all admissible policies",
-        sprintf('est  <- add_bounds(est, %s, %s, "%s", "%s", scale = "latent"%s)',
-                model_name, spec_name, target, contrast, dots_txt))
+        sprintf('est  <- add_bounds(est, %s, %s, "%s", "%s", scale = "latent"%s%s)',
+                model_name, spec_name, target, contrast,
+                if (is.null(deg)) "" else ", cells = cells", dots_txt))
     return(c(body, "est"))
   }
   cells_txt <- if (is.null(deg)) sprintf("%s$cells", spec_name) else
@@ -191,17 +207,18 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
       "## partial-identification bounds: every mixture estimand is a convex",
       "## combination of the single-version contrasts, so their range is the",
       "## region over all admissible policies (Manski 1990)",
-      sprintf('est  <- add_bounds(est, %s, %s, "%s", "%s"%s)',
-              model_name, spec_name, target, contrast, dots_txt))
+      sprintf('est  <- add_bounds(est, %s, %s, "%s", "%s"%s%s)',
+              model_name, spec_name, target, contrast,
+              if (is.null(deg)) "" else ", cells = cells", dots_txt))
   c(body, "est")
 }
 
 ## --- the bounds companion --------------------------------------------------
 
 add_bounds <- function(est, model, spec, target, contrast = "pairwise",
-                       scale = c("response", "latent"), ...) {
+                       scale = c("response", "latent"), cells = spec$cells, ...) {
   scale <- match.arg(scale)
-  vs <- versions_of(spec, target)
+  vs <- versions_of(spec, target, cells)
   vert <- expand.grid(lapply(vs, seq_along), KEEP.OUT.ATTRS = FALSE)
   if (nrow(vert) > 64) {
     attr(est, "nestimand_bounds") <- NULL
@@ -217,14 +234,20 @@ add_bounds <- function(est, model, spec, target, contrast = "pairwise",
         names(vs)), at = NULL), class = "nestimand_policy")
     if (identical(scale, "latent"))
       return(latent_estimand(model, target, p, contrast = contrast, spec = spec)$estimate)
-    g <- counterfactual_grid(spec, spec$data, p)
+    g <- counterfactual_grid(spec, spec$data, p, cells = cells)
     e <- marginaleffects::avg_predictions(model, newdata = g, by = target,
            wts = g$.w, hypothesis = mfx_hypothesis(contrast), ...)
     mfx_canonical(as.data.frame(e), levels(factor(spec$data[[target]])))$estimate
   })
   M <- do.call(cbind, vals)
+  ## `est` has already been put in declared level order; canonicalizing it a
+  ## second time, without those levels, could relabel it against a different
+  ## convention and pair each contrast with the wrong bounds.
+  est_df <- as.data.frame(est)
+  terms <- if ("term" %in% names(est_df)) est_df$term else
+    mfx_canonical(est_df, levels(factor(spec$data[[target]])))$term
   attr(est, "nestimand_bounds") <- data.frame(
-    term = mfx_canonical(as.data.frame(est))$term,
+    term = terms,
     estimate = as.data.frame(est)$estimate,
     policy_low = apply(M, 1, min), policy_high = apply(M, 1, max))
   est

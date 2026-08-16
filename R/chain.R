@@ -14,15 +14,21 @@
 ##                    picking a reference level, with no effect on estimands
 zero_columns <- function(formula, data, drop_intercept = TRUE) {
   X <- stats::model.matrix(formula, data)
-  if (drop_intercept) X <- X[, colnames(X) != "(Intercept)", drop = FALSE]
-  empty <- colSums(X != 0) == 0
-  structural <- colnames(X)[empty]
-  Xr <- X[, !empty, drop = FALSE]
-  q <- qr(Xr)
-  kept <- colnames(Xr)[q$pivot[seq_len(q$rank)]]
+  icept <- colnames(X) == "(Intercept)"
+  Xd <- if (drop_intercept) X[, !icept, drop = FALSE] else X
+  empty <- colSums(Xd != 0) == 0
+  structural <- colnames(Xd)[empty]
+  ## The intercept is not a candidate for holding at zero, but it does consume a
+  ## dimension, so it must be present for the rank analysis. Leaving it out
+  ## understates the number of constraints whenever the sentinel is not the
+  ## reference level, and the model would then be left unidentified.
+  Xr <- Xd[, !empty, drop = FALSE]
+  Xq <- if (drop_intercept && any(icept)) cbind(X[, icept, drop = FALSE], Xr) else Xr
+  q <- qr(Xq)
+  kept <- setdiff(colnames(Xq)[q$pivot[seq_len(q$rank)]], "(Intercept)")
   identification <- setdiff(colnames(Xr), kept)
   list(structural = structural, identification = identification, kept = kept,
-       columns = ncol(X), rank = qr(X)$rank)
+       columns = ncol(Xd), rank = qr(X)$rank)
 }
 
 ## The random-effects side uses the same design, so the same examination

@@ -233,6 +233,9 @@ mfx_canonical <- function(d, levs = NULL) {
     df$conf.low  <- ifelse(flip, -hi, lo)
     df$conf.high <- ifelse(flip, -lo, hi)
   }
+  ## the engine's own label column would otherwise still read in its original
+  ## direction, contradicting the estimate beside it
+  if (!identical(nm, "term")) df[[nm]] <- term
   df$term <- term
   attr(df, "nestimand_flipped") <- sum(flip)
   df
