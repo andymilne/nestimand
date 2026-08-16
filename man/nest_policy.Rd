@@ -24,7 +24,7 @@ boundary_vars(spec)
 \arguments{
   \item{spec}{a \code{nesting_spec} object.}
   \item{target}{name of the variable whose levels are contrasted, quoted or bare.}
-  \item{policy}{a distribution over the versions of a compound condition: one of \code{"equal"}, \code{"proportional"}, \code{"counterfactual"}, \code{"hierarchical"}, \code{"nominated"}, or a named numeric vector of masses.}
+  \item{policy}{a distribution over the versions of a compound condition: one of \code{"equal"}, \code{"proportional"}, \code{"hierarchical"}, \code{"nominated"}, or a named numeric vector of masses. How the versions are weighted; where the model is evaluated is the separate \code{route} argument of \code{\link{estimand}}.}
   \item{at}{for \code{policy = "nominated"}, a named vector giving the version, e.g. \code{c(inversion = "0")}.}
   \item{data}{the data over which empirical version frequencies are taken.}
   \item{grid}{a grid carrying the original factors.}

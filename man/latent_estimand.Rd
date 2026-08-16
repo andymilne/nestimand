@@ -24,7 +24,7 @@ policy_contrast_matrix(spec, target, policy, data = spec$data, model = NULL)
   \item{model}{a fitted model.}
   \item{spec}{a \code{nesting_spec} object, needed only for a model fitted outside \code{\link{nest_fit}}.}
   \item{target}{name of the variable whose levels are contrasted, quoted or bare.}
-  \item{policy}{a distribution over the versions of a compound condition: one of \code{"equal"}, \code{"proportional"}, \code{"counterfactual"}, \code{"hierarchical"}, \code{"nominated"}, or a named numeric vector of masses.}
+  \item{policy}{a distribution over the versions of a compound condition: one of \code{"equal"}, \code{"proportional"}, \code{"hierarchical"}, \code{"nominated"}, or a named numeric vector of masses.}
   \item{at}{for \code{policy = "nominated"}, a named vector giving the version, e.g. \code{c(inversion = "0")}.}
   \item{contrast}{\code{"pairwise"}, \code{"reference"}, or \code{"sequential"}.}
   \item{data}{data over which the grid is formed.}

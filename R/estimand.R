@@ -7,7 +7,7 @@
 
 estimand <- function(model, target, policy = "equal", at = NULL,
                      contrast = c("pairwise", "reference", "sequential", "within"),
-                     route = c("counterfactual", "observed", "cells"),
+                     route = c("g_computation", "observed", "cells"),
                      weights = NULL,
                      scale = c("response", "latent"),
                      data = NULL, bounds = TRUE, self_check = TRUE,
@@ -79,7 +79,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
       stop("unit weights standardize over the rows of the data, and ",
            "route = \"cells\" evaluates one row per condition with the ",
            "covariates at their means, so there are no units to weight. Use ",
-           "route = \"counterfactual\" to standardize to a target population.")
+           "route = \"g_computation\" to standardize to a target population.")
     if (is.character(weights) && length(weights) == 1L) {
       if (!weights %in% names(data))
         stop("no column `", weights, "` in the data the estimand is computed ",
@@ -160,7 +160,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
 estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
                           model_name, spec_name, data_name, bounds,
                           scale = "response", deg = NULL,
-                          route = "counterfactual", weights_txt = NULL) {
+                          route = "g_computation", weights_txt = NULL) {
   cn <- spec$cell_name
   pol_txt <- if (is.character(policy) && length(policy) == 1L)
     sprintf('"%s"', policy)
@@ -226,7 +226,7 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
     sprintf('pol  <- nest_policy(%s, "%s", %s%s%s)', spec_name, target, pol_txt,
             at_txt, if (is.null(deg)) "" else ", cells = cells"),
     switch(route,
-      counterfactual = c(
+      g_computation = c(
         "## G-computation grid: every row of the data crossed with every realized",
         "## cell, so each condition is averaged over the same covariate distribution",
         sprintf('grid <- counterfactual_grid(%s, %s, pol%s)', spec_name, data_name,
@@ -315,7 +315,7 @@ add_bounds <- function(est, model, spec, target, contrast = "pairwise",
 ## Order instability is impossible under the cell parameterization, so this is
 ## a belt-and-braces check on the translation layer rather than on the fit.
 reorder_check <- function(model, spec, target, policy, at, contrast, dots_txt, data,
-                          scale = "response", route = "counterfactual") {
+                          scale = "response", route = "g_computation") {
   if (inherits(model, "brmsfit"))
     return(list(status = "skipped", note = paste(
       "reorder check skipped: refitting a brms model doubles sampling time.",
@@ -360,7 +360,7 @@ spec_nests <- function(spec)
     if (length(f) > 1) sprintf("%s %%in%% %s", f[-1], f[-length(f)]) else character(0)))
 
 estimand_values <- function(model, spec, target, policy, at, contrast, data,
-                            scale = "response", route = "counterfactual") {
+                            scale = "response", route = "g_computation") {
   if (contrast == "within") {
     fam <- NULL; for (f in spec$cat_families) if (target %in% f) fam <- f
     parents <- fam[seq_len(match(target, fam) - 1)]
@@ -380,7 +380,7 @@ estimand_values <- function(model, spec, target, policy, at, contrast, data,
     return(latent_estimand(model, target, pol, contrast = contrast,
                            data = data, spec = spec)$estimate)
   g <- switch(route,
-    counterfactual = counterfactual_grid(spec, data, pol, cells = cells),
+    g_computation = counterfactual_grid(spec, data, pol, cells = cells),
     observed = { d <- data; d$.w <- observed_weights(spec, d, pol); d },
     cells = { d <- cell_grid(spec, data)
               d <- d[as.character(d[[spec$cell_name]]) %in%

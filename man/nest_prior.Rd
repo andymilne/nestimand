@@ -35,7 +35,7 @@ prior_statement(prior)
   \item{prior}{a \code{nestimand_prior} object.}
   \item{contrasts}{named list of contrast vectors over the realized cells.}
   \item{target}{name of the variable whose levels are contrasted, quoted or bare.}
-  \item{policy}{a distribution over the versions of a compound condition: one of \code{"equal"}, \code{"proportional"}, \code{"counterfactual"}, \code{"hierarchical"}, \code{"nominated"}, or a named numeric vector of masses.}
+  \item{policy}{a distribution over the versions of a compound condition: one of \code{"equal"}, \code{"proportional"}, \code{"hierarchical"}, \code{"nominated"}, or a named numeric vector of masses.}
   \item{at}{for \code{policy = "nominated"}, a named vector giving the version, e.g. \code{c(inversion = "0")}.}
   \item{contrast}{which comparisons to report.}
 }

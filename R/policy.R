@@ -5,7 +5,7 @@
 ## a causal contrast between two well-defined policies rather than an
 ## approximation to an atomic contrast.
 
-policy_aliases <- c("equal", "proportional", "counterfactual", "hierarchical",
+policy_aliases <- c("equal", "proportional", "hierarchical",
                     "nominated", "standardized", "within")
 
 ## Versions of the compound condition within each stratum of `target`.
@@ -47,6 +47,11 @@ nest_policy <- function(spec, target, policy = "equal", at = NULL, data = spec$d
                         cells = spec$cells) {
   vs <- versions_of(spec, target, cells)
   if (is.character(policy) && length(policy) == 1L) {
+    if (identical(policy, "counterfactual"))
+      stop("`counterfactual` named two different things and no longer names a ",
+           "policy. For the empirical version frequencies use ",
+           "policy = \"proportional\"; for the grid on which the model is ",
+           "evaluated use route = \"g_computation\", which is the default.")
     kind <- match.arg(policy, policy_aliases)
     if (kind == "within")
       stop("`within` is not a policy: it emits per-stratum contrasts, which do ",
@@ -60,8 +65,7 @@ nest_policy <- function(spec, target, policy = "equal", at = NULL, data = spec$d
            "directly, e.g. policy = c(\"0\" = 0.5, \"1\" = 0.3, \"2\" = 0.2).")
     p <- switch(kind,
       equal = lapply(vs, function(v) stats::setNames(rep(1 / length(v), length(v)), v)),
-      proportional = ,
-      counterfactual = {
+      proportional = {
         key <- do.call(paste, c(unname(lapply(spec$cell_vars, function(x)
           as.character(data[[x]]))), sep = "."))
         cellcount <- table(factor(key, levels = spec$cell_levels))
@@ -205,11 +209,11 @@ policy_vertices <- function(spec, target) {
 ## the model is evaluated, and that is a separate choice with its own
 ## consequences. Three routes are available.
 ##
-##   counterfactual  every observed row crossed with every realized cell, so
+##   g_computation   every observed row crossed with every realized cell, so
 ##                   each condition is averaged over the same covariate
-##                   distribution. G-computation; the population-averaged
-##                   effect, and the only route with a causal reading when
-##                   covariates differ across conditions.
+##                   distribution: the population-averaged effect, and the only
+##                   route with a causal reading when covariates differ across
+##                   conditions.
 ##   observed        the observed rows as they stand, reweighted so that the
 ##                   versions enter at the policy's proportions. No prediction
 ##                   is made for any row that was not run.

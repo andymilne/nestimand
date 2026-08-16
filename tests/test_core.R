@@ -166,9 +166,9 @@ chk("policy equal: aug - maj = -0.6779",
     abs(val(est(nest_policy(sp, "chord_type", "equal")), "aug - maj") + 0.6779) < 1e-4)
 chk("policy proportional: -0.6779 (balanced data)",
     abs(val(est(nest_policy(sp, "chord_type", "proportional")), "aug - maj") + 0.6779) < 1e-4)
-chk("policy counterfactual: alias of proportional",
-    identical(nest_policy(sp, "chord_type", "counterfactual")$p,
-              nest_policy(sp, "chord_type", "proportional")$p))
+chk("policy: `counterfactual` no longer names a policy, and says what to use",
+    grepl("route = \"g_computation\"",
+          err_of(nest_policy(sp, "chord_type", "counterfactual"))))
 chk("policy hierarchical: -0.6779 at depth one",
     abs(val(est(nest_policy(sp, "chord_type", "hierarchical")), "aug - maj") + 0.6779) < 1e-4)
 vert <- vapply(c("0","1","2"), function(iv)
@@ -944,7 +944,7 @@ rt3 <- function(mm, spx, rt, pol = "equal")
   as.data.frame(estimand(mm, chord_type, policy = pol, route = rt, spec = spx,
                          bounds = FALSE, self_check = FALSE))$estimate[3]
 chk("routes: all three agree on balanced data with a shared covariate",
-    max(abs(diff(vapply(c("counterfactual", "observed", "cells"),
+    max(abs(diff(vapply(c("g_computation", "observed", "cells"),
                         function(r) rt3(mf, sp, r), 1)))) < 1e-8)
 set.seed(4)
 dun <- dat[c(rep(which(dat$inversion == "0"), 2), which(dat$inversion != "0")), ]
@@ -954,10 +954,10 @@ spu <- nesting_spec(dun, response ~ chord_type * inversion + training,
                     "inversion %in% chord_type")
 mu2 <- nest_fit(spu)
 chk("routes: observed differs once the covariate is unbalanced across conditions",
-    abs(rt3(mu2, spu, "observed") - rt3(mu2, spu, "counterfactual")) > 0.1)
+    abs(rt3(mu2, spu, "observed") - rt3(mu2, spu, "g_computation")) > 0.1)
 chk("routes: equal and proportional separate once the design is unbalanced",
-    abs(rt3(mu2, spu, "counterfactual", "equal") -
-        rt3(mu2, spu, "counterfactual", "proportional")) > 1e-3)
+    abs(rt3(mu2, spu, "g_computation", "equal") -
+        rt3(mu2, spu, "g_computation", "proportional")) > 1e-3)
 chk("routes: the route is recorded and printed",
     identical(attr(estimand(mf, chord_type, route = "observed", bounds = FALSE,
                             self_check = FALSE), "nestimand")$route, "observed"))
