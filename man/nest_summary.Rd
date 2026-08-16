@@ -21,11 +21,13 @@ nest_summary(model, spec = NULL, space = c("effects", "cells"),
   \item{data}{data from which the cell grid is built; the spec's data by default.}
 }
 \details{
-Coefficient names inherited from the design matrix are unreliable in a partially
-nested design: \code{chord_typemaj} names a comparison at one inversion, not an
-average over them, and which one depends on the pivot. Each row therefore
-carries a \code{meaning} column giving the combination of realized conditions
-that the coefficient equals, so no label has to be read in isolation.
+In effect space the \code{term} labels are those R derives from the design
+matrix, and in a partially nested design they mislead: \code{chord_typemaj}
+names a comparison at one inversion, not an average over them, and which one
+depends on the pivot. Each row therefore carries a \code{meaning} column giving
+the combination of realized conditions that the coefficient equals, read from
+the design rather than from the label. In cell space the labels are the
+conditions themselves and need no such gloss.
 
 Covariate slopes, and any covariate-by-condition interaction, are slopes rather
 than means and are reported untranslated. Under a threshold family the reference

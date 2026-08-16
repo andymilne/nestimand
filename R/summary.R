@@ -5,10 +5,11 @@
 ## expects can be produced from the cell fit without refitting anything, and
 ## with the same standard errors a chain fit would give.
 ##
-## The effect names inherited from the design matrix are the ones Section 3.2 of
-## the companion document warns about: `chord_typemaj` does not mean what it
-## appears to mean. Each row therefore carries the combination of conditions it
-## actually equals, so the label cannot be read in isolation.
+## The coefficient names R derives from the design matrix are the ones Section
+## 3.2 of the companion document warns about: `chord_typemaj` names a comparison
+## at one inversion, not an average over them, and which one depends on the
+## pivot. Each row therefore carries the combination of conditions it actually
+## equals, so no label has to be read in isolation.
 
 nest_summary <- function(model, spec = NULL, space = c("effects", "cells"),
                          conf_level = 0.95, data = NULL) {
@@ -89,15 +90,29 @@ coefficient_meaning <- function(spec, Tm, cells, extras, space) {
 }
 
 print.nestimand_summary <- function(x, digits = 4, ...) {
-  cat("nestimand summary: ", attr(x, "nestimand_space"),
-      " parameterization\n", sep = "")
+  space <- attr(x, "nestimand_space")
+  cat("nestimand summary: ", space, " parameterization\n", sep = "")
   d <- as.data.frame(x)
   d$estimate <- round(d$estimate, digits)
   d$std.error <- round(d$std.error, digits)
   d$p.value <- format.pval(d$p.value, digits = 3, eps = 1e-4)
-  print(d[, c("term", "estimate", "std.error", "p.value", "meaning")],
-        row.names = FALSE, right = FALSE)
-  cat("\nEach coefficient equals the combination of realized conditions shown;",
-      "\nthe inherited names do not always mean what they appear to mean.\n")
+  cols <- c("term", "estimate", "std.error", "p.value")
+  if (identical(space, "effects")) cols <- c(cols, "meaning")
+  print(d[, cols], row.names = FALSE, right = FALSE)
+  if (identical(space, "effects")) {
+    cat("\n`term` holds the labels R derives from the design matrix. In a partially",
+        "\nnested design these can name a comparison at one condition where they",
+        "\nappear to name an average over several, and which one depends on the",
+        "\nordering of the factor levels. `meaning` states what each coefficient",
+        "\nequals, and is read from the design rather than from the label.\n")
+  } else {
+    cov_rows <- x$term[x$meaning == "covariate, untranslated"]
+    cat("\nEach row is the mean of the realized condition named, with covariates",
+        "\nheld at zero.")
+    if (length(cov_rows))
+      cat("\nThe remaining row(s) are slopes rather than means: ",
+          paste(cov_rows, collapse = ", "), ".", sep = "")
+    cat("\n")
+  }
   invisible(x)
 }
