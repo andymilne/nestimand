@@ -41,10 +41,17 @@ rather than enlarged, and the alternatives are named. A covariance-structure wra
 as \code{diag()} survives translation.
 }
 \value{
-\code{nest_fit} the fitted model, with the code in its \code{nestimand_code}
-attribute and the declaration in \code{nestimand_spec}, so that
-\code{\link{estimand}} and \code{\link{nest_summary}} can be called on the model
-alone, or an object of class \code{nestimand_code} when \code{dry_run = TRUE}.
+\code{nest_fit} the fitted model, classed \code{nestimand_fit} ahead of the
+engine's own class, with the code in its \code{nestimand_code} attribute and the
+declaration in \code{nestimand_spec}, so that \code{\link{estimand}} and
+\code{\link{nest_summary}} can be called on the model alone. An
+\code{update} method carries the declaration across a refit, so a simplified
+model remains usable without the declaration being supplied again; whether the
+updated model still corresponds to it is checked where that matters. The extra
+class changes no behaviour: the engine's own \code{predict}, \code{summary},
+\code{vcov}, and \pkg{marginaleffects} methods apply as before. S4 fits, brms
+among them, are not reclassified, so an updated brms fit needs \code{spec}
+supplied, or an object of class \code{nestimand_code} when \code{dry_run = TRUE}.
 \code{random_terms} a character string; \code{random_slope_rank} a list reporting the
 columns, rank, and identically zero columns of a structural random slope.
 }

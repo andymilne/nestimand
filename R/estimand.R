@@ -5,24 +5,17 @@
 ## are deparsed into that text and so reach the destination function - brms,
 ## marginaleffects, emmeans - unaltered, and appear in the saved code.
 
-estimand <- function(model, spec, target,
-                     policy = "equal", at = NULL,
+estimand <- function(model, target, policy = "equal", at = NULL,
                      contrast = c("pairwise", "reference", "sequential", "within"),
                      scale = c("response", "latent"),
                      data = NULL, bounds = TRUE, self_check = TRUE,
-                     ..., .env = parent.frame()) {
-  ## The declaration may be omitted when the model carries one, in which case
-  ## the second argument is read as the target: estimand(m, chord_type).
+                     ..., spec = NULL, .env = parent.frame()) {
+  ## The declaration travels with a fit from nest_fit(); `spec` is needed only
+  ## for a model fitted by calling the engine directly.
   spec_expr <- substitute(spec)
-  recovered <- FALSE
-  if (!tryCatch(inherits(spec, "nesting_spec"), error = function(e) FALSE)) {
-    if (!missing(target))
-      stop("`spec` is not a nesting_spec object. Supply one, or omit it and let ",
-           "the model carry its own: estimand(model, target).")
-    target <- spec_expr
-    spec <- resolve_spec(model, NULL)
-    recovered <- TRUE
-  }
+  recovered <- is.null(spec)
+  spec <- resolve_spec(model, spec)
+  check_model_spec(model, spec)
   contrast <- match.arg(contrast)
   scale <- match.arg(scale)
   if (identical(scale, "latent") && identical(contrast, "within"))
@@ -30,7 +23,7 @@ estimand <- function(model, spec, target,
          "has no linear-map form here; use scale = \"response\".")
   if (!inherits(spec, "nesting_spec"))
     stop("`spec` must be a nesting_spec object, as returned by nesting_spec().")
-  tg <- if (recovered) target else substitute(target)
+  tg <- substitute(target)
   if (is.name(tg)) target <- deparse(tg)
   if (!target %in% spec$cell_vars)
     stop("`", target, "` is not one of the declared categorical nesting ",
@@ -146,8 +139,8 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
       "## with c a weighted difference of design-matrix rows. Exact, one matrix",
       "## product, and free of the per-category expansion of ordinal fits.",
       sprintf('pol  <- nest_policy(%s, "%s", %s%s)', spec_name, target, pol_txt, at_txt),
-      sprintf('est  <- latent_estimand(%s, %s, "%s", pol, contrast = "%s"%s)',
-              model_name, spec_name, target, contrast, dots_txt))
+      sprintf('est  <- latent_estimand(%s, "%s", pol, contrast = "%s", spec = %s%s)',
+              model_name, target, contrast, spec_name, dots_txt))
     if (isTRUE(bounds))
       body <- c(body,
         "## partial-identification bounds over all admissible policies",
@@ -202,7 +195,7 @@ add_bounds <- function(est, model, spec, target, contrast = "pairwise",
         stats::setNames(as.numeric(seq_along(vs[[s]]) == vert[i, s]), vs[[s]])),
         names(vs)), at = NULL), class = "nestimand_policy")
     if (identical(scale, "latent"))
-      return(latent_estimand(model, spec, target, p, contrast = contrast)$estimate)
+      return(latent_estimand(model, target, p, contrast = contrast, spec = spec)$estimate)
     g <- counterfactual_grid(spec, spec$data, p)
     e <- marginaleffects::avg_predictions(model, newdata = g, by = target,
            wts = g$.w, hypothesis = mfx_hypothesis(contrast), ...)
@@ -279,8 +272,8 @@ estimand_values <- function(model, spec, target, policy, at, contrast, data,
   }
   pol <- nest_policy(spec, target, policy, at, data)
   if (identical(scale, "latent"))
-    return(latent_estimand(model, spec, target, pol, contrast = contrast,
-                           data = data)$estimate)
+    return(latent_estimand(model, target, pol, contrast = contrast,
+                           data = data, spec = spec)$estimate)
   g <- counterfactual_grid(spec, data, pol)
   mfx_canonical(as.data.frame(marginaleffects::avg_predictions(model,
     newdata = g, by = target, wts = g$.w, hypothesis = mfx_hypothesis(contrast))),

@@ -11,8 +11,8 @@
 ## pivot. Each row therefore carries the combination of conditions it actually
 ## equals, so no label has to be read in isolation.
 
-nest_summary <- function(model, spec = NULL, space = c("effects", "cells"),
-                         conf_level = 0.95, data = NULL) {
+nest_summary <- function(model, space = c("effects", "cells"),
+                         conf_level = 0.95, data = NULL, spec = NULL) {
   space <- match.arg(space)
   spec <- resolve_spec(model, spec)
   if (is.null(data)) data <- spec$data
@@ -22,6 +22,11 @@ nest_summary <- function(model, spec = NULL, space = c("effects", "cells"),
   b <- b[keep]; V <- V[keep, keep, drop = FALSE]
   cells <- as.character(spec$cells[[spec$cell_name]])
   cn <- spec$cell_name
+  if (!any(paste0(cn, cells) %in% names(b)))
+    stop("nest_summary() reads the cell coefficients, and this model has none: ",
+         "it was not fitted in the cell parameterization. Refit with ",
+         "nest_fit(spec), whose coefficients this function translates, or ",
+         "summarize the model with its own summary() method.")
   A <- effect_basis(spec)
 
   ## The coefficients fall into blocks, each holding one quantity per realized

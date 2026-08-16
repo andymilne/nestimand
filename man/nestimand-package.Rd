@@ -32,7 +32,7 @@ Five functions cover an ordinary analysis.
 \preformatted{sp <- nesting_spec(dat, response ~ chord_type * inversion + training,
                    "inversion \%in\% chord_type")
 m  <- nest_fit(sp)
-e  <- estimand(m, sp, chord_type, policy = "equal")
+e  <- estimand(m, chord_type, policy = "equal")
 show_code(e)}
 }
 \section{As the analysis requires}{

@@ -228,7 +228,51 @@ nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "
   ## be called on the model alone
   attr(m, "nestimand_spec") <- spec
   attr(m, "nestimand_spec_name") <- spec_name
+  ## An extra class, so that update() can carry the declaration across a refit.
+  ## S4 fits - brmsfit among them - are left alone: their class is part of the
+  ## object's formal definition, and the attributes travel on their own.
+  if (!isS4(m)) class(m) <- unique(c("nestimand_fit", class(m)))
   m
+}
+
+## update() rebuilds the model from its call, which drops everything attached to
+## it. The declaration is reattached here, so a fit that has been simplified -
+## a covariate dropped, a random term reduced - remains usable without the spec
+## having to be supplied again. Whether the updated model still corresponds to
+## the declaration is checked where it matters, by check_model_spec().
+update.nestimand_fit <- function(object, ...) {
+  out <- NextMethod()
+  for (a in c("nestimand_spec", "nestimand_spec_name", "nestimand_mode"))
+    attr(out, a) <- attr(object, a)
+  cl <- tryCatch(paste(deparse(stats::getCall(out)), collapse = " "),
+                 error = function(e) NULL)
+  attr(out, "nestimand_code") <- if (is.null(cl)) attr(object, "nestimand_code")
+    else c(sprintf("## nestimand %s -- fit, updated from the original call",
+                   nestimand_build),
+           paste("m <-", cl))
+  if (!isS4(out)) class(out) <- unique(c("nestimand_fit", class(out)))
+  out
+}
+
+## Does the fit actually correspond to the declaration? A model that does not
+## contain the declared structure cannot respond to it, so averaging over
+## versions returns whatever weighting the fit already implies rather than the
+## policy asked for - and on balanced data the two can coincide, which makes the
+## error invisible exactly where it is easiest to make.
+check_model_spec <- function(model, spec) {
+  v <- tryCatch(all.vars(stats::formula(model)), error = function(e) NULL)
+  if (is.null(v)) return(invisible(TRUE))          # engine without a formula
+  if (spec$cell_name %in% v) return(invisible(TRUE))
+  miss <- setdiff(spec$cell_vars, v)
+  if (length(miss))
+    stop("the model does not contain `", paste(miss, collapse = "`, `"),
+         "`, which the declaration nests. Its predictions cannot respond to ",
+         "that variable, so averaging over versions would return the weighting ",
+         "the fit already implies - not the policy requested, whatever the ",
+         "output is labelled. On balanced data the two can agree, which is why ",
+         "this is checked rather than left to be noticed. Fit with nest_fit(), ",
+         "or include the declared structure in the model.")
+  invisible(TRUE)
 }
 
 ## Recover the declaration from a fit, when it was not passed explicitly.

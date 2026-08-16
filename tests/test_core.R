@@ -242,7 +242,7 @@ chk("depth 2: equal differs from hierarchical (leaves vs tree)",
 
 ## ---- estimand(): the function, and the code it kept ----------------------
 set.seed(3)
-e <- estimand(m, sp, chord_type, policy = "equal")
+e <- estimand(m, chord_type, spec = sp, policy = "equal")
 chk("estimand: aug - maj = -0.6779 in original labels",
     abs(as.data.frame(e)$estimate[as.data.frame(e)$term == "aug - maj"] + 0.6779) < 1e-4)
 meta <- attr(e, "nestimand")
@@ -262,13 +262,13 @@ chk("show_code: the saved code re-runs and reproduces the estimand",
 chk("show_code: prints the lines and returns them invisibly",
     is.character(capture.output(show_code(e))[1]))
 ## non-core arguments reach the destination function, and appear in the code
-e9 <- estimand(m, sp, chord_type, bounds = FALSE, self_check = FALSE,
+e9 <- estimand(m, chord_type, spec = sp, bounds = FALSE, self_check = FALSE,
                conf_level = 0.9)
 chk("estimand: `...` passed through to marginaleffects",
     any(grepl("conf_level = 0.9", attr(e9, "nestimand")$code, fixed = TRUE)) &&
     as.data.frame(e9)$conf.low[1] > as.data.frame(e)$conf.low[1])
 ## within-stratum contrasts
-ew <- estimand(m, sp, inversion, contrast = "within", bounds = FALSE)
+ew <- estimand(m, inversion, spec = sp, contrast = "within", bounds = FALSE)
 dw <- as.data.frame(ew)
 chk("estimand within: three strata x three contrasts, no sentinel",
     nrow(dw) == 9 && !any(grepl("none", dw$term)) &&
@@ -277,12 +277,12 @@ chk("estimand within: passes the reorder check",
     identical(attr(ew, "nestimand")$self_check$status, "passed"))
 chk("estimand within: refused on a root variable",
     grepl("not nested within anything",
-          err_of(estimand(m, sp, chord_type, contrast = "within"))))
+          err_of(estimand(m, chord_type, spec = sp, contrast = "within"))))
 chk("estimand: a non-nesting target is refused",
-    grepl("need no policy", err_of(estimand(m, sp, training))))
+    grepl("need no policy", err_of(estimand(m, training, spec = sp))))
 chk("estimand: supplied policy is written into the code verbatim",
     any(grepl('c("0" = 0.5, "1" = 0.3, "2" = 0.2)',
-        attr(estimand(m, sp, chord_type, policy = c("0" = .5, "1" = .3, "2" = .2),
+        attr(estimand(m, chord_type, spec = sp, policy = c("0" = .5, "1" = .3, "2" = .2),
              bounds = FALSE, self_check = FALSE), "nestimand")$code, fixed = TRUE)))
 
 ## ---- nest_fit(): the fitting side ----------------------------------------
@@ -296,7 +296,7 @@ chk("nest_fit: the parameterization and its reason are stated",
     any(grepl("parameterization: cells", attr(mf, "nestimand_code"))))
 chk("nest_fit: emmeans engine selects the effect basis, with its reason",
     identical(attr(nest_fit(sp, engine = "emmeans"), "nestimand_mode"), "effects"))
-ef <- estimand(mf, sp, chord_type, policy = "equal", bounds = FALSE, self_check = FALSE)
+ef <- estimand(mf, chord_type, spec = sp, policy = "equal", bounds = FALSE, self_check = FALSE)
 chk("nest_fit: the code view joins fit and estimand into one pipeline",
     any(grepl("^mf <- lm", attr(ef, "nestimand")$code)) &&
     any(grepl("avg_predictions", attr(ef, "nestimand")$code)))
@@ -328,7 +328,7 @@ mo <- nest_fit(spo)
 chk("ordinal: clm fits without the intercept warning, 15 parameters",
     length(coef(mo)) == 15)
 chk("ordinal: the scale of the contrast must be stated, not assumed",
-    grepl("no single response scale", err_of(estimand(mo, spo, chord_type))))
+    grepl("no single response scale", err_of(estimand(mo, chord_type, spec = spo))))
 spbo <- nesting_spec(do2, rating ~ chord_type * inversion,
                      "inversion %in% chord_type", fit = "brms", family = "cumulative()")
 chk("ordinal: brms cumulative also takes the threshold-aware coding",
@@ -342,19 +342,19 @@ chk("brms: non-core arguments reach the engine and appear in the code",
                    dry_run = TRUE, chains = 4, iter = 2000, seed = 1), fixed = TRUE))
 
 ## ---- latent scale: estimands as linear functionals -----------------------
-lp <- latent_estimand(m, sp, "chord_type", "equal")
-ap <- as.data.frame(estimand(m, sp, chord_type, bounds = FALSE, self_check = FALSE))
+lp <- latent_estimand(m, "chord_type", "equal", spec = sp)
+ap <- as.data.frame(estimand(m, chord_type, spec = sp, bounds = FALSE, self_check = FALSE))
 chk("latent: agrees with the prediction route on estimates (1e-10)",
     max(abs(lp$estimate[match(ap$term, lp$term)] - ap$estimate)) < 1e-10)
 chk("latent: agrees with the prediction route on standard errors (1e-7)",
     max(abs(lp$std.error[match(ap$term, lp$term)] - ap$std.error)) < 1e-7)
-lv <- latent_estimand(m, sp, "chord_type", c("0" = 0.5, "1" = 0.3, "2" = 0.2))
+lv <- latent_estimand(m, "chord_type", c("0" = 0.5, "1" = 0.3, "2" = 0.2), spec = sp)
 chk("latent: a supplied policy is the convex combination of the vertices",
     abs(lv$estimate[lv$term == "aug - maj"] - sum(vert * c(0.5, 0.3, 0.2))) < 1e-8)
 chk("latent: reference and sequential contrasts available",
-    nrow(latent_estimand(m, sp, "chord_type", "equal", contrast = "reference")) == 3 &&
-    nrow(latent_estimand(m, sp, "chord_type", "equal", contrast = "sequential")) == 3)
-lo <- estimand(mo, spo, chord_type, policy = "equal", scale = "latent")
+    nrow(latent_estimand(m, "chord_type", "equal", contrast = "reference", spec = sp)) == 3 &&
+    nrow(latent_estimand(m, "chord_type", "equal", contrast = "sequential", spec = sp)) == 3)
+lo <- estimand(mo, chord_type, spec = spo, policy = "equal", scale = "latent")
 chk("latent: ordinal fit returns one number per contrast, where predictions fail",
     nrow(as.data.frame(lo)) == 6 && is.finite(as.data.frame(lo)$estimate[3]))
 chk("latent: ordinal estimand passes the reorder check",
@@ -367,12 +367,12 @@ chk("latent: the code view names the linear-map route",
     any(grepl("latent_estimand", attr(lo, "nestimand")$code)))
 chk("latent: within contrasts have no linear-map form, and say so",
     grepl("no linear-map form",
-          err_of(estimand(m, sp, inversion, contrast = "within", scale = "latent"))))
+          err_of(estimand(m, inversion, spec = sp, contrast = "within", scale = "latent"))))
 chk("latent: draw-wise translation refuses a frequentist fit",
-    grepl("needs a posterior", err_of(latent_draws(m, sp, "chord_type"))))
+    grepl("needs a posterior", err_of(latent_draws(m, "chord_type", spec = sp))))
 chk("latent: a model not fitted from this spec is refused",
     grepl("refit with nest_fit",
-          err_of(latent_estimand(lm(response ~ training, data = dat), sp, "chord_type"))))
+          err_of(latent_estimand(lm(response ~ training, data = dat), "chord_type", spec = sp))))
 
 ## ---- prior translation ---------------------------------------------------
 pc <- nest_prior(sp, mean = 4, sd = 1.5, on = "cells", covariate_sd = 1)
@@ -466,7 +466,7 @@ chk("labels: estimand() reports contrasts in declared level order",
 chk("show_code: the normalization is part of the saved code, not applied after",
     any(grepl("mfx_canonical", attr(e, "nestimand")$code)))
 chk("show_code: within-contrast code re-runs and reproduces its estimand",
-    { ew2 <- estimand(m, sp, inversion, contrast = "within", bounds = FALSE,
+    { ew2 <- estimand(m, inversion, spec = sp, contrast = "within", bounds = FALSE,
                       self_check = FALSE)
       env2 <- new.env(); assign("m", m, env2); assign("sp", sp, env2)
       rr <- eval(parse(text = paste(attr(ew2, "nestimand")$code, collapse = "\n")),
@@ -669,7 +669,7 @@ chk("apply_sentinel: numeric variables take 0 by default",
       identical(apply_sentinel(dn, "r")$r, c(0, 5)) })
 
 ## ---- nest_summary(): the fit in the original parameterization -------------
-ns <- nest_summary(mf, sp)
+ns <- nest_summary(mf, spec = sp)
 cc <- coef(mc)[!is.na(coef(mc))]
 i <- match(names(cc), ns$term)
 chk("nest_summary: effect estimates match a directly fitted chain model",
@@ -682,11 +682,11 @@ chk("nest_summary: an additive covariate is a common slope, left as fitted",
 chk("nest_summary: each row states the conditions it equals",
     identical(ns$meaning[ns$term == "chord_typemaj"], "-aug.none + maj.2") &&
     identical(ns$meaning[ns$term == "(Intercept)"], "aug.none"))
-nsc <- nest_summary(mf, sp, "cells")
+nsc <- nest_summary(mf, "cells", spec = sp)
 chk("nest_summary: cell space returns the cell means themselves",
     nrow(nsc) == 11 && identical(nsc$meaning[1], "aug.none") &&
     abs(nsc$estimate[1] - coef(mf)[["cellaug.none"]]) < 1e-10)
-nso <- nest_summary(mo, spo)
+nso <- nest_summary(mo, spec = spo)
 chk("nest_summary: works on an ordinal fit, where the coding differs",
     abs(nso$estimate[nso$term == "chord_typemaj"] - 0.4700) < 1e-3)
 chk("nest_summary: the absorbed reference condition is flagged, not left at a bare zero",
@@ -697,22 +697,23 @@ chk("nest_fit: the spec travels with the model",
     inherits(attr(mf, "nestimand_spec"), "nesting_spec") &&
     identical(attr(mf, "nestimand_spec_name"), "sp"))
 chk("nest_summary: the model alone is enough",
-    isTRUE(all.equal(nest_summary(mf)$estimate, nest_summary(mf, sp)$estimate)))
-chk("estimand: the model alone is enough, the target read from the second slot",
+    isTRUE(all.equal(nest_summary(mf)$estimate, nest_summary(mf, spec = sp)$estimate)))
+chk("estimand: the model alone is enough; `spec` is only for outside fits",
     isTRUE(all.equal(
       as.data.frame(estimand(mf, chord_type, bounds = FALSE, self_check = FALSE))$estimate,
-      as.data.frame(estimand(mf, sp, chord_type, bounds = FALSE,
+      as.data.frame(estimand(mf, chord_type, spec = sp, bounds = FALSE,
                              self_check = FALSE))$estimate)))
 chk("estimand: the emitted code names the spec as it was named at fitting",
     any(grepl("nest_policy(sp, \"chord_type\"",
         attr(estimand(mf, chord_type, bounds = FALSE, self_check = FALSE),
              "nestimand")$code, fixed = TRUE)))
 chk("latent_estimand: the model alone is enough",
-    abs(latent_estimand(mf, target = "chord_type")$estimate[3] + 0.6779) < 1e-4)
+    abs(latent_estimand(mf, "chord_type")$estimate[3] + 0.6779) < 1e-4)
 chk("a model fitted outside nest_fit is refused, with the reason",
     grepl("does not carry one", err_of(nest_summary(m))))
-chk("a bad spec is refused rather than read as a target",
-    grepl("not a nesting_spec", err_of(estimand(mf, "nonsense", chord_type))))
+chk("a model fitted outside nest_fit needs `spec`, and says so",
+    grepl("does not carry one",
+          err_of(estimand(m, chord_type, bounds = FALSE, self_check = FALSE))))
 
 ## ---- covariate slopes translate like the means -----------------------------
 ## A covariate interacting with the conditions gives one slope per cell, which
@@ -736,7 +737,52 @@ chk("slopes: their meanings mark them as slopes",
     identical(si$meaning[si$term == "chord_typemaj:training"],
               "-aug.none + maj.2 (slope on training)"))
 chk("slopes: cell space names them per condition",
-    identical(nest_summary(mi, space = "cells")$term[11],
+    identical(nest_summary(mi, "cells")$term[11],
               "aug.none slope on training"))
+
+## ---- a self-fitted model must correspond to the declaration ---------------
+## The estimand functions work from predictions on realized cells, so the
+## parameterization does not matter: a crossed or chain fit gives the same
+## answer as a cell fit. What does matter is that the model contains the
+## declared structure at all.
+m_cross <- suppressWarnings(lm(response ~ chord_type * inversion + training, data = sp$data))
+m_chain <- lm(cell_formula(sp, "effects"), data = sp$data)
+val3 <- function(mm) suppressWarnings(as.data.frame(
+  estimand(mm, chord_type, spec = sp, bounds = FALSE, self_check = FALSE))$estimate[3])
+chk("self-fitted: a crossed fit gives the same estimand as the cell fit",
+    abs(val3(m_cross) + 0.6779) < 1e-4)
+chk("self-fitted: a chain fit does too",
+    abs(val3(m_chain) + 0.6779) < 1e-4)
+chk("self-fitted: a model missing the nested variable is refused",
+    grepl("does not contain `inversion`",
+          err_of(estimand(lm(response ~ chord_type + training, data = sp$data),
+                          chord_type, spec = sp, bounds = FALSE, self_check = FALSE))))
+chk("self-fitted: the refusal explains what the answer would have been",
+    grepl("weighting the fit already implies",
+          err_of(estimand(lm(response ~ chord_type + training, data = sp$data),
+                          chord_type, spec = sp, bounds = FALSE, self_check = FALSE))))
+chk("nest_summary: refuses a model with no cell coefficients",
+    grepl("not fitted in the cell parameterization",
+          err_of(nest_summary(m_chain, spec = sp))))
+
+## ---- update() keeps the declaration ---------------------------------------
+chk("nest_fit: the fit gains a class, ahead of the engine's own",
+    identical(class(mf)[1], "nestimand_fit") && inherits(mf, "lm"))
+mu <- update(mf, . ~ . - training)
+chk("update: the declaration survives the refit",
+    inherits(attr(mu, "nestimand_spec"), "nesting_spec") &&
+    identical(class(mu)[1], "nestimand_fit") && length(coef(mu)) == 10)
+chk("update: the estimand works from the updated fit, without `spec`",
+    abs(as.data.frame(estimand(mu, chord_type, bounds = FALSE,
+                               self_check = FALSE))$estimate[3] + 0.6779) < 1e-4)
+chk("update: the code view records the new call, not the old one",
+    any(grepl("updated from the original call", attr(mu, "nestimand_code"))) &&
+    !any(grepl("training", attr(mu, "nestimand_code"))))
+chk("update: an update that drops the structure is caught downstream",
+    grepl("does not contain",
+          err_of(estimand(update(mf, . ~ . - cell), chord_type))))
+chk("class: the engine's own methods still work",
+    length(predict(mf, newdata = head(sp$data))) == 6 &&
+    inherits(summary(mf), "summary.lm") && nrow(vcov(mf)) == 11)
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

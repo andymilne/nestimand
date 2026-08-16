@@ -46,7 +46,7 @@ library(nestimand)
 sp <- nesting_spec(dat, response ~ chord_type * inversion + training,
                    "inversion %in% chord_type")
 m  <- nest_fit(sp)
-e  <- estimand(m, sp, chord_type, policy = "equal")
+e  <- estimand(m, chord_type, policy = "equal")
 
 e             # contrasts in the original variable names, with bounds
 show_code(e)  # the code that produced them, for saving and adapting

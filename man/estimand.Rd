@@ -13,10 +13,11 @@ policies and a reorder self-check. The analysis is assembled as text and then ev
 so \code{show_code} returns the code that ran rather than a reconstruction of it.
 }
 \usage{
-estimand(model, spec, target, policy = "equal", at = NULL,
+estimand(model, target, policy = "equal", at = NULL,
          contrast = c("pairwise", "reference", "sequential", "within"),
          scale = c("response", "latent"), data = NULL,
-         bounds = TRUE, self_check = TRUE, ..., .env = parent.frame())
+         bounds = TRUE, self_check = TRUE, ..., spec = NULL,
+         .env = parent.frame())
 
 add_bounds(est, model, spec, target, contrast = "pairwise",
            scale = c("response", "latent"), ...)
@@ -24,7 +25,7 @@ show_code(x, ...)
 }
 \arguments{
   \item{model}{a fitted model, ideally from \code{\link{nest_fit}}.}
-  \item{spec}{a \code{nesting_spec} object. Optional when the model carries one, in which case this argument is read as \code{target}: \code{estimand(m, chord_type)}.}
+  \item{spec}{a \code{nesting_spec} object, needed only for a model fitted by calling the engine directly: a fit from \code{\link{nest_fit}} carries its own.}
   \item{target}{name of the variable whose levels are contrasted, quoted or bare.}
   \item{policy}{a distribution over the versions of a compound condition: one of \code{"equal"}, \code{"proportional"}, \code{"counterfactual"}, \code{"hierarchical"}, \code{"nominated"}, or a named numeric vector of masses.}
   \item{at}{for \code{policy = "nominated"}, a named vector giving the version, e.g. \code{c(inversion = "0")}.}
