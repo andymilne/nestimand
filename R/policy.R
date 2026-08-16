@@ -208,29 +208,20 @@ policy_vertices <- function(spec, target) {
 
 ## --- routes to an estimand -------------------------------------------------
 ## A policy says how the versions are weighted. It does not say over which rows
-## the model is evaluated, and that is a separate choice with its own
-## consequences. Three routes are available.
+## the model is evaluated, and that is a separate choice.
 ##
 ##   g_computation   every observed row crossed with every realized cell, so
 ##                   each condition is averaged over the same covariate
 ##                   distribution: the population-averaged effect, and the only
 ##                   route with a causal reading when covariates differ across
 ##                   conditions.
-##   observed        the observed rows as they stand, reweighted so that the
-##                   versions enter at the policy's proportions. No prediction
-##                   is made for any row that was not run.
 ##   cells           one row per realized cell, covariates at their means. The
 ##                   conditional effect at an average covariate value.
 ##
-## In a linear model with covariates balanced across conditions the three agree.
-## They separate under imbalance, under covariate-by-condition interaction, and
-## in any nonlinear model.
-observed_weights <- function(spec, data, policy) {
-  key <- do.call(paste, c(unname(lapply(spec$cell_vars, function(v)
-    as.character(data[[v]]))), sep = "."))
-  w <- policy_weights(spec, data, policy)
-  n <- table(key)                        # observed rows per cell
-  out <- as.numeric(w / n[key])          # policy mass, spread over the rows
-  out[!is.finite(out)] <- 0
-  out
-}
+## A third route, averaging the fitted values over each condition's own rows,
+## was offered and withdrawn. Under the cell parameterization the fixed part is
+## saturated over the cells, so that average returns the weighted raw cell means
+## exactly - the covariate adjustment cancels, because each condition's average
+## restores its own covariate mean. It is a summary of the data rather than an
+## estimate from the model, and `data =` with a subset covers the cases where a
+## summary of particular rows is wanted.

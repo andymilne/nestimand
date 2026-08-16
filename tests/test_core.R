@@ -944,7 +944,7 @@ rt3 <- function(mm, spx, rt, pol = "equal")
   as.data.frame(estimand(mm, chord_type, policy = pol, route = rt, spec = spx,
                          bounds = FALSE, self_check = FALSE))$estimate[3]
 chk("routes: all three agree on balanced data with a shared covariate",
-    max(abs(diff(vapply(c("g_computation", "observed", "cells"),
+    max(abs(diff(vapply(c("g_computation", "cells"),
                         function(r) rt3(mf, sp, r), 1)))) < 1e-8)
 set.seed(4)
 dun <- dat[c(rep(which(dat$inversion == "0"), 2), which(dat$inversion != "0")), ]
@@ -953,17 +953,17 @@ dun$response <- dun$response + 0.15 * dun$training
 spu <- nesting_spec(dun, response ~ chord_type * inversion + training,
                     "inversion %in% chord_type")
 mu2 <- nest_fit(spu)
-chk("routes: observed differs once the covariate is unbalanced across conditions",
-    abs(rt3(mu2, spu, "observed") - rt3(mu2, spu, "g_computation")) > 0.1)
+chk("routes: cells and g_computation agree in a linear model",
+    abs(rt3(mu2, spu, "cells") - rt3(mu2, spu, "g_computation")) < 1e-8)
 chk("routes: equal and proportional separate once the design is unbalanced",
     abs(rt3(mu2, spu, "g_computation", "equal") -
         rt3(mu2, spu, "g_computation", "proportional")) > 1e-3)
 chk("routes: the route is recorded and printed",
-    identical(attr(estimand(mf, chord_type, route = "observed", bounds = FALSE,
-                            self_check = FALSE), "nestimand")$route, "observed"))
+    identical(attr(estimand(mf, chord_type, route = "cells", bounds = FALSE,
+                            self_check = FALSE), "nestimand")$route, "cells"))
 chk("routes: the emitted code says which rows the model was evaluated over",
-    any(grepl("observed rows as they stand",
-        attr(estimand(mf, chord_type, route = "observed", bounds = FALSE,
+    any(grepl("crossed with every realized",
+        attr(estimand(mf, chord_type, bounds = FALSE,
                       self_check = FALSE), "nestimand")$code)) &&
     any(grepl("covariates at their means",
         attr(estimand(mf, chord_type, route = "cells", bounds = FALSE,
@@ -1101,7 +1101,7 @@ chk("random: a fit with no random effects says so rather than failing",
 ## route with a restricted target, and the observed route with rows in an
 ## excluded stratum.
 combo <- expand.grid(target = c("chord_type", "inversion"),
-                     route = c("g_computation", "observed", "cells"),
+                     route = c("g_computation", "cells"),
                      policy = c("equal", "proportional"),
                      stringsAsFactors = FALSE)
 res <- vapply(seq_len(nrow(combo)), function(i) {
@@ -1132,7 +1132,7 @@ chk("policy_weights: a stratum the policy does not cover contributes nothing",
 
 ## ---- mixed fits: population-level by default, and grids that carry groups ---
 if (requireNamespace("lme4", quietly = TRUE)) {
-  rr <- vapply(c("g_computation", "observed", "cells"), function(rt)
+  rr <- vapply(c("g_computation", "cells"), function(rt)
     tryCatch(suppressWarnings(as.data.frame(
       estimand(mm2, chord_type, route = rt, bounds = FALSE,
                self_check = FALSE))$estimate[1]), error = function(e) NA_real_), 1)
@@ -1168,7 +1168,7 @@ chk("mixed: a fit with no random terms is left alone",
 exported <- sub("^export\\((.*)\\)$", "\\1",
                 grep("^export\\(", readLines("NAMESPACE"), value = TRUE))
 combo2 <- expand.grid(target = c("chord_type", "inversion"),
-                      route = c("g_computation", "observed", "cells"),
+                      route = c("g_computation", "cells"),
                       scale = c("response", "latent"),
                       stringsAsFactors = FALSE)
 called <- unlist(lapply(seq_len(nrow(combo2)), function(i) {
@@ -1185,7 +1185,7 @@ missing_exports <- setdiff(setdiff(unique(called), base_or_engine), exported)
 missing_exports <- missing_exports[vapply(missing_exports, exists, TRUE)]
 chk("emitted code: every nestimand function it calls is exported",
     length(missing_exports) == 0)
-chk("emitted code: observed_weights in particular",
-    "observed_weights" %in% exported)
+chk("routes: a route that averages over each condition's own rows is refused",
+    grepl("should be one of", err_of(estimand(mf, chord_type, route = "observed"))))
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

@@ -7,7 +7,7 @@
 
 estimand <- function(model, target, policy = "equal", at = NULL,
                      contrast = c("pairwise", "reference", "sequential", "within"),
-                     route = c("g_computation", "observed", "cells"),
+                     route = c("g_computation", "cells"),
                      weights = NULL,
                      scale = c("response", "latent"),
                      data = NULL, bounds = TRUE, self_check = TRUE,
@@ -251,18 +251,6 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
           "## unit weights: the estimand is standardized to the population those",
           "## weights describe, rather than to the sample as observed",
           sprintf('grid$.w <- grid$.w * (%s)[grid$.row]', weights_txt))),
-      observed = c(
-        "## the observed rows as they stand, reweighted so that the versions enter",
-        "## at the policy's proportions: no prediction is made for a row never run",
-        sprintf('grid <- %s', data_name),
-        sprintf('grid$.w <- observed_weights(%s, grid, pol)', spec_name),
-        if (!is.null(deg))
-          c("## rows in the excluded strata carry no weight, and are dropped so",
-            "## that no empty group reaches the engine",
-            'grid <- grid[grid$.w > 0, ]'),
-        if (!is.null(weights_txt)) c(
-          "## unit weights: standardized to the population they describe",
-          sprintf('grid$.w <- grid$.w * (%s)', weights_txt))),
       cells = c(
         "## one row per realized cell, covariates at their means: the conditional",
         "## effect at an average covariate value",
@@ -427,8 +415,6 @@ estimand_values <- function(model, spec, target, policy, at, contrast, data,
                            data = data, spec = spec)$estimate)
   g <- switch(route,
     g_computation = counterfactual_grid(spec, data, pol, cells = cells),
-    observed = { d <- data; d$.w <- observed_weights(spec, d, pol)
-                 d[d$.w > 0, , drop = FALSE] },
     cells = { d <- cell_grid(spec, data)
               d <- d[as.character(d[[spec$cell_name]]) %in%
                      as.character(cells[[spec$cell_name]]), , drop = FALSE]
