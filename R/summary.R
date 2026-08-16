@@ -20,35 +20,63 @@ nest_summary <- function(model, spec = NULL, space = c("effects", "cells"),
   V <- stats::vcov(model)
   keep <- intersect(names(b), colnames(V))
   b <- b[keep]; V <- V[keep, keep, drop = FALSE]
-
-  ## the map from fitted coefficients to cell means, taken from the design
-  ## matrix so that it holds under either coding, ordinal thresholds included
-  g <- cell_grid(spec, data)
-  for (cv in spec$covariates) if (is.numeric(data[[cv]])) g[[cv]] <- 0
-  rhs <- paste(deparse(cell_formula(spec)[[3]]), collapse = " ")
-  X <- stats::model.matrix(stats::as.formula(paste("~", rhs)), g)
   cells <- as.character(spec$cells[[spec$cell_name]])
-  ## Columns that carry a cell mean: the cell dummies themselves, plus the
-  ## intercept where the coding has one. Everything else - covariate slopes, and
-  ## any covariate-by-cell interaction - is a slope rather than a mean, and is
-  ## reported untranslated.
-  mean_cols <- intersect(c("(Intercept)", paste0(spec$cell_name, cells)), names(b))
-  X <- X[, intersect(colnames(X), mean_cols), drop = FALSE]
-  extras <- setdiff(names(b), mean_cols)
+  cn <- spec$cell_name
+  A <- effect_basis(spec)
 
-  Tm <- matrix(0, nrow = length(cells) + length(extras), ncol = length(b),
-               dimnames = list(c(cells, extras), names(b)))
-  Tm[cells, colnames(X)] <- X
-  for (nm in extras) Tm[nm, nm] <- 1
-
-  if (space == "effects") {
-    A <- effect_basis(spec)
-    E <- matrix(0, nrow = nrow(Tm), ncol = nrow(Tm),
-                dimnames = list(c(colnames(A), extras), rownames(Tm)))
-    E[colnames(A), cells] <- solve(A)
-    for (nm in extras) E[nm, nm] <- 1
-    Tm <- E %*% Tm
+  ## The coefficients fall into blocks, each holding one quantity per realized
+  ## cell: the cell means, and one set of slopes for every covariate that
+  ## interacts with the cell factor. Each block translates by the same map, so a
+  ## covariate slope becomes a reference-cell slope plus differences from it,
+  ## which is what a chain fit reports.
+  blocks <- list(list(label = character(0),
+                      cols = intersect(c("(Intercept)", paste0(cn, cells)), names(b)),
+                      order = c("(Intercept)", paste0(cn, cells))))
+  for (cv in spec$covariates) {
+    hit <- names(b)[grepl(paste0("(^|:)", cn), names(b)) &
+                    grepl(paste0("(^|:)", cv, "($|:)"), names(b))]
+    if (!length(hit)) next
+    ord <- vapply(cells, function(k) {
+      m <- hit[grepl(paste0(cn, k, "(:|$)"), hit, fixed = FALSE)]
+      if (length(m) == 1) m else NA_character_ }, "")
+    if (anyNA(ord)) next                    # not one slope per cell: leave alone
+    blocks[[length(blocks) + 1]] <- list(label = cv, cols = unname(ord),
+                                         order = unname(ord))
   }
+  used <- unlist(lapply(blocks, `[[`, "cols"))
+  extras <- setdiff(names(b), used)
+
+  rows <- list()
+  for (bl in blocks) {
+    g <- cell_grid(spec, data)
+    for (cvz in spec$covariates) if (is.numeric(data[[cvz]])) g[[cvz]] <- 0
+    if (!length(bl$label)) {
+      rhs <- paste(deparse(cell_formula(spec)[[3]]), collapse = " ")
+      X <- stats::model.matrix(stats::as.formula(paste("~", rhs)), g)
+      X <- X[, intersect(colnames(X), bl$cols), drop = FALSE]
+      M <- matrix(0, length(cells), length(b), dimnames = list(cells, names(b)))
+      M[cells, colnames(X)] <- X
+      nm <- cells
+    } else {
+      M <- matrix(0, length(cells), length(b), dimnames = list(cells, names(b)))
+      for (i in seq_along(cells)) M[i, bl$cols[i]] <- 1
+      nm <- paste0(cells, " slope on ", bl$label)
+    }
+    if (space == "effects") {
+      M <- solve(A) %*% M
+      nm <- if (!length(bl$label)) colnames(A)
+            else ifelse(colnames(A) == "(Intercept)", bl$label,
+                        paste0(colnames(A), ":", bl$label))
+    }
+    rownames(M) <- nm
+    rows[[length(rows) + 1]] <- list(M = M, label = bl$label)
+  }
+  if (length(extras)) {
+    E <- matrix(0, length(extras), length(b), dimnames = list(extras, names(b)))
+    for (nm in extras) E[nm, nm] <- 1
+    rows[[length(rows) + 1]] <- list(M = E, label = NA_character_)
+  }
+  Tm <- do.call(rbind, lapply(rows, `[[`, "M"))
 
   est <- as.numeric(Tm %*% b)
   se  <- sqrt(diag(Tm %*% V %*% t(Tm)))
@@ -58,9 +86,8 @@ nest_summary <- function(model, spec = NULL, space = c("effects", "cells"),
                     p.value = 2 * stats::pnorm(-abs(est / se)),
                     conf.low = est - z * se, conf.high = est + z * se,
                     row.names = NULL)
-  out$meaning <- coefficient_meaning(spec, Tm, cells, extras, space)
-  ## Under a threshold family the reference condition has no free coefficient:
-  ## its latent mean is absorbed into the thresholds and reads as exactly zero.
+  out$meaning <- unlist(lapply(rows, function(r)
+    block_meaning(spec, r$label, cells, A, space, rownames(r$M))))
   if (has_thresholds(spec) && nrow(out) && isTRUE(out$std.error[1] == 0))
     out$meaning[1] <- paste0(out$meaning[1], " (fixed at 0: absorbed into the thresholds)")
   attr(out, "nestimand_space") <- space
@@ -69,23 +96,27 @@ nest_summary <- function(model, spec = NULL, space = c("effects", "cells"),
   out
 }
 
-## What each row equals, written as a combination of realized conditions. The
-## inherited names are unreliable; this is not.
-coefficient_meaning <- function(spec, Tm, cells, extras, space) {
-  A <- effect_basis(spec)
-  W <- if (space == "effects") solve(A) else diag(length(cells))
-  dimnames(W) <- list(if (space == "effects") colnames(A) else cells, cells)
-  vapply(rownames(Tm), function(r) {
-    if (r %in% extras) return("covariate, untranslated")
-    w <- W[r, ]
-    w <- w[abs(w) > 1e-8]
-    if (!length(w)) return("")
+## What each row equals, as a combination of realized conditions. For a slope
+## block the same combination applies, of slopes rather than means.
+block_meaning <- function(spec, label, cells, A, space, rownames_M) {
+  if (length(label) && !is.null(label) && is.na(label))
+    ## coefficients that are not one quantity per cell: a covariate slope common
+    ## to every condition, or an ordinal threshold. The translation leaves them
+    ## as fitted, and their usual reading is unaffected.
+    return(ifelse(rownames_M %in% spec$covariates, "common slope", "threshold"))
+  suffix <- if (is.null(label) || !length(label)) ""
+            else paste0(" (slope on ", label, ")")
+  if (space == "cells")
+    return(paste0(cells, suffix))
+  W <- solve(A); dimnames(W) <- list(colnames(A), cells)
+  vapply(seq_len(nrow(W)), function(i) {
+    w <- W[i, ]; w <- w[abs(w) > 1e-8]
     fmt <- function(v, nm) {
       if (isTRUE(all.equal(unname(v), 1))) nm
       else if (isTRUE(all.equal(unname(v), -1))) paste0("-", nm)
       else sprintf("%.3g*%s", v, nm)
     }
-    paste(mapply(fmt, w, names(w)), collapse = " + ")
+    paste0(paste(mapply(fmt, w, names(w)), collapse = " + "), suffix)
   }, "")
 }
 

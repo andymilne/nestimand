@@ -30,9 +30,14 @@ the design rather than from the label. In cell space the labels are the
 conditions themselves and need no such gloss.
 
 These are the model's own coefficients, reparameterized: the transformation is
-exact and no refit or reference grid is involved. Covariate slopes, and any
-covariate-by-condition interaction, are slopes rather than means and are
-reported untranslated. As with any intercept, a cell mean is the linear
+exact and no refit or reference grid is involved.
+
+A covariate that interacts with the conditions contributes one slope per cell.
+That is a vector over the same space as the cell means, so it translates by the
+same map: in effect space it becomes a reference-cell slope, named for the
+covariate alone, plus the differences from it, which is what a chain fit
+reports. A covariate entering additively is one slope common to every condition
+and is left as fitted, as are ordinal thresholds. As with any intercept, a cell mean is the linear
 predictor where the covariates are zero, so an uncentred covariate makes it an
 extrapolation; centring covariates gives cell means at the covariate average
 instead. Under a threshold family the reference

@@ -676,8 +676,8 @@ chk("nest_summary: effect estimates match a directly fitted chain model",
     !anyNA(i) && max(abs(ns$estimate[i] - cc)) < 1e-10)
 chk("nest_summary: standard errors match it too",
     max(abs(ns$std.error[i] - sqrt(diag(vcov(mc)))[names(cc)])) < 1e-10)
-chk("nest_summary: the covariate is carried through untranslated",
-    identical(ns$meaning[ns$term == "training"], "covariate, untranslated") &&
+chk("nest_summary: an additive covariate is a common slope, left as fitted",
+    identical(ns$meaning[ns$term == "training"], "common slope") &&
     abs(ns$estimate[ns$term == "training"] - coef(mf)[["training"]]) < 1e-10)
 chk("nest_summary: each row states the conditions it equals",
     identical(ns$meaning[ns$term == "chord_typemaj"], "-aug.none + maj.2") &&
@@ -713,5 +713,30 @@ chk("a model fitted outside nest_fit is refused, with the reason",
     grepl("does not carry one", err_of(nest_summary(m))))
 chk("a bad spec is refused rather than read as a target",
     grepl("not a nesting_spec", err_of(estimand(mf, "nonsense", chord_type))))
+
+## ---- covariate slopes translate like the means -----------------------------
+## A covariate interacting with the conditions gives one slope per cell, which
+## is a vector over the same space as the means and translates the same way: a
+## reference-cell slope plus differences from it, exactly as a chain fit reports.
+spi <- nesting_spec(dat, response ~ chord_type * inversion * training,
+                    "inversion %in% chord_type")
+mi <- nest_fit(spi)
+si <- nest_summary(mi)
+mci <- lm(response ~ chord_type + chord_type:inversion + training +
+          chord_type:training + chord_type:inversion:training, data = spi$data)
+cci <- coef(mci)[!is.na(coef(mci))]
+ii <- match(names(cci), si$term)
+chk("slopes: every chain coefficient is reproduced, means and slopes alike",
+    !anyNA(ii) && length(cci) == 20 && max(abs(si$estimate[ii] - cci)) < 1e-10)
+chk("slopes: the reference-cell slope is named for the covariate alone",
+    "training" %in% si$term &&
+    abs(si$estimate[si$term == "training"] -
+        coef(mi)[[paste0("cell", levels(spi$data$cell)[1], ":training")]]) < 1e-10)
+chk("slopes: their meanings mark them as slopes",
+    identical(si$meaning[si$term == "chord_typemaj:training"],
+              "-aug.none + maj.2 (slope on training)"))
+chk("slopes: cell space names them per condition",
+    identical(nest_summary(mi, space = "cells")$term[11],
+              "aug.none slope on training"))
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
