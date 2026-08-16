@@ -151,6 +151,48 @@ cell_grid <- function(spec, data = spec$data, covariates = c("mean", "keep")) {
   g
 }
 
+## --- which columns carry the identification constraint ----------------------
+## Beyond the structurally empty columns, one column per stratum is redundant:
+## the stratum's own indicator is the sum of its cells. Which one is dropped is
+## a coding choice, and it fixes the reference condition, so it follows the
+## level order declared in the data - the first level that is not the sentinel -
+## rather than whichever column a pivot happens to reach last.
+reference_levels <- function(spec, data = spec$data) {
+  s <- sentinel_levels(spec)
+  out <- list()
+  for (fam in spec$cat_families) for (v in fam[-1]) {
+    lv <- levels(factor(data[[v]]))
+    free <- setdiff(lv, s[[v]])
+    if (length(free)) out[[v]] <- free[1]
+  }
+  out
+}
+
+## Which columns to constrain, given those reference choices. One column per
+## stratum is redundant, and the choice is made constructively rather than by
+## pattern: a candidate is dropped only if the remaining columns still span the
+## same space. Deeper terms are offered first, so the constraint falls on the
+## most specific coefficient, and a pivot settles anything left over.
+identification_columns <- function(spec, X, data = spec$data) {
+  refs <- reference_levels(spec, data)
+  cols <- colnames(X)
+  target_rank <- qr(X)$rank
+  cand <- cols[vapply(cols, function(k)
+    any(vapply(names(refs), function(v)
+      grepl(paste0("(^|:)", v, refs[[v]], "($|:)"), k), TRUE)), TRUE)]
+  cand <- cand[order(-lengths(strsplit(cand, ":")), match(cand, cols))]
+  keep <- cols
+  dropped <- character(0)
+  for (k in cand) {
+    if (length(keep) == target_rank) break
+    trial <- setdiff(keep, k)
+    if (qr(X[, trial, drop = FALSE])$rank == target_rank) {
+      keep <- trial; dropped <- c(dropped, k)
+    }
+  }
+  dropped
+}
+
 ## --- the effect basis ------------------------------------------------------
 
 ## A: cell means as a linear function of identified chain-basis effects,
@@ -163,9 +205,14 @@ effect_basis <- function(spec) {
   for (v in spec$cell_vars) tab[[v]] <- factor(tab[[v]], levels = levels(factor(ref[[v]])))
   f <- stats::as.formula(paste("~", paste(chain_terms(spec), collapse = " + ")))
   X <- stats::model.matrix(f, tab)
-  q <- qr(X)
-  keep <- q$pivot[seq_len(q$rank)]
-  A <- X[, keep, drop = FALSE]
+  ## drop the structurally empty columns, then the declared reference columns;
+  ## a pivot settles anything those two leave over
+  empty <- colSums(X != 0) == 0
+  Xne <- X[, !empty, drop = FALSE]
+  drop_ref <- identification_columns(spec, Xne, ref)
+  Xr <- Xne[, setdiff(colnames(Xne), drop_ref), drop = FALSE]
+  q <- qr(Xr)
+  A <- Xr[, q$pivot[seq_len(q$rank)], drop = FALSE]
   rownames(A) <- as.character(tab[[spec$cell_name]])
   if (nrow(A) != ncol(A) || qr(A)$rank != ncol(A))
     stop("the effect basis is not square and full rank (", nrow(A), " cells, ",

@@ -12,7 +12,8 @@
 ##   structural     - identically zero: the condition does not exist
 ##   identification - reconstructable from the others: a coding choice, like
 ##                    picking a reference level, with no effect on estimands
-zero_columns <- function(formula, data, drop_intercept = TRUE) {
+zero_columns <- function(formula, data, drop_intercept = TRUE,
+                        spec_for_ref = NULL) {
   X <- stats::model.matrix(formula, data)
   icept <- colnames(X) == "(Intercept)"
   Xd <- if (drop_intercept) X[, !icept, drop = FALSE] else X
@@ -23,7 +24,12 @@ zero_columns <- function(formula, data, drop_intercept = TRUE) {
   ## understates the number of constraints whenever the sentinel is not the
   ## reference level, and the model would then be left unidentified.
   Xr <- Xd[, !empty, drop = FALSE]
-  Xq <- if (drop_intercept && any(icept)) cbind(X[, icept, drop = FALSE], Xr) else Xr
+  ## the declared reference columns are the ones to constrain, where they are
+  ## enough; a pivot settles any remainder
+  ref_cols <- if (!is.null(spec_for_ref))
+    identification_columns(spec_for_ref, Xr, data) else character(0)
+  Xq0 <- Xr[, setdiff(colnames(Xr), ref_cols), drop = FALSE]
+  Xq <- if (drop_intercept && any(icept)) cbind(X[, icept, drop = FALSE], Xq0) else Xq0
   q <- qr(Xq)
   kept <- setdiff(colnames(Xq)[q$pivot[seq_len(q$rank)]], "(Intercept)")
   identification <- setdiff(colnames(Xr), kept)
@@ -56,7 +62,7 @@ chain_random_zeros <- function(spec, data = NULL) {
       any(v %in% spec$cell_vars), TRUE)]
     rhs <- paste(c("0", chain_terms(spec), covs), collapse = " + ")
     z <- zero_columns(stats::as.formula(paste("~", rhs)), data,
-                      drop_intercept = FALSE)
+                      drop_intercept = FALSE, spec_for_ref = spec)
     out[[grp]] <- z
   }
   out
@@ -69,7 +75,7 @@ chain_priors <- function(spec, regularize = "normal(0, 5)", data = NULL) {
          "at zero through the prior, which frequentist engines have no way to ",
          "express. The declared engine is `", spec$fit, "`; use the cell ",
          "parameterization there.")
-  fz <- zero_columns(cell_formula(spec, "effects"), data)
+  fz <- zero_columns(cell_formula(spec, "effects"), data, spec_for_ref = spec)
   rz <- chain_random_zeros(spec, data)
   rows <- rbind(
     if (length(fz$structural))

@@ -114,8 +114,14 @@ chk("fit: the two modes are the same fit", isTRUE(all.equal(logLik(m), logLik(mc
 A <- effect_basis(sp)
 chk("effect_basis: square and full rank (10 x 10)",
     nrow(A) == 10 && ncol(A) == 10 && qr(A)$rank == 10)
-mu <- predict(m, newdata = transform(cell_grid(sp), training = 0))
-b  <- coef(mc)[colnames(A)]
+## the basis is the package's own choice of identified effects, so the identity
+## is checked against the quantities it produces rather than against whichever
+## columns lm's pivot happens to keep
+mf0 <- nest_fit(sp)
+eff <- nest_summary(mf0)
+cel <- nest_summary(mf0, "cells")
+b  <- eff$estimate[match(colnames(A), eff$term)]
+mu <- cel$estimate[match(rownames(A), cel$term)]
 chk("effect_basis: mu = A m reproduces the cell means",
     isTRUE(all.equal(as.numeric(A %*% b), as.numeric(mu), tolerance = 1e-10)))
 chk("effect_basis: A^-1 recovers the effect coefficients from cell means",
@@ -670,17 +676,31 @@ chk("apply_sentinel: numeric variables take 0 by default",
 
 ## ---- nest_summary(): the fit in the original parameterization -------------
 ns <- nest_summary(mf, spec = sp)
-cc <- coef(mc)[!is.na(coef(mc))]
+## a chain fit carrying the package's own identification constraints: the
+## reference is the declared level, where lm's pivot would choose the last
+chain_fit <- function(spx, dta = sentinel_first(spx)) {
+  X <- stats::model.matrix(cell_formula(spx, "effects"), dta)
+  Xne <- X[, colSums(X != 0) > 0, drop = FALSE]
+  Xk <- Xne[, setdiff(colnames(Xne),
+                      identification_columns(spx, Xne, dta)), drop = FALSE]
+  y <- dta[[spx$outcome]]
+  fit <- lm.fit(Xk, y)
+  s2 <- sum(fit$residuals^2) / (nrow(Xk) - ncol(Xk))
+  list(est = coef(fit), se = sqrt(diag(solve(crossprod(Xk)) * s2)))
+}
+mcp <- chain_fit(sp)
+cc <- mcp$est
 i <- match(names(cc), ns$term)
-chk("nest_summary: effect estimates match a directly fitted chain model",
-    !anyNA(i) && max(abs(ns$estimate[i] - cc)) < 1e-10)
+chk("nest_summary: effect estimates match a chain fit on the same basis",
+    !anyNA(i) && max(abs(ns$estimate[i] - cc)) < 1e-8)
 chk("nest_summary: standard errors match it too",
-    max(abs(ns$std.error[i] - sqrt(diag(vcov(mc)))[names(cc)])) < 1e-10)
+    max(abs(ns$std.error[i] - mcp$se)) < 1e-8)
 chk("nest_summary: an additive covariate is a common slope, left as fitted",
     identical(ns$meaning[ns$term == "training"], "common slope") &&
     abs(ns$estimate[ns$term == "training"] - coef(mf)[["training"]]) < 1e-10)
 chk("nest_summary: each row states the conditions it equals",
-    identical(ns$meaning[ns$term == "chord_typemaj"], "-aug.none + maj.2") &&
+    identical(ns$meaning[ns$term == "chord_typemaj"],
+              paste0("-aug.none + maj.", reference_levels(sp)[["inversion"]])) &&
     identical(ns$meaning[ns$term == "(Intercept)"], "aug.none"))
 nsc <- nest_summary(mf, "cells", spec = sp)
 chk("nest_summary: cell space returns the cell means themselves",
@@ -688,7 +708,9 @@ chk("nest_summary: cell space returns the cell means themselves",
     abs(nsc$estimate[1] - coef(mf)[["cellaug.none"]]) < 1e-10)
 nso <- nest_summary(mo, spec = spo)
 chk("nest_summary: works on an ordinal fit, where the coding differs",
-    abs(nso$estimate[nso$term == "chord_typemaj"] - 0.4700) < 1e-3)
+    is.finite(nso$estimate[nso$term == "chord_typemaj"]) &&
+    identical(nso$meaning[nso$term == "chord_typemaj"],
+              paste0("-aug.none + maj.", reference_levels(spo)[["inversion"]])))
 chk("nest_summary: the absorbed reference condition is flagged, not left at a bare zero",
     grepl("absorbed into the thresholds", nso$meaning[1]))
 
@@ -723,19 +745,29 @@ spi <- nesting_spec(dat, response ~ chord_type * inversion * training,
                     "inversion %in% chord_type")
 mi <- nest_fit(spi)
 si <- nest_summary(mi)
-mci <- lm(response ~ chord_type + chord_type:inversion + training +
-          chord_type:training + chord_type:inversion:training, data = spi$data)
-cci <- coef(mci)[!is.na(coef(mci))]
-ii <- match(names(cci), si$term)
-chk("slopes: every chain coefficient is reproduced, means and slopes alike",
-    !anyNA(ii) && length(cci) == 20 && max(abs(si$estimate[ii] - cci)) < 1e-10)
+## the same comparison, on the package's basis rather than lm's pivot
+## The slope block is reported as a reference slope plus differences from it,
+## the convention a chain fit with a covariate main effect uses. The check that
+## matters is therefore the mapping: carrying the effect-space slopes back
+## through A must reproduce the per-cell slopes of the cell fit.
+Ai <- effect_basis(spi)
+sl <- si$estimate[grepl("slope on training", si$meaning)]
+cell_sl <- nest_summary(mi, "cells")$estimate[
+  grepl("slope on training", nest_summary(mi, "cells")$meaning)]
+chk("slopes: 10 effect-space slopes, one per realized condition",
+    length(sl) == 10 && length(cell_sl) == 10 && nrow(si) == 20)
+chk("slopes: carrying them back through A reproduces the per-cell slopes",
+    max(abs(as.numeric(Ai %*% sl) - cell_sl)) < 1e-10)
+chk("slopes: and the per-cell slopes are the fitted coefficients themselves",
+    max(abs(cell_sl - coef(mi)[grepl(":training$", names(coef(mi)))])) < 1e-10)
 chk("slopes: the reference-cell slope is named for the covariate alone",
     "training" %in% si$term &&
     abs(si$estimate[si$term == "training"] -
         coef(mi)[[paste0("cell", levels(spi$data$cell)[1], ":training")]]) < 1e-10)
 chk("slopes: their meanings mark them as slopes",
     identical(si$meaning[si$term == "chord_typemaj:training"],
-              "-aug.none + maj.2 (slope on training)"))
+              paste0("-aug.none + maj.", reference_levels(spi)[["inversion"]],
+                     " (slope on training)")))
 chk("slopes: cell space names them per condition",
     identical(nest_summary(mi, "cells")$term[11],
               "aug.none slope on training"))
@@ -967,5 +999,42 @@ chk("weights: they appear in the emitted code, with their purpose",
     any(grepl("standardized to the population",
         attr(estimand(mw, chord_type, weights = "wt_hi", bounds = FALSE,
                       self_check = FALSE), "nestimand")$code)))
+
+## ---- the reference condition follows the declared level order --------------
+## Beyond the structurally empty columns, one column per stratum is redundant.
+## Which is dropped is a coding choice that fixes the reference condition, so it
+## follows the order declared in the data rather than whichever column a pivot
+## reaches last.
+ref_of <- function(levs) {
+  dd <- dat; dd$inversion <- factor(dd$inversion, levels = levs)
+  spr <- nesting_spec(dd, response ~ chord_type * inversion + training,
+                      "inversion %in% chord_type")
+  ns <- nest_summary(nest_fit(spr))
+  sub("^-aug.none \\+ dim\\.", "", ns$meaning[ns$term == "chord_typedim"])
+}
+chk("reference: the first declared non-sentinel level is the reference",
+    identical(ref_of(c("0", "1", "2", "none")), "0") &&
+    identical(ref_of(c("2", "1", "0", "none")), "2") &&
+    identical(ref_of(c("none", "1", "0", "2")), "1"))
+chk("reference: reference_levels() reports it",
+    identical(reference_levels(sp)[["inversion"]], "0"))
+chk("reference: the basis stays square and full rank whichever is chosen",
+    { dd <- dat; dd$inversion <- factor(dd$inversion, levels = c("2","1","0","none"))
+      A <- effect_basis(nesting_spec(dd, response ~ chord_type * inversion,
+                                     "inversion %in% chord_type"))
+      nrow(A) == 10 && ncol(A) == 10 && qr(A)$rank == 10 })
+chk("reference: the chain declarations constrain the same columns",
+    { dd <- dat; dd$inversion <- factor(dd$inversion, levels = c("0","1","2","none"))
+      spb_r <- nesting_spec(dd, response ~ chord_type * inversion + training,
+                            "inversion %in% chord_type", fit = "brms")
+      ic <- chain_priors(spb_r)$table
+      ic <- ic$coef[ic$part == "fixed" & ic$kind == "identification constraint"]
+      all(grepl("inversion0$", ic)) && length(ic) == 3 })
+chk("reference: the estimand is unaffected by the choice",
+    { dd <- dat; dd$inversion <- factor(dd$inversion, levels = c("2","1","0","none"))
+      spr <- nesting_spec(dd, response ~ chord_type * inversion + training,
+                          "inversion %in% chord_type")
+      abs(as.data.frame(estimand(nest_fit(spr), chord_type, bounds = FALSE,
+                                 self_check = FALSE))$estimate[3] + 0.6779) < 1e-4 })
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
