@@ -97,6 +97,21 @@ estimand <- function(model, target, policy = "equal", at = NULL,
 
   ## non-core arguments, passed through verbatim to the destination function
   dots <- as.list(substitute(list(...)))[-1]
+  ## A mixed fit predicts for a particular group unless told otherwise, and the
+  ## estimands here are population-level. The exclusion is stated rather than
+  ## assumed, and in the spelling the engine expects: brms and the frequentist
+  ## engines disagree, and the wrong one is silently ignored.
+  re_arg <- if (length(grouping_vars(spec)) &&
+                spec$fit %in% c("lmer", "glmer", "clmm", "brms"))
+    (if (identical(spec$fit, "brms")) "re_formula" else "re.form")
+  re_note <- NULL
+  if (!is.null(re_arg) && !re_arg %in% names(dots) && !identical(scale, "latent")) {
+    dots[[re_arg]] <- quote(NA)
+    re_note <- c(
+      sprintf("## %s = NA: the estimand is population-level, describing a typical", re_arg),
+      "## group rather than any sampled one. brms and the frequentist engines",
+      "## spell this differently, and the wrong spelling is silently ignored.")
+  }
   if (has_thresholds(spec) && identical(scale, "response") && !"type" %in% names(dots))
     stop("`", spec$fit, "` with an ordinal family has no single response scale, ",
          "so the scale of the contrast must be stated rather than assumed. On ",
@@ -119,7 +134,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
 
   code <- estimand_code(spec, target, policy, at, contrast, dots_txt,
                         model_name, spec_name, data_name, bounds, scale,
-                        deg, route, weights_txt)
+                        deg, route, weights_txt, re_note)
   ## if the model was fitted by nest_fit(), its call travels with it, so the
   ## code view is the whole pipeline rather than its second half
   fit_code <- attr(model, "nestimand_code")
@@ -160,7 +175,8 @@ estimand <- function(model, target, policy = "equal", at = NULL,
 estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
                           model_name, spec_name, data_name, bounds,
                           scale = "response", deg = NULL,
-                          route = "g_computation", weights_txt = NULL) {
+                          route = "g_computation", weights_txt = NULL,
+                          re_note = NULL) {
   cn <- spec$cell_name
   pol_txt <- if (is.character(policy) && length(policy) == 1L)
     sprintf('"%s"', policy)
@@ -256,7 +272,7 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
                   cn, cn),
         sprintf('grid$.w <- policy_weights(%s, grid, pol)', spec_name))),
     "## estimand in the original variable space: `by =` names an original",
-    sprintf("## factor, not the fitted `%s` predictor", cn),
+    sprintf("## factor, not the fitted `%s` predictor", cn), re_note,
     sprintf('est  <- avg_predictions(%s, newdata = grid, by = "%s", wts = grid$.w,',
             model_name, target),
     sprintf('                        hypothesis = %s%s)',

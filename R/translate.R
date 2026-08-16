@@ -148,7 +148,22 @@ cell_grid <- function(spec, data = spec$data, covariates = c("mean", "keep")) {
     for (cv in spec$covariates)
       g[[cv]] <- if (is.numeric(data[[cv]])) mean(data[[cv]], na.rm = TRUE)
                  else stats::na.omit(data[[cv]])[1]
+  ## A grid for a mixed model still needs its grouping columns present: the
+  ## prediction machinery reads them even when the random effects are excluded.
+  ## Their value is immaterial, since the estimand is population-level.
+  for (gv in grouping_vars(spec))
+    if (gv %in% names(data) && !gv %in% names(g))
+      g[[gv]] <- stats::na.omit(data[[gv]])[1]
   g
+}
+
+## the grouping factors named to the right of a bar
+grouping_vars <- function(spec) {
+  bars <- spec$random_original
+  if (is.null(bars)) return(character(0))
+  bl <- regmatches(bars, gregexpr("\\|[^)]*", bars))[[1]]
+  unique(unlist(lapply(gsub("^\\|\\s*", "", bl), function(z)
+    all.vars(stats::as.formula(paste("~", z))))))
 }
 
 ## --- which columns carry the identification constraint ----------------------

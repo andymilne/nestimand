@@ -44,6 +44,16 @@ show_code(x, ...)
   \item{cells}{the realized cells the bounds are computed over, matching any restriction applied to the estimand itself.}
   \item{x}{an object carrying code, for \code{show_code}.}
 }
+\section{Mixed models}{
+An estimand here is population-level: it describes a typical group rather than
+any sampled one, so the random effects are excluded from the predictions. That
+is stated in the emitted code rather than left to a default, and in the spelling
+the engine expects - \code{re.form = NA} for the frequentist engines,
+\code{re_formula = NA} for \pkg{brms} - since each silently ignores the other's.
+Supplying either yourself overrides it. Section 6.6 of the companion document
+sets out the alternatives, which average over the sampled groups or integrate
+over the fitted distribution instead.
+}
 \section{Policy and route}{
 Two separate choices determine what an across-boundary contrast means, and both
 are arguments rather than defaults, because no correct default exists.

@@ -1130,4 +1130,36 @@ chk("policy_weights: a stratum the policy does not cover contributes nothing",
       w <- policy_weights(sp, sp$data, pol)
       all(w[sp$data$chord_type == "aug"] == 0) && any(w > 0) })
 
+## ---- mixed fits: population-level by default, and grids that carry groups ---
+if (requireNamespace("lme4", quietly = TRUE)) {
+  rr <- vapply(c("g_computation", "observed", "cells"), function(rt)
+    tryCatch(suppressWarnings(as.data.frame(
+      estimand(mm2, chord_type, route = rt, bounds = FALSE,
+               self_check = FALSE))$estimate[1]), error = function(e) NA_real_), 1)
+  chk("mixed: every route runs, the cells grid carrying the grouping column",
+      !anyNA(rr) && max(abs(diff(rr))) < 1e-8)
+  chk("mixed: cell_grid supplies the grouping factor",
+      "participant" %in% names(cell_grid(spm2)))
+  chk("mixed: grouping_vars reads them from the declared bars",
+      identical(grouping_vars(spm2), "participant"))
+  cd <- attr(estimand(mm2, chord_type, route = "cells", bounds = FALSE,
+                      self_check = FALSE), "nestimand")$code
+  chk("mixed: the random effects are excluded, in the engine's own spelling",
+      any(grepl("re.form = NA", cd, fixed = TRUE)) &&
+      any(grepl("population-level", cd)))
+  chk("mixed: a user-supplied re.form is not overridden",
+      any(grepl("re.form = NULL",
+          attr(estimand(mm2, chord_type, bounds = FALSE, self_check = FALSE,
+                        re.form = NULL), "nestimand")$code, fixed = TRUE)))
+  chk("mixed: brms would be told in its own spelling",
+      { spb_m <- nesting_spec(dat, response ~ chord_type * inversion +
+                              (1 | participant), "inversion %in% chord_type",
+                              fit = "brms")
+        identical(if (identical(spb_m$fit, "brms")) "re_formula" else "re.form",
+                  "re_formula") && length(grouping_vars(spb_m)) == 1 })
+}
+chk("mixed: a fit with no random terms is left alone",
+    !any(grepl("re.form", attr(estimand(mf, chord_type, bounds = FALSE,
+                                        self_check = FALSE), "nestimand")$code)))
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
