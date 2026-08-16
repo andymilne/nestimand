@@ -27,7 +27,11 @@ random_covariance <- function(model, spec = NULL,
       cr <- if (!is.null(vc[[g]]$cor)) vc[[g]]$cor[, "Estimate", ] else diag(length(sd))
       cr <- matrix(cr, length(sd), length(sd),
                    dimnames = list(names(sd), names(sd)))
-      diag(sd) %*% cr %*% diag(sd)
+      ## the matrix product drops the names, and everything downstream is
+      ## keyed by them
+      S <- diag(sd, nrow = length(sd)) %*% cr %*% diag(sd, nrow = length(sd))
+      dimnames(S) <- list(names(sd), names(sd))
+      S
     } else as.matrix(vc[[g]])
     nm <- rownames(S)
     if (is.null(nm)) next

@@ -341,7 +341,13 @@ update.nestimand_fit <- function(object, ...) {
 ## policy asked for - and on balanced data the two can coincide, which makes the
 ## error invisible exactly where it is easiest to make.
 check_model_spec <- function(model, spec) {
-  v <- tryCatch(all.vars(stats::formula(model)), error = function(e) NULL)
+  ## a brmsformula yields nothing to all.vars(); one more formula() call
+  ## reduces it to the ordinary formula underneath
+  fm <- tryCatch(stats::formula(model), error = function(e) NULL)
+  if (inherits(fm, "bform") || inherits(fm, "brmsformula"))
+    fm <- tryCatch(stats::formula(fm), error = function(e) fm)
+  v <- tryCatch(all.vars(fm), error = function(e) NULL)
+  if (!length(v)) v <- NULL
   if (is.null(v)) return(invisible(TRUE))          # engine without a formula
   if (spec$cell_name %in% v) return(invisible(TRUE))
   miss <- setdiff(spec$cell_vars, v)

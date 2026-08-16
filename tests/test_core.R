@@ -1445,4 +1445,23 @@ chk("targets: an empty collection says so rather than printing nothing",
     identical(trimws(capture.output(
       print(structure(list(), class = "nestimand_estimands")))), "no estimands"))
 
+## ---- brms objects need reducing before they can be read --------------------
+## A brmsformula yields nothing to all.vars(), so a correspondence check written
+## for ordinary formulas rejects every brms fit; and brms returns its covariance
+## as separate sd and correlation pieces, whose names the matrix product drops.
+if (requireNamespace("brms", quietly = TRUE)) {
+  bfm <- brms::bf(response ~ cell + cell:training + (0 + cell | participant))
+  fm <- bfm
+  if (inherits(fm, "bform")) fm <- stats::formula(fm)
+  chk("brms: a brmsformula is reduced before its variables are read",
+      all(c("cell", "training", "participant") %in% all.vars(fm)) &&
+      length(all.vars(bfm)) == 0)
+}
+if (requireNamespace("lme4", quietly = TRUE)) {
+  rcn <- random_covariance(mm2)
+  chk("random: the covariance keeps its names through the matrix product",
+      !is.null(rownames(rcn[[1]])) &&
+      identical(rownames(rcn[[1]]), colnames(rcn[[1]])))
+}
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
