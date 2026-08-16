@@ -13,15 +13,16 @@ policies and a reorder self-check. The analysis is assembled as text and then ev
 so \code{show_code} returns the code that ran rather than a reconstruction of it.
 }
 \usage{
-estimand(model, target, policy = "equal", at = NULL,
-         contrast = c("pairwise", "reference", "sequential", "within"),
-         scale = c("response", "latent"), data = NULL,
-         bounds = TRUE, self_check = TRUE, dry_run = FALSE, ...,
-         spec = NULL, .env = parent.frame())
+estimand(model, target, policy = "equal", at = NULL, contrast = c("pairwise", 
+         "reference", "sequential", "within"), route = c("g_computation",
+         "observed", "cells"), weights = NULL, scale = c("response",
+         "latent"), data = NULL, bounds = TRUE, self_check = TRUE,
+         dry_run = FALSE, ..., spec = NULL, .env = parent.frame())
 
-add_bounds(est, model, spec, target, contrast = "pairwise",
-           scale = c("response", "latent"), ...)
-show_code(x, ...)
+add_bounds(est, model, spec, target, contrast = "pairwise", scale = c("response", 
+           "latent"), cells = spec$cells, ...)
+
+show_code(x, ...) 
 }
 \arguments{
   \item{model}{a fitted model, ideally from \code{\link{nest_fit}}.}
@@ -40,6 +41,7 @@ show_code(x, ...)
   \item{...}{passed to the estimand engine and written into the saved code.}
   \item{.env}{environment in which the assembled code is evaluated.}
   \item{est}{an estimand table, for \code{add_bounds}.}
+  \item{cells}{the realized cells the bounds are computed over, matching any restriction applied to the estimand itself.}
   \item{x}{an object carrying code, for \code{show_code}.}
 }
 \details{

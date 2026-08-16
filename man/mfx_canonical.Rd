@@ -12,10 +12,13 @@ the difference reversed. These functions normalize all four, so that the same an
 reports the same signs and labels on any installed version.
 }
 \usage{
-mfx_canonical(d, levs = NULL)
-mfx_term_column(d)
-mfx_hypothesis(contrast = "pairwise", version = NULL)
-mfx_formula_hypothesis(version)
+mfx_canonical(d, levs = NULL) 
+
+mfx_term_column(d) 
+
+mfx_hypothesis(contrast = "pairwise", version = NULL) 
+
+mfx_formula_hypothesis(version = if (requireNamespace("marginaleffects", quietly = TRUE)) utils::packageVersion("marginaleffects") else "0.19.0") 
 }
 \arguments{
   \item{d}{an estimand table.}

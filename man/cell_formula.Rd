@@ -16,13 +16,19 @@ in either parameterization; \code{add_cells} recomputes the cell factor on a gri
 \code{fitting_mode} states which parameterization is chosen and why.
 }
 \usage{
-cell_formula(spec, mode = c("cells", "effects"), intercept = NULL)
-chain_terms(spec)
-add_cells(spec, newdata, unrealized = c("drop", "error"))
-cell_grid(spec, data = spec$data, covariates = c("mean", "keep"))
-effect_basis(spec)
-translation(spec)
-fitting_mode(spec, engine = "marginaleffects", priors = NULL)
+cell_formula(spec, mode = c("cells", "effects"), intercept = NULL) 
+
+chain_terms(spec) 
+
+add_cells(spec, newdata, unrealized = c("drop", "error")) 
+
+cell_grid(spec, data = spec$data, covariates = c("mean", "keep")) 
+
+effect_basis(spec) 
+
+translation(spec) 
+
+fitting_mode(spec, engine = "marginaleffects", priors = NULL) 
 }
 \arguments{
   \item{spec}{a \code{nesting_spec} object.}
@@ -34,6 +40,7 @@ fitting_mode(spec, engine = "marginaleffects", priors = NULL)
   \item{covariates}{hold covariates at their means, or keep the supplied values.}
   \item{engine}{the estimand engine the fit is intended for; \code{"emmeans"} requires the chain form.}
   \item{priors}{declared priors, which may pin the parameterization.}
+  \item{x}{an object to print.}
 }
 \value{
 \code{cell_formula} a formula; \code{chain_terms} a character vector of terms;

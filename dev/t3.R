@@ -1,0 +1,16 @@
+for (f in list.files("R", full.names = TRUE)) source(f)
+source("dev/demo_data.R")
+suppressPackageStartupMessages(library(marginaleffects))
+sp <- nesting_spec(dat, response ~ chord_type * inversion + training,
+                   nests = "inversion %in% chord_type")
+m  <- lm(cell_formula(sp), data = sp$data)
+e <- estimand(m, sp, chord_type, policy = "equal")
+print(e)
+cat("\n---- show_code ----\n"); show_code(e)
+cat("\n---- dots passthrough ----\n")
+e2 <- estimand(m, sp, chord_type, policy = "equal", bounds = FALSE,
+               self_check = FALSE, conf_level = 0.9)
+show_code(e2)
+cat("\n---- within ----\n")
+e3 <- estimand(m, sp, inversion, contrast = "within", bounds = FALSE)
+print(head(as.data.frame(e3), 3)); show_code(e3)

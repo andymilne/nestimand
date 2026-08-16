@@ -10,11 +10,11 @@ constructs the factor of realized cells that the fitting functions use.
 sentinel level, refusing genuine missingness.
 }
 \usage{
-nesting_spec(data, formula, nests,
-             fit = c("lm", "glm", "lmer", "glmer", "clm", "clmm", "brms"),
-             family = NULL, random = NULL, cell_name = "cell")
+nesting_spec(data, formula, nests, fit = c("lm", "glm", "lmer", 
+             "glmer", "clm", "clmm", "brms"), family = NULL, random = NULL,
+             cell_name = "cell")
 
-apply_sentinel(data, var, where = NULL, sentinel = "none")
+apply_sentinel(data, var, where = NULL, sentinel = "none") 
 }
 \arguments{
   \item{data}{a data frame containing the outcome, the nesting variables, and any covariates.}
@@ -27,6 +27,7 @@ apply_sentinel(data, var, where = NULL, sentinel = "none")
   \item{var}{for \code{apply_sentinel}, the variable to convert.}
   \item{where}{logical vector marking the rows in which \code{var} is structurally undefined. Optional: when omitted, every \code{NA} is converted and a warning is given, since any that were genuine missing data are then coded as an existing condition. When supplied, an \code{NA} outside those rows is refused as genuine missingness, and a non-\code{NA} inside them is refused as inconsistent coding.}
   \item{sentinel}{the sentinel value; numeric variables default to \code{0}.}
+  \item{x}{an object to print.}
 }
 \details{
 Validation is deliberately strict. An \code{NA} in a nesting variable is refused, since

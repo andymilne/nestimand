@@ -15,11 +15,16 @@ policy names a stochastic intervention, so the estimand is a causal contrast bet
 two well-defined policies.
 }
 \usage{
-nest_policy(spec, target, policy = "equal", at = NULL, data = spec$data)
-counterfactual_grid(spec, data = spec$data, policy = NULL)
-policy_weights(spec, grid, policy)
-policy_vertices(spec, target)
-boundary_vars(spec)
+nest_policy(spec, target, policy = "equal", at = NULL, data = spec$data, 
+            cells = spec$cells)
+
+counterfactual_grid(spec, data = spec$data, policy = NULL, cells = spec$cells) 
+
+policy_weights(spec, grid, policy) 
+
+policy_vertices(spec, target) 
+
+boundary_vars(spec) 
 }
 \arguments{
   \item{spec}{a \code{nesting_spec} object.}
@@ -28,6 +33,8 @@ boundary_vars(spec)
   \item{at}{for \code{policy = "nominated"}, a named vector giving the version, e.g. \code{c(inversion = "0")}.}
   \item{data}{the data over which empirical version frequencies are taken.}
   \item{grid}{a grid carrying the original factors.}
+  \item{cells}{the realized cells to work over, when they have been restricted: a marginal contrast of a nested variable is pooled only over the strata in which it varies.}
+  \item{x}{an object to print.}
 }
 \details{
 A stratum with only one realized version has no choice to make, so the policy is

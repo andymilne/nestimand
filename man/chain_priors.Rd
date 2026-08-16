@@ -14,10 +14,13 @@ reconstructable from the others. \code{chain_priors} derives which, from the des
 matrix rather than by assumption, and distinguishes the two kinds.
 }
 \usage{
-chain_priors(spec, regularize = "normal(0, 5)", data = spec$data)
-chain_prior_object(x)
-zero_columns(formula, data, drop_intercept = TRUE)
-chain_random_zeros(spec, data = spec$data)
+chain_priors(spec, regularize = "normal(0, 5)", data = NULL) 
+
+chain_prior_object(x) 
+
+zero_columns(formula, data, drop_intercept = TRUE, spec_for_ref = NULL) 
+
+chain_random_zeros(spec, data = NULL) 
 }
 \arguments{
   \item{spec}{a \code{nesting_spec} object.}
@@ -25,7 +28,8 @@ chain_random_zeros(spec, data = spec$data)
   \item{data}{data from which the design matrix is built.}
   \item{x}{a \code{nestimand_chain_priors} object.}
   \item{formula}{a model formula, for \code{zero_columns}.}
-  \item{drop_intercept}{drop the intercept column before examining the design.}
+  \item{drop_intercept}{drop the intercept column before examining the design. The intercept is never a candidate for constraining, but it is retained for the rank analysis, which would otherwise understate the number of constraints.}
+  \item{spec_for_ref}{a \code{nesting_spec}, used to take the reference condition from the declared level order rather than from a pivot.}
 }
 \details{
 A structural zero says a condition does not exist. An identification constraint is a

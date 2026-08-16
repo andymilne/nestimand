@@ -12,14 +12,16 @@ pipeline. Arguments in \code{...} reach the engine unaltered.
 \code{random_terms} translates a declared random structure.
 }
 \usage{
-nest_fit(spec, mode = NULL,
-         random_structure = c("cells", "chain", "chain_slope", "as_declared"),
-         data = NULL, engine = "marginaleffects", priors = NULL,
-         dry_run = FALSE, ..., .env = parent.frame())
+nest_fit(spec, mode = NULL, random_structure = c("cells", "chain", 
+         "as_declared"), data = NULL, engine = "marginaleffects",
+         priors = NULL, dry_run = FALSE, ..., .env = parent.frame())
 
-random_terms(spec, structure = c("cells", "chain", "chain_slope", "as_declared"))
-random_slope_rank(spec, data = spec$data)
-has_thresholds(spec)
+random_terms(spec, structure = c("cells", "chain", "chain_slope", 
+             "as_declared"))
+
+random_slope_rank(spec, data = spec$data) 
+
+has_thresholds(spec) 
 }
 \arguments{
   \item{spec}{a \code{nesting_spec} object.}
@@ -32,6 +34,7 @@ has_thresholds(spec)
   \item{...}{passed to the engine and written into the saved code.}
   \item{.env}{environment in which the assembled call is evaluated.}
   \item{structure}{as \code{random_structure}.}
+  \item{x}{an object to print.}
 }
 \details{
 Only terms crossing the structural boundary are translated: a random intercept, a slope

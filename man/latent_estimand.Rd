@@ -11,14 +11,13 @@ linear, averaging predictions over that grid and averaging its rows are the same
 operation, so this is G-computation rather than an approximation to it.
 }
 \usage{
-latent_estimand(model, target, policy = "equal", at = NULL,
-                contrast = "pairwise", data = NULL, conf_level = 0.95,
-                spec = NULL)
+latent_estimand(model, target, policy = "equal", at = NULL, contrast = "pairwise", 
+                data = NULL, conf_level = 0.95, spec = NULL)
 
-latent_draws(model, target, policy = "equal", at = NULL,
-             contrast = "pairwise", data = NULL, spec = NULL)
+latent_draws(model, target, policy = "equal", at = NULL, contrast = "pairwise", 
+             data = NULL, spec = NULL)
 
-policy_contrast_matrix(spec, target, policy, data = spec$data, model = NULL)
+policy_contrast_matrix(spec, target, policy, data = spec$data, model = NULL) 
 }
 \arguments{
   \item{model}{a fitted model.}

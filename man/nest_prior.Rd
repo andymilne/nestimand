@@ -13,15 +13,17 @@ needs no reparameterization: if the effects carry m ~ N(m0, D) then the cell mea
 mu ~ N(A m0, A D A'), and Stan accepts a correlated prior directly.
 }
 \usage{
-nest_prior(spec, mean, sd = NULL, cov = NULL, on = c("effects", "cells"),
-           family = c("normal", "student_t"), df = 3,
-           covariate_mean = 0, covariate_sd = NULL)
+nest_prior(spec, mean, sd = NULL, cov = NULL, on = c("effects", 
+           "cells"), family = c("normal", "student_t"), df = 3, covariate_mean = 0,
+           covariate_sd = NULL)
 
-prior_audit(prior, contrasts = NULL)
-prior_for_estimand(prior, target, policy = "equal", at = NULL,
-                   contrast = "pairwise")
-prior_stanvars(prior)
-prior_statement(prior)
+prior_audit(prior, contrasts = NULL) 
+
+prior_for_estimand(prior, target, policy = "equal", at = NULL, contrast = "pairwise") 
+
+prior_stanvars(prior) 
+
+prior_statement(prior) 
 }
 \arguments{
   \item{spec}{a \code{nesting_spec} object.}
@@ -38,6 +40,7 @@ prior_statement(prior)
   \item{policy}{a distribution over the versions of a compound condition: one of \code{"equal"}, \code{"proportional"}, \code{"hierarchical"}, \code{"nominated"}, or a named numeric vector of masses.}
   \item{at}{for \code{policy = "nominated"}, a named vector giving the version, e.g. \code{c(inversion = "0")}.}
   \item{contrast}{which comparisons to report.}
+  \item{x}{an object to print.}
 }
 \value{
 \code{nest_prior} an object of class \code{nestimand_prior}, holding the prior in

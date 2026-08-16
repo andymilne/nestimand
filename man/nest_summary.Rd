@@ -10,7 +10,7 @@ coefficients are an exact linear function of the cell means, so
 refitting anything, and with the standard errors a chain fit would give.
 }
 \usage{
-nest_summary(model, space = c("effects", "cells"), conf_level = 0.95,
+nest_summary(model, space = c("effects", "cells"), conf_level = 0.95, 
              data = NULL, spec = NULL)
 }
 \arguments{
@@ -19,6 +19,8 @@ nest_summary(model, space = c("effects", "cells"), conf_level = 0.95,
   \item{space}{\code{"effects"} for the identified chain coefficients, \code{"cells"} for the realized-cell means.}
   \item{conf_level}{confidence level for the intervals.}
   \item{data}{data from which the cell grid is built; the spec's data by default.}
+  \item{x}{an object to print.}
+  \item{digits}{digits for the printed estimates and standard errors.}
 }
 \details{
 In effect space the \code{term} labels are those R derives from the design
