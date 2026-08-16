@@ -1096,4 +1096,38 @@ if (requireNamespace("lme4", quietly = TRUE)) {
 chk("random: a fit with no random effects says so rather than failing",
     grepl("for mixed fits", err_of(random_covariance(mf))))
 
+## ---- every combination of target, route and policy runs --------------------
+## Both bugs found here were in combinations never exercised together: the cells
+## route with a restricted target, and the observed route with rows in an
+## excluded stratum.
+combo <- expand.grid(target = c("chord_type", "inversion"),
+                     route = c("g_computation", "observed", "cells"),
+                     policy = c("equal", "proportional"),
+                     stringsAsFactors = FALSE)
+res <- vapply(seq_len(nrow(combo)), function(i) {
+  r <- tryCatch(as.data.frame(estimand(mf, combo$target[i], policy = combo$policy[i],
+                  route = combo$route[i], bounds = TRUE,
+                  self_check = TRUE))$estimate[1],
+                error = function(e) NA_real_)
+  r }, 1)
+chk("combinations: all twelve target/route/policy pairings run",
+    !anyNA(res))
+chk("combinations: each target agrees across routes on balanced data",
+    max(abs(diff(res[combo$target == "chord_type"]))) < 1e-8 &&
+    max(abs(diff(res[combo$target == "inversion"]))) < 1e-8)
+chk("combinations: the emitted code runs for each of them",
+    all(vapply(seq_len(nrow(combo)), function(i) {
+      e <- estimand(mf, combo$target[i], policy = combo$policy[i],
+                    route = combo$route[i], bounds = FALSE, self_check = FALSE)
+      env <- new.env(); assign("mf", mf, env); assign("sp", sp, env)
+      r <- tryCatch(eval(parse(text = paste(attr(e, "nestimand")$code,
+                                            collapse = "\n")), envir = env),
+                    error = function(x) NULL)
+      !is.null(r) }, TRUE)))
+chk("policy_weights: a stratum the policy does not cover contributes nothing",
+    { pol <- nest_policy(sp, "inversion", "equal",
+                         cells = sp$cells[sp$cells$chord_type != "aug", ])
+      w <- policy_weights(sp, sp$data, pol)
+      all(w[sp$data$chord_type == "aug"] == 0) && any(w > 0) })
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

@@ -240,14 +240,20 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
         "## at the policy's proportions: no prediction is made for a row never run",
         sprintf('grid <- %s', data_name),
         sprintf('grid$.w <- observed_weights(%s, grid, pol)', spec_name),
+        if (!is.null(deg))
+          c("## rows in the excluded strata carry no weight, and are dropped so",
+            "## that no empty group reaches the engine",
+            'grid <- grid[grid$.w > 0, ]'),
         if (!is.null(weights_txt)) c(
           "## unit weights: standardized to the population they describe",
           sprintf('grid$.w <- grid$.w * (%s)', weights_txt))),
       cells = c(
         "## one row per realized cell, covariates at their means: the conditional",
         "## effect at an average covariate value",
-        sprintf('grid <- cell_grid(%s%s)', spec_name,
-                if (is.null(deg)) "" else "[cells$cell, ]"),
+        sprintf('grid <- cell_grid(%s)', spec_name),
+        if (!is.null(deg))
+          sprintf('grid <- grid[as.character(grid$%s) %%in%% as.character(cells$%s), ]',
+                  cn, cn),
         sprintf('grid$.w <- policy_weights(%s, grid, pol)', spec_name))),
     "## estimand in the original variable space: `by =` names an original",
     sprintf("## factor, not the fitted `%s` predictor", cn),
@@ -405,7 +411,8 @@ estimand_values <- function(model, spec, target, policy, at, contrast, data,
                            data = data, spec = spec)$estimate)
   g <- switch(route,
     g_computation = counterfactual_grid(spec, data, pol, cells = cells),
-    observed = { d <- data; d$.w <- observed_weights(spec, d, pol); d },
+    observed = { d <- data; d$.w <- observed_weights(spec, d, pol)
+                 d[d$.w > 0, , drop = FALSE] },
     cells = { d <- cell_grid(spec, data)
               d <- d[as.character(d[[spec$cell_name]]) %in%
                      as.character(cells[[spec$cell_name]]), , drop = FALSE]

@@ -188,7 +188,9 @@ policy_weights <- function(spec, grid, policy) {
   for (s in unique(strat)) {
     i <- strat == s
     pv <- policy$p[[s]]
-    w[i] <- as.numeric(pv[match(vkey[i], names(pv))])
+    ## a stratum the policy does not cover - one excluded because the target
+    ## does not vary there - contributes nothing rather than erroring
+    w[i] <- if (is.null(pv)) 0 else as.numeric(pv[match(vkey[i], names(pv))])
   }
   w[is.na(w)] <- 0
   w
@@ -228,5 +230,7 @@ observed_weights <- function(spec, data, policy) {
     as.character(data[[v]]))), sep = "."))
   w <- policy_weights(spec, data, policy)
   n <- table(key)                        # observed rows per cell
-  as.numeric(w / n[key])                 # policy mass, spread over the rows
+  out <- as.numeric(w / n[key])          # policy mass, spread over the rows
+  out[!is.finite(out)] <- 0
+  out
 }
