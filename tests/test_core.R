@@ -1273,4 +1273,24 @@ chk("bounds: the emitted code re-runs on the cells route",
                 envir = env)
       isTRUE(all.equal(as.data.frame(r)$estimate, as.data.frame(e)$estimate)) })
 
+## ---- the estimand does not refit the model ---------------------------------
+## The fit belongs in the code view, so that what is shown is a whole analysis,
+## but evaluating it there would re-run a fit that has already been done - which
+## on a mixed model costs more than everything else together.
+counted <- 0
+trace_fit <- function() counted <<- counted + 1
+sp_c <- nesting_spec(dat, response ~ chord_type * inversion + training,
+                     "inversion %in% chord_type")
+m_c <- nest_fit(sp_c)
+local({
+  ## a model whose refit would be visible: replace the stored call with one that
+  ## increments a counter, then check the counter stays at zero
+  attr(m_c, "nestimand_code") <<- c("## nestimand -- fit", "m <- trace_fit()")
+})
+e_c <- estimand(m_c, chord_type, bounds = FALSE, self_check = FALSE)
+chk("estimand: the fit is shown in the code but not re-run",
+    counted == 0 && nrow(as.data.frame(e_c)) == 6)
+chk("estimand: the code view still contains the fit",
+    any(grepl("nestimand -- fit", attr(e_c, "nestimand")$code)))
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

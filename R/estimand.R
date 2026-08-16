@@ -182,6 +182,10 @@ estimand <- function(model, target, policy = "equal", at = NULL,
                         deg, route, weights_txt, re_note)
   ## if the model was fitted by nest_fit(), its call travels with it, so the
   ## code view is the whole pipeline rather than its second half
+  ## The fit belongs in the code view, so that what is shown is a whole
+  ## analysis - but it must not be re-run here: the model is already fitted and
+  ## has been passed in. Only the estimand lines are evaluated.
+  run_code <- code
   fit_code <- attr(model, "nestimand_code")
   if (!is.null(fit_code)) {
     fit_code <- sub("^m <- ", paste0(model_name, " <- "), fit_code)
@@ -198,7 +202,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   assign(spec_name,  spec,  envir = env)
   if (!exists(data_name, envir = env, inherits = TRUE))
     assign(data_name, data, envir = env)
-  out <- eval(parse(text = paste(code, collapse = "\n")), envir = env)
+  out <- eval(parse(text = paste(run_code, collapse = "\n")), envir = env)
 
   check <- if (isTRUE(self_check))
     reorder_check(model, spec, target, policy, at, contrast, dots_txt, data, scale,
