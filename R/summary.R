@@ -91,7 +91,8 @@ coefficient_meaning <- function(spec, Tm, cells, extras, space) {
 
 print.nestimand_summary <- function(x, digits = 4, ...) {
   space <- attr(x, "nestimand_space")
-  cat("nestimand summary: ", space, " parameterization\n", sep = "")
+  cat("nestimand summary: ", space,
+      " parameterization, covariates held at zero\n", sep = "")
   d <- as.data.frame(x)
   d$estimate <- round(d$estimate, digits)
   d$std.error <- round(d$std.error, digits)
@@ -99,20 +100,5 @@ print.nestimand_summary <- function(x, digits = 4, ...) {
   cols <- c("term", "estimate", "std.error", "p.value")
   if (identical(space, "effects")) cols <- c(cols, "meaning")
   print(d[, cols], row.names = FALSE, right = FALSE)
-  if (identical(space, "effects")) {
-    cat("\n`term` holds the labels R derives from the design matrix. In a partially",
-        "\nnested design these can name a comparison at one condition where they",
-        "\nappear to name an average over several, and which one depends on the",
-        "\nordering of the factor levels. `meaning` states what each coefficient",
-        "\nequals, and is read from the design rather than from the label.\n")
-  } else {
-    cov_rows <- x$term[x$meaning == "covariate, untranslated"]
-    cat("\nEach row is the mean of the realized condition named, with covariates",
-        "\nheld at zero.")
-    if (length(cov_rows))
-      cat("\nThe remaining row(s) are slopes rather than means: ",
-          paste(cov_rows, collapse = ", "), ".", sep = "")
-    cat("\n")
-  }
   invisible(x)
 }
