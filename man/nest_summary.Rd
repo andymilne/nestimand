@@ -11,7 +11,7 @@ refitting anything, and with the standard errors a chain fit would give.
 }
 \usage{
 nest_summary(model, space = c("effects", "cells"), conf_level = 0.95, 
-             data = NULL, spec = NULL)
+             random = FALSE, data = NULL, spec = NULL)
 }
 \arguments{
   \item{model}{a fitted model, ideally from \code{\link{nest_fit}}.}
@@ -21,6 +21,7 @@ nest_summary(model, space = c("effects", "cells"), conf_level = 0.95,
   \item{data}{data from which the cell grid is built; the spec's data by default.}
   \item{x}{an object to print.}
   \item{digits}{digits for the printed estimates and standard errors.}
+  \item{random}{also read out the random-effects covariance, in the same parameterization, and print it beneath the fixed effects. See \code{\link{random_covariance}}.}
 }
 \details{
 In effect space the \code{term} labels are those R derives from the design

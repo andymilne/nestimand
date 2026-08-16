@@ -12,7 +12,8 @@
 ## equals, so no label has to be read in isolation.
 
 nest_summary <- function(model, space = c("effects", "cells"),
-                         conf_level = 0.95, data = NULL, spec = NULL) {
+                         conf_level = 0.95, random = FALSE, data = NULL,
+                         spec = NULL) {
   space <- match.arg(space)
   spec <- resolve_spec(model, spec)
   if (is.null(data)) data <- spec$data
@@ -115,6 +116,10 @@ nest_summary <- function(model, space = c("effects", "cells"),
     block_meaning(spec, r$label, cells, A, space, rownames(r$M))))
   if (has_thresholds(spec) && nrow(out) && isTRUE(out$std.error[1] == 0))
     out$meaning[1] <- paste0(out$meaning[1], " (fixed at 0: absorbed into the thresholds)")
+  if (isTRUE(random))
+    attr(out, "nestimand_random") <-
+      tryCatch(random_covariance(model, spec, space),
+               error = function(e) structure(list(), note = conditionMessage(e)))
   attr(out, "nestimand_space") <- space
   attr(out, "nestimand_map") <- Tm
   class(out) <- c("nestimand_summary", class(out))
@@ -155,5 +160,10 @@ print.nestimand_summary <- function(x, digits = 4, ...) {
   cols <- c("term", "estimate", "std.error", "p.value")
   if (identical(space, "effects")) cols <- c(cols, "meaning")
   print(d[, cols], row.names = FALSE, right = FALSE)
+  rc <- attr(x, "nestimand_random")
+  if (!is.null(rc)) {
+    cat("\nRandom effects\n")
+    if (!length(rc)) cat("  ", attr(rc, "note"), "\n", sep = "") else print(rc)
+  }
   invisible(x)
 }

@@ -7,7 +7,7 @@ suppressPackageStartupMessages({library(marginaleffects)})
 ## anywhere below. The folder layout does not matter.
 local({
   want <- c("spec.R", "translate.R", "policy.R", "estimand.R", "fit.R",
-            "latent.R", "priors.R", "chain.R", "summary.R")
+            "latent.R", "priors.R", "chain.R", "summary.R", "random.R")
   found <- list.files(".", pattern = "[.][Rr]$", recursive = TRUE, full.names = TRUE)
   hits <- found[basename(found) %in% want]
   missing <- setdiff(want, basename(hits))
@@ -1064,5 +1064,36 @@ chk("reorder: an ordinal fit uses an ordinal shadow",
     { r <- attr(estimand(mo, chord_type, scale = "latent", bounds = FALSE),
                 "nestimand")$self_check
       identical(r$status, "passed") })
+
+## ---- the random-effects covariance -----------------------------------------
+if (requireNamespace("lme4", quietly = TRUE)) {
+  rcc <- random_covariance(mm2, space = "cells")
+  chk("random: the covariance is labelled by conditions, not by the fitted factor",
+      identical(rownames(rcc[[1]]), as.character(spm2$cells$cell)) &&
+      nrow(rcc[[1]]) == 10)
+  rce <- random_covariance(mm2, space = "effects")
+  chk("random: it translates into effect space",
+      identical(rownames(rce[[1]]), colnames(effect_basis(spm2))))
+  chk("random: the translation is A^-1 Sigma A^-T",
+      { A <- effect_basis(spm2); Ai <- solve(A)
+        S <- rcc[[1]][rownames(A), rownames(A)]
+        max(abs(as.matrix(rce[[1]]) - Ai %*% S %*% t(Ai))) < 1e-8 })
+  het <- random_heterogeneity(mm2, "chord_type", "equal")
+  chk("random: heterogeneity of a named effect is positive and finite",
+      nrow(het) == 6 && all(het$sd > 0) && all(is.finite(het$sd)))
+  chk("random: it is c'Sigma c with the estimand's own contrast vector",
+      { cv <- attr(latent_estimand(mm2, "chord_type", "equal"), "nestimand_cvecs")
+        cc <- cv[["aug - maj"]]
+        names(cc) <- sub("^cell", "", names(cc))
+        S <- rcc[[1]]
+        w <- cc[match(rownames(S), names(cc))]; w[is.na(w)] <- 0
+        abs(sqrt(as.numeric(t(w) %*% S %*% w)) -
+            het$sd[het$term == "aug - maj"]) < 1e-10 })
+  chk("random: nest_summary shows it on request, and not otherwise",
+      !is.null(attr(nest_summary(mm2, random = TRUE), "nestimand_random")) &&
+      is.null(attr(nest_summary(mm2), "nestimand_random")))
+}
+chk("random: a fit with no random effects says so rather than failing",
+    grepl("for mixed fits", err_of(random_covariance(mf))))
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

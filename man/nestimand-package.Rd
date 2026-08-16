@@ -46,6 +46,8 @@ show_code(e)}
   \code{\link{chain_priors}} \tab the \code{constant(0)} declarations chain-mode \pkg{brms} requires \cr
   \code{\link{random_terms}} \tab how a declared random structure is translated \cr
   \code{\link{random_slope_rank}} \tab the rank deficiency of a structural random slope \cr
+  \code{\link{random_covariance}} \tab the random-effects covariance, in the original terms \cr
+  \code{\link{random_heterogeneity}} \tab the spread of a named effect across units \cr
 }
 }
 \section{Inspecting the translation}{
