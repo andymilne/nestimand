@@ -333,8 +333,10 @@ chk("ordinal: cell coding keeps the implicit intercept, no redundant parameter",
 mo <- nest_fit(spo)
 chk("ordinal: clm fits without the intercept warning, 15 parameters",
     length(coef(mo)) == 15)
-chk("ordinal: the scale of the contrast must be stated, not assumed",
-    grepl("no single response scale", err_of(estimand(mo, chord_type, spec = spo))))
+chk("ordinal: the response scale is probed, and refused clearly if unavailable",
+    { e <- err_of(estimand(mo, chord_type, spec = spo, bounds = FALSE,
+                           self_check = FALSE))
+      identical(e, "") || grepl("scale = \"latent\"", e) })
 spbo <- nesting_spec(do2, rating ~ chord_type * inversion,
                      "inversion %in% chord_type", fit = "brms", family = "cumulative()")
 chk("ordinal: brms cumulative also takes the threshold-aware coding",
@@ -435,7 +437,9 @@ chk("mfx: the emitted code matches the installed version",
     identical(mfx_hypothesis_txt("pairwise", "0.19.0"), "~pairwise"))
 chk("mfx: the emitted estimand code uses the accepted spelling",
     any(grepl(paste0("hypothesis = ", mfx_hypothesis_txt("pairwise")),
-              attr(e, "nestimand")$code, fixed = TRUE)))
+              attr(estimand(m, chord_type, spec = sp, bounds = FALSE,
+                            self_check = FALSE), "nestimand")$code,
+              fixed = TRUE)))
 
 ## ---- engine label conventions --------------------------------------------
 ## marginaleffects 0.18.x returns `term` = "maj - aug" = -0.6779; 0.32.0 returns
@@ -466,11 +470,14 @@ chk("labels: the number of reversed rows is recorded",
 chk("labels: an unrecognized label is left alone rather than mangled",
     identical(mfx_canonical(data.frame(term = "b0", estimate = 1))$term, "b0"))
 chk("labels: estimand() reports contrasts in declared level order",
-    identical(as.data.frame(e)$term[1:3],
+    identical(as.data.frame(estimand(m, chord_type, spec = sp, bounds = FALSE,
+                                     self_check = FALSE))$term[1:3],
               c("dim - aug", "min - aug", "maj - aug")))
 
 chk("show_code: the normalization is part of the saved code, not applied after",
-    any(grepl("mfx_canonical", attr(e, "nestimand")$code)))
+    any(grepl("mfx_canonical",
+              attr(estimand(m, chord_type, spec = sp, bounds = FALSE,
+                            self_check = FALSE), "nestimand")$code)))
 chk("show_code: within-contrast code re-runs and reproduces its estimand",
     { ew2 <- estimand(m, inversion, spec = sp, contrast = "within", bounds = FALSE,
                       self_check = FALSE)
@@ -1527,5 +1534,38 @@ chk("print: alignment does not disturb the values",
     { d <- as.data.frame(estimand(mf, chord_type, bounds = FALSE,
                                   self_check = FALSE))
       abs(d$estimate[3] - 0.677885742) < 1e-8 })
+
+chk("ordinal: the latent scale needs no engine support at all",
+    nrow(as.data.frame(estimand(mo, chord_type, scale = "latent",
+                                bounds = FALSE, self_check = FALSE))) == 6)
+chk("ordinal: the probe reports which names it tried",
+    { e <- err_of(ordinal_response_type(mo, spo, spo$data))
+      identical(e, "") || (grepl("prob", e) && grepl("response", e)) })
+
+## ---- the default scale depends on the family --------------------------------
+chk("scale: an ordinal fit defaults to the latent scale",
+    identical(attr(estimand(mo, chord_type, bounds = FALSE, self_check = FALSE),
+                   "nestimand")$scale, "latent"))
+chk("scale: a linear fit still defaults to the response scale",
+    identical(attr(estimand(mf, chord_type, bounds = FALSE, self_check = FALSE),
+                   "nestimand")$scale, "response"))
+chk("scale: the ordinal default gives one number per contrast",
+    nrow(as.data.frame(estimand(mo, chord_type, bounds = FALSE,
+                                self_check = FALSE))) == 6)
+chk("scale: asking for the response scale explicitly still routes there",
+    { e <- err_of(estimand(mo, chord_type, scale = "response", bounds = FALSE,
+                           self_check = FALSE))
+      identical(e, "") || grepl("no response scale", e) })
+
+## ---- the default scale follows the family -----------------------------------
+chk("scale: an ordinal fit defaults to the latent scale",
+    identical(attr(estimand(mo, chord_type, bounds = FALSE, self_check = FALSE),
+                   "nestimand")$scale, "latent"))
+chk("scale: everything else defaults to the response scale",
+    identical(attr(estimand(mf, chord_type, bounds = FALSE, self_check = FALSE),
+                   "nestimand")$scale, "response"))
+chk("scale: an explicit choice is honoured either way",
+    identical(attr(estimand(mf, chord_type, scale = "latent", bounds = FALSE,
+                            self_check = FALSE), "nestimand")$scale, "latent"))
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

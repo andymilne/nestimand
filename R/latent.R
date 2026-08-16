@@ -1,7 +1,11 @@
 ## nestimand: estimands as linear functionals of the cell coefficients -----
 ## On a linear scale - the latent scale of an ordinal model, the link scale of
 ## a generalized linear model - a policy contrast is exactly c'b, with c a
-## weighted difference of design-matrix rows. This is what the translation
+## weighted difference of design-matrix rows. Some engines will compute the same
+## thing through their own prediction machinery - brms under type = "link",
+## whose ordinal linear predictor excludes the thresholds - but clm's does not,
+## the accepted type names have moved between releases, and the contrast vector
+## c is needed in its own right for the heterogeneity of an effect. This is what the translation
 ## layer is for: the map from cells to named effects is a matrix, so the
 ## estimand needs no prediction machinery, is immune to the per-category
 ## expansion that ordinal fits provoke, and costs one matrix product.

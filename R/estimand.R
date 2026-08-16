@@ -23,7 +23,14 @@ estimand <- function(model, target, policy = "equal", at = NULL,
               else match.arg(contrast)
   route <- match.arg(route)
   wq <- substitute(weights)
-  scale <- match.arg(scale)
+  ## For an ordinal family the latent scale is the sensible default: one number
+  ## per contrast, with the thresholds cancelling, where the response scale
+  ## gives one per outcome category. It is computed as c'b rather than through
+  ## the engine - brms would give the same thing under type = "link", since its
+  ## ordinal linear predictor excludes the thresholds, but clm's linear
+  ## predictor does not, and the linear map is exact and engine-independent.
+  ## Elsewhere the response scale is what people report, and stays the default.
+  scale <- if (missing(scale) && has_thresholds(spec)) "latent" else match.arg(scale)
   if (identical(scale, "latent") && identical(contrast, "within"))
     stop("contrast = \"within\" is computed through the prediction route and ",
          "has no linear-map form here; use scale = \"response\".")
@@ -147,20 +154,19 @@ estimand <- function(model, target, policy = "equal", at = NULL,
       "## group rather than any sampled one. brms and the frequentist engines",
       "## spell this differently, and the wrong spelling is silently ignored.")
   }
-  if (has_thresholds(spec) && identical(scale, "response") && !"type" %in% names(dots))
-    stop("`", spec$fit, "` with an ordinal family has no single response scale, ",
-         "so the scale of the contrast must be stated rather than assumed. On ",
-         "the latent scale the contrast is one number per comparison, parallel ",
-         "to a linear analysis; on the response scale it is one number per ",
-         "outcome category, and the computation is correspondingly large. Pass ",
-         "Either take the latent scale through the translation layer - ",
-         "scale = \"latent\", which is exact, costs one matrix product, and ",
-         "returns one number per contrast - or pass a scale through to the ",
-         "engine: type = \"linear.predictor\" or ",
-         "type = \"prob\" for clm and clmm, type = \"link\" or ",
-         "type = \"response\" for brms. Note the support boundary: on ordinal ",
-         "fits marginaleffects returns per-category output even on the latent ",
-         "scale, and may refuse the pairwise comparison as too large.")
+  ## An ordinal family has no single response scale, so `scale` chooses it and
+  ## the engine's own spelling is supplied here: the user should not have to
+  ## know that clm calls it "prob" and brms calls it "response".
+  if (has_thresholds(spec) && identical(scale, "response") &&
+      !"type" %in% names(dots)) {
+    ord_type <- ordinal_response_type(model, spec, data)
+    dots$type <- ord_type
+    message("ordinal fit: scale = \"response\" contrasts the outcome ",
+            "probabilities, giving one number per category (type = \"",
+            ord_type, "\"). scale = \"latent\" gives one number per contrast, ",
+            "on the scale the model is linear in.")
+  }
+
   dots_txt <- if (length(dots))
     paste0(", ", paste(mapply(function(nm, v) {
       v <- paste(deparse(v), collapse = " ")
@@ -229,6 +235,25 @@ estimand <- function(model, target, policy = "equal", at = NULL,
                              self_check = check,
                              code = code),
             class = c("nestimand_estimand", class(out)))
+}
+
+## Which name the installed engine gives the response scale for this fit. The
+## accepted set has differed between marginaleffects versions and between model
+## classes, so it is probed on two rows rather than assumed.
+ordinal_response_type <- function(model, spec, data) {
+  cand <- if (identical(spec$fit, "brms")) c("response", "prob")
+          else c("prob", "response")
+  g <- utils::head(data, 2)
+  for (ty in cand) {
+    ok <- tryCatch({
+      marginaleffects::predictions(model, newdata = g, type = ty); TRUE
+    }, error = function(e) FALSE)
+    if (ok) return(ty)
+  }
+  stop("no response scale of this model was accepted by marginaleffects: ",
+       paste(cand, collapse = " or "), " were tried. Use scale = \"latent\", ",
+       "which does not go through the prediction machinery, or pass `type = ` ",
+       "yourself with a value this version accepts.")
 }
 
 ## --- code assembly ---------------------------------------------------------
@@ -381,7 +406,14 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
 add_bounds <- function(est, model, spec, target, contrast = "pairwise",
                        scale = c("response", "latent"), cells = spec$cells,
                        route = c("g_computation", "cells"), data = spec$data, ...) {
-  scale <- match.arg(scale)
+  ## For an ordinal family the latent scale is the sensible default: one number
+  ## per contrast, with the thresholds cancelling, where the response scale
+  ## gives one per outcome category. It is computed as c'b rather than through
+  ## the engine - brms would give the same thing under type = "link", since its
+  ## ordinal linear predictor excludes the thresholds, but clm's linear
+  ## predictor does not, and the linear map is exact and engine-independent.
+  ## Elsewhere the response scale is what people report, and stays the default.
+  scale <- if (missing(scale) && has_thresholds(spec)) "latent" else match.arg(scale)
   route <- match.arg(route)
   vs <- versions_of(spec, target, cells)
   vert <- expand.grid(lapply(vs, seq_along), KEEP.OUT.ATTRS = FALSE)
