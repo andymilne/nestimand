@@ -600,12 +600,15 @@ show_code.nestimand_estimand <- function(x, ...) {
 print_aligned <- function(d, ...) {
   labels <- c("term", "stratum", "meaning", "group", "parameter", "space")
   for (k in names(d)) {
-    if (k %in% labels && (is.character(d[[k]]) || is.factor(d[[k]]))) {
-      v <- as.character(d[[k]])
-      w <- max(nchar(c(v, k)), na.rm = TRUE)
-      d[[k]] <- formatC(v, width = -w)
-      names(d)[names(d) == k] <- formatC(k, width = -w)
-    }
+    v <- if (is.numeric(d[[k]])) format(d[[k]], trim = TRUE, scientific = FALSE)
+         else as.character(d[[k]])
+    v[is.na(d[[k]])] <- "NA"
+    w <- max(nchar(c(v, k)), na.rm = TRUE)
+    ## label columns left-justified, header included; everything else right,
+    ## so that a header sits over its own digits whatever the column's type
+    just <- if (k %in% labels) -w else w
+    d[[k]] <- formatC(v, width = just)
+    names(d)[names(d) == k] <- formatC(k, width = just)
   }
   print(d, row.names = FALSE, right = TRUE, ...)
 }
