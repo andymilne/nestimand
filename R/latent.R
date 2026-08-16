@@ -47,7 +47,9 @@ coef_vector <- function(model) {
     if (is.null(b)) b <- coef(model)
     return(b)
   }
-  if (inherits(model, "merMod")) return(lme4::fixef(model))
+  if (inherits(model, "merMod") || methods::is(model, "merMod"))
+    return(lme4::fixef(model))
+  if (inherits(model, "glmmTMB")) return(unlist(glmmTMB::fixef(model)$cond))
   if (inherits(model, "brmsfit")) {
     b <- brms::fixef(model)[, "Estimate"]
     names(b) <- rownames(brms::fixef(model))

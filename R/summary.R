@@ -17,8 +17,28 @@ nest_summary <- function(model, space = c("effects", "cells"),
   spec <- resolve_spec(model, spec)
   if (is.null(data)) data <- spec$data
   b <- coef_vector(model)
-  V <- stats::vcov(model)
+  V <- as.matrix(stats::vcov(model))
+  ## A fit whose coef() returns per-group values rather than fixed effects - or
+  ## any other mismatch between the coefficients and their covariance - would
+  ## otherwise be caught only by an out-of-memory failure inside the matrix
+  ## product, with nothing to say what went wrong.
+  if (is.null(names(b)) || is.null(colnames(V)))
+    stop("cannot read named coefficients and a matching covariance matrix from ",
+         "this model, so the translation cannot be formed. Report the classes ",
+         "involved: class(model) is ", paste(class(model), collapse = "/"),
+         ", coef is ", length(b), " long, vcov is ",
+         paste(dim(V), collapse = " x "), ".")
   keep <- intersect(names(b), colnames(V))
+  if (length(keep) < 2)
+    stop("the coefficients and the covariance matrix of this model share ",
+         length(keep), " names, so they cannot be matched up. class(model) is ",
+         paste(class(model), collapse = "/"), "; coef is ", length(b),
+         " long, vcov is ", paste(dim(V), collapse = " x "), ".")
+  if (length(b) > 5000)
+    stop("this model reports ", length(b), " coefficients, which is more than a ",
+         "cell parameterization produces: coef() has most likely returned ",
+         "per-group values rather than fixed effects. Report class(model): ",
+         paste(class(model), collapse = "/"), ".")
   b <- b[keep]; V <- V[keep, keep, drop = FALSE]
   cells <- as.character(spec$cells[[spec$cell_name]])
   cn <- spec$cell_name
