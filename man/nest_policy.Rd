@@ -3,6 +3,7 @@
 \alias{print.nestimand_policy}
 \alias{counterfactual_grid}
 \alias{policy_weights}
+\alias{observed_weights}
 \alias{policy_vertices}
 \alias{boundary_vars}
 \title{Weighting policies for across-boundary contrasts}
@@ -22,6 +23,8 @@ counterfactual_grid(spec, data = spec$data, policy = NULL, cells = spec$cells)
 
 policy_weights(spec, grid, policy) 
 
+observed_weights(spec, data, policy) 
+
 policy_vertices(spec, target) 
 
 boundary_vars(spec) 
@@ -33,6 +36,7 @@ boundary_vars(spec)
   \item{at}{for \code{policy = "nominated"}, a named vector giving the version, e.g. \code{c(inversion = "0")}.}
   \item{data}{the data over which empirical version frequencies are taken.}
   \item{grid}{a grid carrying the original factors.}
+  \item{data}{observed rows, for \code{observed_weights}, which spreads each version's policy mass over the rows that carry it.}
   \item{cells}{the realized cells to work over, when they have been restricted: a marginal contrast of a nested variable is pooled only over the strata in which it varies.}
   \item{x}{an object to print.}
 }

@@ -1162,4 +1162,30 @@ chk("mixed: a fit with no random terms is left alone",
     !any(grepl("re.form", attr(estimand(mf, chord_type, bounds = FALSE,
                                         self_check = FALSE), "nestimand")$code)))
 
+## ---- everything the emitted code calls must be reachable -------------------
+## The code runs in the user's environment, so a function that is not exported
+## is not there. This walks every combination and checks the whole call set.
+exported <- sub("^export\\((.*)\\)$", "\\1",
+                grep("^export\\(", readLines("NAMESPACE"), value = TRUE))
+combo2 <- expand.grid(target = c("chord_type", "inversion"),
+                      route = c("g_computation", "observed", "cells"),
+                      scale = c("response", "latent"),
+                      stringsAsFactors = FALSE)
+called <- unlist(lapply(seq_len(nrow(combo2)), function(i) {
+  e <- tryCatch(estimand(mf, combo2$target[i], route = combo2$route[i],
+                         scale = combo2$scale[i], bounds = TRUE,
+                         self_check = FALSE), error = function(x) NULL)
+  if (is.null(e)) return(character(0))
+  cd <- c(attr(e, "nestimand")$code, attr(mf, "nestimand_code"))
+  unlist(regmatches(cd, gregexpr("[A-Za-z._][A-Za-z0-9._]*(?=\\()", cd, perl = TRUE)))
+}))
+base_or_engine <- c("lm", "glm", "factor", "levels", "c", "subset", "library",
+                    "as.character", "avg_predictions", "function", "if")
+missing_exports <- setdiff(setdiff(unique(called), base_or_engine), exported)
+missing_exports <- missing_exports[vapply(missing_exports, exists, TRUE)]
+chk("emitted code: every nestimand function it calls is exported",
+    length(missing_exports) == 0)
+chk("emitted code: observed_weights in particular",
+    "observed_weights" %in% exported)
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
