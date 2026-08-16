@@ -1464,4 +1464,31 @@ if (requireNamespace("lme4", quietly = TRUE)) {
       identical(rownames(rcn[[1]]), colnames(rcn[[1]])))
 }
 
+## ---- the latent route covers what the prediction route covers --------------
+lat <- function(...) as.data.frame(estimand(mf, ..., scale = "latent",
+                                            bounds = FALSE, self_check = FALSE))
+res <- function(...) as.data.frame(estimand(mf, ..., bounds = FALSE,
+                                            self_check = FALSE))
+chk("latent: an interaction is available, and matches the prediction route",
+    { a <- res(chord_type:inversion); b <- lat(chord_type:inversion)
+      nrow(b) == 9 && max(abs(a$estimate - b$estimate[match(a$term, b$term)])) < 1e-8 })
+chk("latent: a nested target is restricted here too",
+    { a <- res(inversion); b <- lat(inversion)
+      identical(a$term, b$term) && nrow(b) == 3 &&
+      max(abs(a$estimate - b$estimate)) < 1e-8 })
+chk("latent: the interaction passes its reorder check",
+    identical(attr(estimand(mf, chord_type:inversion, scale = "latent",
+                            bounds = FALSE), "nestimand")$self_check$status,
+              "passed"))
+chk("latent: the emitted code names the interaction route",
+    any(grepl('contrast = "interaction"',
+        attr(estimand(mf, chord_type:inversion, scale = "latent", bounds = FALSE,
+                      self_check = FALSE), "nestimand")$code, fixed = TRUE)))
+chk("latent: an ordinal star form gives all three, correctly sized",
+    { eo2 <- suppressMessages(estimand(mo, chord_type * inversion,
+               policy = "proportional", scale = "latent", bounds = FALSE,
+               self_check = FALSE))
+      identical(unname(vapply(eo2, function(z) nrow(as.data.frame(z)), 1L)),
+                c(6L, 3L, 9L)) })
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

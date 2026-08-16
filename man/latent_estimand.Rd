@@ -12,12 +12,13 @@ operation, so this is G-computation rather than an approximation to it.
 }
 \usage{
 latent_estimand(model, target, policy = "equal", at = NULL, contrast = "pairwise", 
-                data = NULL, conf_level = 0.95, spec = NULL)
+                data = NULL, conf_level = 0.95, spec = NULL, cells = NULL)
 
 latent_draws(model, target, policy = "equal", at = NULL, contrast = "pairwise", 
              data = NULL, spec = NULL)
 
-policy_contrast_matrix(spec, target, policy, data = spec$data, model = NULL) 
+policy_contrast_matrix(spec, target, policy, data = spec$data, model = NULL, 
+                       cells = spec$cells)
 }
 \arguments{
   \item{model}{a fitted model.}
@@ -25,9 +26,10 @@ policy_contrast_matrix(spec, target, policy, data = spec$data, model = NULL)
   \item{target}{name of the variable whose levels are contrasted, quoted or bare.}
   \item{policy}{a distribution over the versions of a compound condition: one of \code{"equal"}, \code{"proportional"}, \code{"hierarchical"}, \code{"nominated"}, or a named numeric vector of masses.}
   \item{at}{for \code{policy = "nominated"}, a named vector giving the version, e.g. \code{c(inversion = "0")}.}
-  \item{contrast}{\code{"pairwise"}, \code{"reference"}, or \code{"sequential"}.}
+  \item{contrast}{\code{"pairwise"}, \code{"reference"}, \code{"sequential"}, or \code{"interaction"}, the last taking two or more targets and giving a difference of differences among cells.}
   \item{data}{data over which the grid is formed.}
   \item{conf_level}{confidence level for the delta-method interval.}
+  \item{cells}{the realized cells to work over. Chosen automatically: a marginal contrast of a nested variable is pooled only over the strata in which it varies, and an interaction over those in which every target varies.}
 }
 \details{
 This route never calls the prediction machinery, so it is immune to the per-category

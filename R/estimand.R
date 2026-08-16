@@ -246,8 +246,19 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
   at_txt <- if (is.null(at)) "" else
     paste0(", at = c(", paste(sprintf('%s = "%s"', names(at), at),
                               collapse = ", "), ")")
-  hdr <- c(sprintf("## nestimand %s -- estimand of `%s`", nestimand_build, target),
+  hdr <- c(sprintf("## nestimand %s -- estimand of `%s`", nestimand_build,
+                   paste(target, collapse = ":")),
            sprintf("library(marginaleffects)"))
+  cells_txt <- if (is.null(deg)) sprintf("%s$cells", spec_name) else
+    sprintf('subset(%s$cells, %s %%in%% c(%s))', spec_name, deg$vars[1],
+            paste(sprintf('"%s"', deg$keep), collapse = ", "))
+  restrict_note <- if (is.null(deg)) NULL else c(
+    sprintf("## `%s` does not vary in every stratum. The contrast is pooled over", target),
+    sprintf("## the strata in which it does - %s - since elsewhere a comparison",
+            paste(deg$keep, collapse = ", ")),
+    "## would leave its own levels and compare strata instead.",
+    sprintf("cells <- %s", cells_txt))
+
   if (contrast == "within") {
     fam <- NULL
     for (f in spec$cat_families) if (target %in% f) fam <- f
@@ -273,6 +284,16 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
               mfx_hypothesis_txt("pairwise"), dots_txt),
       '}))', 'est'))
   }
+  if (identical(scale, "latent") && identical(contrast, "interaction")) {
+    tv <- paste(sprintf('"%s"', target), collapse = ", ")
+    return(c(hdr[1], restrict_note,
+      "## interaction on the latent scale: a difference of differences among",
+      "## cells, computed as c'b. Exact, and free of the per-category expansion",
+      "## that ordinal fits provoke.",
+      sprintf('est  <- latent_estimand(%s, c(%s), contrast = "interaction", spec = %s%s)',
+              model_name, tv, spec_name, dots_txt),
+      "est"))
+  }
   if (identical(scale, "latent")) {
     body <- c(hdr[1],
       "## latent-scale estimand: on a linear scale the policy contrast is c'b,",
@@ -289,15 +310,6 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
                 if (is.null(deg)) "" else ", cells = cells", dots_txt))
     return(c(body, "est"))
   }
-  cells_txt <- if (is.null(deg)) sprintf("%s$cells", spec_name) else
-    sprintf('subset(%s$cells, %s %%in%% c(%s))', spec_name, deg$vars[1],
-            paste(sprintf('"%s"', deg$keep), collapse = ", "))
-  restrict_note <- if (is.null(deg)) NULL else c(
-    sprintf("## `%s` does not vary in every stratum. The contrast is pooled over", target),
-    sprintf("## the strata in which it does - %s - since elsewhere a comparison",
-            paste(deg$keep, collapse = ", ")),
-    "## would leave its own levels and compare strata instead.",
-    sprintf("cells <- %s", cells_txt))
   if (identical(contrast, "interaction")) {
     tv <- paste(sprintf('"%s"', target), collapse = ", ")
     return(c(hdr, restrict_note,
@@ -487,6 +499,9 @@ spec_nests <- function(spec)
 
 estimand_values <- function(model, spec, target, policy, at, contrast, data,
                             scale = "response", route = "g_computation") {
+  if (identical(contrast, "interaction") && identical(scale, "latent"))
+    return(latent_estimand(model, target, contrast = "interaction",
+                           data = data, spec = spec)$estimate)
   if (identical(contrast, "interaction")) {
     deg <- degenerate_strata(spec, target[length(target)])
     cells <- if (is.null(deg) || !length(deg$drop)) spec$cells else

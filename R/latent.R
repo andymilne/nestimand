@@ -11,8 +11,8 @@
 ## scale, averaging predictions over that grid and averaging its design-matrix
 ## rows are the same operation, so this is G-computation, not an approximation.
 policy_contrast_matrix <- function(spec, target, policy, data = spec$data,
-                                   model = NULL) {
-  g <- counterfactual_grid(spec, data, policy)
+                                   model = NULL, cells = spec$cells) {
+  g <- counterfactual_grid(spec, data, policy, cells = cells)
   rhs <- paste(deparse(cell_formula(spec)[[3]]), collapse = " ")
   X <- stats::model.matrix(stats::as.formula(paste("~", rhs)), g)
   if (colnames(X)[1] == "(Intercept)") X <- X[, -1, drop = FALSE]
@@ -81,14 +81,67 @@ contrast_pairs <- function(levs, contrast = "pairwise") {
     stop("contrast must be pairwise, reference, or sequential here."))
 }
 
+## One design row per realized cell, covariates averaged over the grid, so that
+## a contrast among cells is c'b in the same way a contrast among strata is.
+cell_design_rows <- function(spec, data, cells, model) {
+  pol <- structure(list(kind = "uniform", target = NULL,
+    p = NULL, at = NULL), class = "nestimand_policy")
+  g <- counterfactual_grid(spec, data, cells = cells)
+  rhs <- paste(deparse(cell_formula(spec)[[3]]), collapse = " ")
+  X <- stats::model.matrix(stats::as.formula(paste("~", rhs)), g)
+  if (colnames(X)[1] == "(Intercept)") X <- X[, -1, drop = FALSE]
+  b <- coef_vector(model)
+  missing_cols <- setdiff(colnames(X), names(b))
+  X <- X[, setdiff(colnames(X), missing_cols), drop = FALSE]
+  key <- as.character(g[[spec$cell_name]])
+  lv <- as.character(cells[[spec$cell_name]])
+  M <- t(vapply(lv, function(k) colMeans(X[key == k, , drop = FALSE]),
+                numeric(ncol(X))))
+  rownames(M) <- lv
+  M
+}
+
 latent_estimand <- function(model, target, policy = "equal", at = NULL,
                             contrast = "pairwise", data = NULL,
-                            conf_level = 0.95, spec = NULL) {
+                            conf_level = 0.95, spec = NULL, cells = NULL) {
   spec <- resolve_spec(model, spec)
   if (is.null(data)) data <- spec$data
+  ## a marginal contrast of a nested variable is pooled only over the strata in
+  ## which it varies, on this route as on the other
+  if (is.null(cells) && !identical(contrast, "interaction")) {
+    dg <- degenerate_strata(spec, target[length(target)])
+    cells <- if (is.null(dg) || !length(dg$drop)) spec$cells else
+      spec$cells[as.character(spec$cells[[dg$vars[1]]]) %in% dg$keep, , drop = FALSE]
+  }
+  if (is.null(cells)) cells <- spec$cells
+  ## an interaction is a contrast among cells rather than among strata, so its
+  ## rows are the cells and its columns the differences of differences
+  if (identical(contrast, "interaction")) {
+    deg <- degenerate_strata(spec, target[length(target)])
+    cells <- if (is.null(deg) || !length(deg$drop)) spec$cells else
+      spec$cells[as.character(spec$cells[[deg$vars[1]]]) %in% deg$keep, , drop = FALSE]
+    M <- cell_design_rows(spec, data, cells, model)
+    H <- interaction_matrix(cells, target)
+    b <- coef_vector(model)[colnames(M)]
+    V <- vcov_beta(model, colnames(M))[colnames(M), colnames(M), drop = FALSE]
+    C <- t(H) %*% M
+    est <- as.numeric(C %*% b)
+    se  <- sqrt(diag(C %*% V %*% t(C)))
+    z <- stats::qnorm(1 - (1 - conf_level) / 2)
+    out <- data.frame(term = colnames(H), estimate = est, std.error = se,
+                      statistic = est / se,
+                      p.value = 2 * stats::pnorm(-abs(est / se)),
+                      conf.low = est - z * se, conf.high = est + z * se,
+                      row.names = NULL)
+    attr(out, "nestimand_scale") <- "linear predictor (latent / link)"
+    attr(out, "nestimand_cvecs") <- stats::setNames(
+      lapply(seq_len(nrow(C)), function(i) stats::setNames(C[i, ], colnames(C))),
+      out$term)
+    return(out)
+  }
   pol <- if (inherits(policy, "nestimand_policy")) policy
-         else nest_policy(spec, target, policy, at, data)
-  M <- policy_contrast_matrix(spec, target, pol, data, model)
+         else nest_policy(spec, target, policy, at, data, cells = cells)
+  M <- policy_contrast_matrix(spec, target, pol, data, model, cells = cells)
   b <- coef_vector(model)[colnames(M)]
   V <- vcov_beta(model, colnames(M))
   levs <- rownames(M)
@@ -119,8 +172,8 @@ latent_draws <- function(model, target, policy = "equal", at = NULL,
     stop("draw-wise translation needs a posterior; this is a frequentist fit. ",
          "Use latent_estimand() for the delta-method interval.")
   pol <- if (inherits(policy, "nestimand_policy")) policy
-         else nest_policy(spec, target, policy, at, data)
-  M <- policy_contrast_matrix(spec, target, pol, data, model)
+         else nest_policy(spec, target, policy, at, data, cells = cells)
+  M <- policy_contrast_matrix(spec, target, pol, data, model, cells = cells)
   D <- as.matrix(brms::as_draws_matrix(model))
   nm <- draw_names(colnames(M), colnames(D))
   B <- D[, nm, drop = FALSE]
