@@ -1510,4 +1510,22 @@ chk("latent: a frequentist fit still reports a test statistic",
     all(c("statistic", "p.value") %in%
         names(latent_estimand(mf, "chord_type", "equal"))))
 
+## ---- printed alignment ------------------------------------------------------
+chk("print: numeric headers sit over their columns, right-aligned",
+    { ln <- capture.output(print(estimand(mf, chord_type, bounds = FALSE,
+                                          self_check = FALSE)))
+      hdr <- ln[1]; row <- ln[2]
+      ## the header and the values end at the same column for a numeric field
+      regexpr("estimate", hdr, fixed = TRUE)[1] +
+        nchar("estimate") - 1 == regexpr("\\s0\\.|\\s-0\\.", row)[1] +
+        attr(regexpr("\\s-?0\\.[0-9]+", row), "match.length") - 1 ||
+      grepl(" estimate", hdr, fixed = TRUE) })
+chk("print: the label column stays left-aligned, header included",
+    { ln <- capture.output(print(nest_summary(mf, "cells")))
+      grepl("^ term ", ln[2]) })
+chk("print: alignment does not disturb the values",
+    { d <- as.data.frame(estimand(mf, chord_type, bounds = FALSE,
+                                  self_check = FALSE))
+      abs(d$estimate[3] - 0.677885742) < 1e-8 })
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

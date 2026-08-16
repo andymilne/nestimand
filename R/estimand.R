@@ -562,6 +562,22 @@ show_code.nestimand_estimand <- function(x, ...) {
   invisible(structure(paste(code, collapse = "\n"), class = "nestimand_code"))
 }
 
+## Numbers right-aligned under right-aligned headers, as the neighbouring
+## packages print them; the label columns left-aligned, header included, by
+## padding both to a common width.
+print_aligned <- function(d, ...) {
+  labels <- c("term", "stratum", "meaning", "group", "parameter", "space")
+  for (k in names(d)) {
+    if (k %in% labels && (is.character(d[[k]]) || is.factor(d[[k]]))) {
+      v <- as.character(d[[k]])
+      w <- max(nchar(c(v, k)), na.rm = TRUE)
+      d[[k]] <- formatC(v, width = -w)
+      names(d)[names(d) == k] <- formatC(k, width = -w)
+    }
+  }
+  print(d, row.names = FALSE, right = TRUE, ...)
+}
+
 print.nestimand_estimand <- function(x, digits = 4, ...) {
   meta <- attr(x, "nestimand")
   d <- as.data.frame(x)
@@ -587,7 +603,7 @@ print.nestimand_estimand <- function(x, digits = 4, ...) {
     bt <- data.frame(term = b$term, estimate = round(b$estimate, digits),
                      low = round(b$policy_low, digits),
                      high = round(b$policy_high, digits))
-    print(bt, row.names = FALSE, right = FALSE)
+    print_aligned(bt)
   }
   cat("Code: show_code() prints the ", length(meta$code),
       " lines that produced this.\n", sep = "")
