@@ -60,10 +60,10 @@ alongside the point estimate.
 
 ## Help
 
-`?nestimand` gives an overview with an index linking every function. The
-functions are documented in nine topic pages: `?nesting_spec`, `?cell_formula`,
-`?nest_policy`, `?nest_fit`, `?estimand`, `?latent_estimand`, `?nest_prior`,
-`?chain_priors`, and `?mfx_canonical`.
+`?nestimand` gives an overview, with the functions grouped by how often they are
+needed: the five that cover an ordinary analysis, those the analysis may call
+for, those that report what the translation did, and those exported only so that
+the code from `show_code()` will run.
 
 ## Tests
 

@@ -17,73 +17,70 @@ variable space in which research questions and reports are stated. Every
 contrast that crosses the structural boundary requires an explicit weighting
 policy, because no such contrast is defined without one.
 }
-\section{Declaring the design}{
-\code{\link{nesting_spec}} is the entry point: it validates the declaration,
-constructs the realized-cell factor, and refuses the coding errors that
-otherwise pass silently. \code{\link{apply_sentinel}} converts structurally
-undefined \code{NA} values to an explicit sentinel level.
-}
-\section{Fitting}{
-\code{\link{nest_fit}} dispatches to the declared engine and attaches the call
-it ran, so \code{\link{show_code}} returns the whole pipeline.
-\code{\link{cell_formula}} gives either parameterization,
-\code{\link{random_terms}} translates a declared random structure, and
-\code{\link{fitting_mode}} states which parameterization is chosen and why.
-}
-\section{Estimands}{
-\code{\link{estimand}} returns a labelled contrast table in the original
-variable names, with partial-identification bounds
-(\code{\link{add_bounds}}) and a reorder self-check.
-\code{\link{nest_policy}} builds the weighting policy;
-\code{\link{counterfactual_grid}} forms the G-computation grid;
-\code{\link{latent_estimand}} and \code{\link{latent_draws}} compute the same
-quantity as a linear functional of the cell coefficients, which is exact on any
-linear scale and necessary for ordinal fits.
-}
-\section{Priors}{
-\code{\link{nest_prior}} translates an elliptical prior between effect space
-and cell space; \code{\link{prior_audit}} and
-\code{\link{prior_for_estimand}} report what a stated prior implies.
-\code{\link{chain_priors}} derives the \code{constant(0)} declarations that the
-chain parameterization requires in \pkg{brms}.
-}
-\section{Function index}{
+\section{The everyday workflow}{
+Five functions cover an ordinary analysis.
+
 \tabular{ll}{
-  \code{\link{nesting_spec}} \tab declare the design \cr
-  \code{\link{apply_sentinel}} \tab convert structural \code{NA} to a sentinel \cr
-  \code{\link{cell_formula}} \tab fitting formula, cells or effects \cr
+  \code{\link{nesting_spec}} \tab declare the design once: which factor nests within which \cr
+  \code{\link{nest_fit}} \tab fit it, keeping the call that was run \cr
+  \code{\link{estimand}} \tab contrasts in the original variable names, with bounds \cr
+  \code{\link{show_code}} \tab the code that produced a result, for saving and adapting \cr
+  \code{\link{apply_sentinel}} \tab convert structurally undefined \code{NA} to a sentinel \cr
+}
+
+\preformatted{sp <- nesting_spec(dat, response ~ chord_type * inversion + training,
+                   "inversion \%in\% chord_type")
+m  <- nest_fit(sp)
+e  <- estimand(m, sp, chord_type, policy = "equal")
+show_code(e)}
+}
+\section{As the analysis requires}{
+\tabular{ll}{
+  \code{\link{latent_estimand}} \tab the contrast as a linear functional: exact, and necessary for ordinal fits \cr
+  \code{\link{latent_draws}} \tab the same, draw by draw, from a \pkg{brms} posterior \cr
+  \code{\link{nest_policy}} \tab build and inspect a weighting policy before using it \cr
+  \code{\link{nest_prior}} \tab state a prior in effect space or cell space \cr
+  \code{\link{prior_audit}} \tab what a stated prior implies in the other space \cr
+  \code{\link{prior_for_estimand}} \tab what it implies for a named contrast \cr
+  \code{\link{chain_priors}} \tab the \code{constant(0)} declarations chain-mode \pkg{brms} requires \cr
+  \code{\link{random_terms}} \tab how a declared random structure is translated \cr
+  \code{\link{random_slope_rank}} \tab the rank deficiency of a structural random slope \cr
+}
+}
+\section{Inspecting the translation}{
+Not needed for an analysis, but useful for seeing what the package did.
+
+\tabular{ll}{
+  \code{\link{cell_formula}} \tab the fitting formula, in either parameterization \cr
+  \code{\link{effect_basis}} \tab the matrix A relating cell means to identified effects \cr
+  \code{\link{translation}} \tab A and its inverse, with the cell and effect names \cr
+  \code{\link{fitting_mode}} \tab which parameterization is chosen, and why \cr
   \code{\link{chain_terms}} \tab the ancestry-closed chain terms \cr
-  \code{\link{add_cells}} \tab recompute the cell factor on a grid \cr
+  \code{\link{boundary_vars}} \tab the variables that cross the structural boundary \cr
+  \code{\link{zero_columns}} \tab which design columns the data cannot inform \cr
   \code{\link{cell_grid}} \tab one row per realized cell \cr
-  \code{\link{effect_basis}} \tab the matrix A relating cells to effects \cr
-  \code{\link{translation}} \tab A and its inverse, with names \cr
-  \code{\link{fitting_mode}} \tab which parameterization, and why \cr
-  \code{\link{boundary_vars}} \tab the variables that cross the boundary \cr
-  \code{\link{nest_policy}} \tab a distribution over versions \cr
-  \code{\link{counterfactual_grid}} \tab the G-computation grid \cr
-  \code{\link{policy_weights}} \tab policy weights for a grid \cr
-  \code{\link{policy_vertices}} \tab the single-version policies \cr
-  \code{\link{nest_fit}} \tab fit, with the call attached \cr
-  \code{\link{random_terms}} \tab translate a random structure \cr
-  \code{\link{random_slope_rank}} \tab rank of a structural random slope \cr
-  \code{\link{has_thresholds}} \tab does the family carry thresholds \cr
-  \code{\link{estimand}} \tab contrasts in the original variables \cr
-  \code{\link{add_bounds}} \tab partial-identification bounds \cr
-  \code{\link{show_code}} \tab the code that produced a result \cr
-  \code{\link{latent_estimand}} \tab contrast as a linear functional \cr
-  \code{\link{latent_draws}} \tab the same, draw by draw \cr
-  \code{\link{policy_contrast_matrix}} \tab stratum rows of the design \cr
-  \code{\link{nest_prior}} \tab translate a prior between spaces \cr
-  \code{\link{prior_audit}} \tab what a prior implies elsewhere \cr
-  \code{\link{prior_for_estimand}} \tab what a prior implies for a contrast \cr
-  \code{\link{prior_stanvars}} \tab the brms data blocks \cr
-  \code{\link{prior_statement}} \tab the brms prior statement \cr
-  \code{\link{chain_priors}} \tab constant(0) declarations \cr
-  \code{\link{chain_prior_object}} \tab the same, as a brms object \cr
-  \code{\link{zero_columns}} \tab uninformative design columns \cr
-  \code{\link{chain_random_zeros}} \tab the same, per grouping factor \cr
-  \code{\link{mfx_canonical}} \tab normalize engine contrast labels \cr
-  \code{\link{mfx_hypothesis}} \tab the accepted hypothesis spelling \cr
+  \code{\link{has_thresholds}} \tab whether the declared family carries thresholds \cr
+}
+}
+\section{Called by emitted code}{
+The code returned by \code{\link{show_code}} has to run, so the functions it calls
+are exported. They are not intended to be typed.
+
+\tabular{ll}{
+  \code{\link{add_cells}} \tab recompute the cell factor on a grid \cr
+  \code{\link{counterfactual_grid}} \tab the G-computation grid, with policy weights \cr
+  \code{\link{policy_weights}} \tab the weights a policy places on a grid \cr
+  \code{\link{policy_vertices}} \tab the single-version policies bounding the estimand \cr
+  \code{\link{policy_contrast_matrix}} \tab weighted design-matrix rows, one per stratum \cr
+  \code{\link{add_bounds}} \tab attach the partial-identification region \cr
+  \code{\link{mfx_canonical}} \tab fix contrast labels and direction across engine versions \cr
+  \code{\link{mfx_term_column}} \tab locate the contrast label column \cr
+  \code{\link{mfx_hypothesis}} \tab the \code{hypothesis} spelling the installed version accepts \cr
+  \code{\link{mfx_formula_hypothesis}} \tab whether that version takes a formula \cr
+  \code{\link{chain_prior_object}} \tab the declarations as a \pkg{brms} prior \cr
+  \code{\link{chain_random_zeros}} \tab the uninformative columns, per grouping factor \cr
+  \code{\link{prior_stanvars}} \tab the \pkg{brms} data blocks for a translated prior \cr
+  \code{\link{prior_statement}} \tab the \pkg{brms} prior statement \cr
 }
 }
 \references{
