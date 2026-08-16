@@ -60,7 +60,12 @@ the thresholds, the random-effects standard deviations and correlations, sigma -
 is passed through untouched, and the two are combined into one call.
 
 \code{prior_space = "cells"} says the prior was written for the fitted
-coefficients and leaves it alone. Only elliptical priors translate exactly, so
+coefficients and leaves it alone. One combination is impossible: a translated
+prior places a multivariate normal on the coefficients, and
+\code{sample_prior = "yes"} asks \pkg{brms} to draw one prior sample per class
+into a scalar, which Stan rejects as an ill-typed assignment. Draw from the
+prior in a separate run with \code{sample_prior = "only"}, which works, or leave
+the prior in cell space. Only elliptical priors translate exactly, so
 \code{normal} and \code{student_t} are accepted and others refused with the
 alternative named; and because the translation is joint, the class must be
 described in one statement rather than coefficient by coefficient.

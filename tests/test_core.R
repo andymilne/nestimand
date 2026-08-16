@@ -1329,12 +1329,12 @@ chk("estimand: the code view still contains the fit",
 if (requireNamespace("brms", quietly = TRUE)) {
   cd_b <- suppressMessages(nest_fit(spb2, dry_run = TRUE,
                    prior = brms::set_prior("normal(0, 1)", class = "b"),
-                   sample_prior = "yes", init = 0, file = "somewhere"))
+                   sample_prior = "only", init = 0, file = "somewhere"))
   chk("brms: `prior` is handed to the engine, not captured by `priors`",
       grepl("prior = ", cd_b, fixed = TRUE) &&
       grepl("stanvars = prior_stanvars", cd_b, fixed = TRUE))
   chk("brms: the other engine arguments travel with it",
-      grepl('sample_prior = "yes"', cd_b, fixed = TRUE) &&
+      grepl('sample_prior = "only"', cd_b, fixed = TRUE) &&
       grepl("init = 0", cd_b, fixed = TRUE) &&
       grepl('file = "somewhere"', cd_b, fixed = TRUE))
   chk("brms: a nestimand prior still works, named in full",
@@ -1401,5 +1401,48 @@ if (requireNamespace("brms", quietly = TRUE)) {
             err_of(nest_fit(spb_re, priors = pb, dry_run = TRUE,
                             prior = brms::set_prior("normal(0,1)", class = "b")))))
 }
+
+## ---- sample_prior = "yes" and a translated prior are incompatible ----------
+## brms writes one prior draw per class into a scalar, which a multivariate
+## prior on the coefficients cannot satisfy: Stan reports an ill-typed
+## assignment. Caught here rather than after a compilation.
+if (requireNamespace("brms", quietly = TRUE)) {
+  chk("sample_prior: \"yes\" with a translated prior is refused before compiling",
+      grepl("ill-typed assignment",
+            err_of(suppressMessages(nest_fit(spb2, dry_run = TRUE,
+              prior = brms::set_prior("normal(0, 1)", class = "b"),
+              sample_prior = "yes")))))
+  chk("sample_prior: the refusal names both ways round it",
+      { e <- err_of(suppressMessages(nest_fit(spb2, dry_run = TRUE,
+              prior = brms::set_prior("normal(0, 1)", class = "b"),
+              sample_prior = "yes")))
+        grepl('sample_prior = "only"', e) && grepl('prior_space = "cells"', e) })
+  chk("sample_prior: \"only\" is accepted, as the prior check uses it",
+      inherits(suppressMessages(nest_fit(spb2, dry_run = TRUE,
+        prior = brms::set_prior("normal(0, 1)", class = "b"),
+        sample_prior = "only")), "nestimand_code"))
+  chk("sample_prior: with the prior left in cell space, \"yes\" is fine",
+      inherits(suppressMessages(nest_fit(spb2, dry_run = TRUE,
+        prior_space = "cells",
+        prior = brms::set_prior("normal(0, 1)", class = "b"),
+        sample_prior = "yes")), "nestimand_code"))
+}
+
+## ---- the multi-target object prints, and interactions pass their check -----
+chk("interaction: the reorder check runs rather than erroring",
+    identical(attr(estimand(mf, chord_type:inversion, bounds = FALSE),
+                   "nestimand")$self_check$status, "passed"))
+chk("targets: the collection prints even without names",
+    { e <- suppressMessages(estimand(mf, chord_type * inversion,
+             policy = "proportional", bounds = FALSE, self_check = FALSE))
+      length(capture.output(print(unname(e)))) > 0 &&
+      length(capture.output(print(e))) > 0 })
+chk("targets: show_code covers the collection without names too",
+    { e <- suppressMessages(estimand(mf, chord_type * inversion, bounds = FALSE,
+                                     self_check = FALSE))
+      length(capture.output(show_code(unname(e)))) > 0 })
+chk("targets: an empty collection says so rather than printing nothing",
+    identical(trimws(capture.output(
+      print(structure(list(), class = "nestimand_estimands")))), "no estimands"))
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

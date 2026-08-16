@@ -210,6 +210,23 @@ nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "
       v <- paste(deparse(v), collapse = " ")
       if (nzchar(nm)) paste0(nm, " = ", v) else v
     }, names(dots), dots), collapse = ", ")) else ""
+  ## brms writes one prior draw per class when asked for prior samples, and
+  ## declares it `real` - which a multivariate prior on the coefficients cannot
+  ## satisfy, so the Stan program fails to compile. The alternatives are a
+  ## separate prior-only run, or leaving the prior in cell space.
+  if (!is.null(priors) && "sample_prior" %in% names(dots)) {
+    sv <- tryCatch(eval(dots$sample_prior, .env), error = function(e) NULL)
+    if (isTRUE(sv) || identical(sv, "yes"))
+      stop("`sample_prior = \"yes\"` cannot be combined with a translated prior. ",
+           "The translation puts a multivariate normal on the coefficients, and ",
+           "brms draws one prior sample per class into a scalar, so Stan reports ",
+           "an ill-typed assignment - `real prior_b = multi_normal_rng(...)`. ",
+           "Two ways round it: run the prior separately with ",
+           "sample_prior = \"only\", which works and is what the prior check in ",
+           "tests/test_brms.R does; or state the prior in cell space with ",
+           "prior_space = \"cells\", where it is univariate per coefficient and ",
+           "brms can sample it.")
+  }
   prior_txt <- ""
   prior_note <- NULL
   ## brms's own `prior` argument must reach the engine untouched. With `priors`

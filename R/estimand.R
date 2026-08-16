@@ -487,6 +487,19 @@ spec_nests <- function(spec)
 
 estimand_values <- function(model, spec, target, policy, at, contrast, data,
                             scale = "response", route = "g_computation") {
+  if (identical(contrast, "interaction")) {
+    deg <- degenerate_strata(spec, target[length(target)])
+    cells <- if (is.null(deg) || !length(deg$drop)) spec$cells else
+      spec$cells[as.character(spec$cells[[deg$vars[1]]]) %in% deg$keep, , drop = FALSE]
+    pol <- nest_policy(spec, target[length(target)], "equal", NULL, data,
+                       cells = cells)
+    g <- counterfactual_grid(spec, data, pol, cells = cells)
+    g0 <- marginaleffects::avg_predictions(model, newdata = g, by = target,
+                                           wts = g$.w)
+    H <- interaction_matrix(g0, target)
+    return(as.data.frame(marginaleffects::avg_predictions(model, newdata = g,
+             by = target, wts = g$.w, hypothesis = H))$estimate)
+  }
   if (contrast == "within") {
     fam <- NULL; for (f in spec$cat_families) if (target %in% f) fam <- f
     parents <- fam[seq_len(match(target, fam) - 1)]
@@ -568,17 +581,22 @@ print.nestimand_estimand <- function(x, digits = 4, ...) {
 
 
 print.nestimand_estimands <- function(x, digits = 4, ...) {
-  for (k in names(x)) {
-    cat("== ", k, " ==\n", sep = "")
-    print(x[[k]], digits = digits, ...)
+  if (!length(x)) { cat("no estimands\n"); return(invisible(x)) }
+  nm <- names(x)
+  if (is.null(nm)) nm <- paste0("[[", seq_along(x), "]]")
+  for (i in seq_along(x)) {
+    cat("== ", nm[i], " ==\n", sep = "")
+    print(x[[i]], digits = digits, ...)
     cat("\n")
   }
   invisible(x)
 }
 
 show_code.nestimand_estimands <- function(x, ...) {
-  code <- unlist(lapply(names(x), function(k)
-    c(sprintf("## --- %s ---", k), attr(x[[k]], "nestimand")$code, "")))
+  nm <- names(x)
+  if (is.null(nm)) nm <- paste0("[[", seq_along(x), "]]")
+  code <- unlist(lapply(seq_along(x), function(i)
+    c(sprintf("## --- %s ---", nm[i]), attr(x[[i]], "nestimand")$code, "")))
   cat(paste(code, collapse = "\n"), "\n", sep = "")
   invisible(structure(paste(code, collapse = "\n"), class = "nestimand_code"))
 }
