@@ -44,15 +44,50 @@ show_code(x, ...)
   \item{cells}{the realized cells the bounds are computed over, matching any restriction applied to the estimand itself.}
   \item{x}{an object carrying code, for \code{show_code}.}
 }
-\details{
-The policy and the route answer different questions and are chosen separately.
-In a linear model with covariates balanced across conditions the three routes
-agree; they separate under imbalance, under covariate-by-condition interaction,
-and in any nonlinear model. Where the covariate distribution differs across
-conditions, \code{"observed"} compares subpopulations rather than the same units
-under two interventions, and only \code{"g_computation"} supports a causal
-reading.
+\section{Policy and route}{
+Two separate choices determine what an across-boundary contrast means, and both
+are arguments rather than defaults, because no correct default exists.
 
+\strong{The policy} says how the versions of a compound condition are weighted.
+Where a nested variable is undefined, a level of the nesting variable is a
+single condition; where it is defined, that level is several conditions at once.
+A contrast between the two therefore compares one condition with a set of them,
+and the set has no single value until its members are given weights. Each choice
+of weights names a different intervention, and so a different estimand.
+
+\tabular{ll}{
+  \code{"equal"} \tab each realized version counts equally \cr
+  \code{"proportional"} \tab versions counted at their frequency in the data \cr
+  \code{"hierarchical"} \tab equal at each level of a nesting chain, not over the leaves; differs from \code{"equal"} only at depth two and beyond \cr
+  \code{"nominated"} \tab all weight on one version, named in \code{at} \cr
+  a named vector \tab weights supplied from outside the design, such as corpus frequencies \cr
+}
+
+\strong{The route} says over which rows the model is evaluated. This is not a
+weighting but a question of which population the estimand describes.
+
+\tabular{ll}{
+  \code{"g_computation"} \tab every observed row crossed with every realized cell, so each condition is averaged over one common covariate distribution \cr
+  \code{"observed"} \tab the observed rows as they stand, reweighted so the versions enter at the policy's proportions \cr
+  \code{"cells"} \tab one row per realized cell, covariates at their means \cr
+}
+
+In a linear model with covariates balanced across conditions all three routes
+agree, and the route can be ignored. They separate under covariate imbalance,
+under covariate-by-condition interaction, and in any nonlinear model. Where they
+separate, \code{"observed"} compares subpopulations that may differ in their
+covariates, so only \code{"g_computation"} supports a causal reading;
+\code{"cells"} gives a conditional effect at one covariate value rather than a
+population-averaged one.
+
+\code{weights} is a third and independent choice: it weights the rows rather
+than the versions, standardizing the estimand to a population other than the
+sample.
+
+Whatever the policy, the printed output carries the range of the estimand across
+all admissible policies, so a reader can see what the choice was worth.
+}
+\details{
 Contrast direction is fixed by the package rather than inherited from the engine:
 comparisons run in declared factor-level order, earlier level minus later, whatever the
 installed version returns. Without this, the same analysis could report opposite-signed

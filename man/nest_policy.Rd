@@ -50,5 +50,6 @@ the weights in \code{.w} and the originating row in \code{.row};
 partial-identification region; \code{boundary_vars} the nested variables.
 }
 \seealso{
+\code{\link{estimand}}, whose help sets out what each policy and route means.
 \code{\link{estimand}}, \code{\link{add_bounds}}, \code{\link{prior_for_estimand}}
 }
