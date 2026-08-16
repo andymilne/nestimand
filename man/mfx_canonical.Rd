@@ -22,12 +22,12 @@ mfx_formula_hypothesis(version = if (requireNamespace("marginaleffects", quietly
 }
 \arguments{
   \item{d}{an estimand table.}
-  \item{levs}{the declared factor levels, which fix the contrast direction: earlier level minus later.}
+  \item{levs}{the declared factor levels, which fix the contrast direction: later level minus earlier.}
   \item{contrast}{the comparison type.}
   \item{version}{package version to test; the installed one by default.}
 }
 \value{
-\code{mfx_canonical} the table with a \code{term} column in declared level order,
+\code{mfx_canonical} the table with a \code{term} column in declared level order, each contrast running later level minus earlier,
 estimates and intervals negated where the engine ran the difference the other way, and
 the number of reversed rows in its \code{nestimand_flipped} attribute.
 \code{mfx_hypothesis} the spelling the installed version accepts.

@@ -330,8 +330,9 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
     sprintf('                        hypothesis = %s%s)',
             mfx_hypothesis_txt(contrast), dots_txt),
     "## contrast direction is fixed by nestimand, not inherited from the engine:",
-    "## declared factor-level order, earlier level minus later. Engine versions",
-    "## differ on this, and an inherited convention would flip reported signs.",
+    "## later declared level minus earlier, so that it reads as a departure from",
+    "## the reference condition. Engine versions differ on this, and an inherited",
+    "## convention would flip reported signs.",
     sprintf('est  <- mfx_canonical(est, levels(factor(%s$%s)))',
             data_name, target))
   if (isTRUE(bounds))

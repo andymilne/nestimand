@@ -163,22 +163,22 @@ val <- function(e, tm) {
   v
 }
 chk("policy equal: aug - maj = -0.6779",
-    abs(val(est(nest_policy(sp, "chord_type", "equal")), "aug - maj") + 0.6779) < 1e-4)
+    abs(val(est(nest_policy(sp, "chord_type", "equal")), "maj - aug") - 0.6779) < 1e-4)
 chk("policy proportional: -0.6779 (balanced data)",
-    abs(val(est(nest_policy(sp, "chord_type", "proportional")), "aug - maj") + 0.6779) < 1e-4)
+    abs(val(est(nest_policy(sp, "chord_type", "proportional")), "maj - aug") - 0.6779) < 1e-4)
 chk("policy: `counterfactual` no longer names a policy, and says what to use",
     grepl("route = \"g_computation\"",
           err_of(nest_policy(sp, "chord_type", "counterfactual"))))
 chk("policy hierarchical: -0.6779 at depth one",
-    abs(val(est(nest_policy(sp, "chord_type", "hierarchical")), "aug - maj") + 0.6779) < 1e-4)
+    abs(val(est(nest_policy(sp, "chord_type", "hierarchical")), "maj - aug") - 0.6779) < 1e-4)
 vert <- vapply(c("0","1","2"), function(iv)
   val(est(nest_policy(sp, "chord_type", "nominated", at = c(inversion = iv))),
-      "aug - maj"), 1)
+      "maj - aug"), 1)
 chk("policy nominated: three single-version contrasts",
-    all(abs(vert - c(-1.0479, -0.7405, -0.2452)) < 1e-4))
+    all(abs(vert - c(1.0479, 0.7405, 0.2452)) < 1e-4))
 p3 <- nest_policy(sp, "chord_type", c("0" = 0.5, "1" = 0.3, "2" = 0.2))
 chk("policy supplied: exactly the convex combination of the vertices",
-    abs(val(est(p3), "aug - maj") - sum(vert * c(0.5, 0.3, 0.2))) < 1e-10)
+    abs(val(est(p3), "maj - aug") - sum(vert * c(0.5, 0.3, 0.2))) < 1e-10)
 chk("policy: degenerate stratum takes the single realized version",
     identical(unname(p3$p$aug), 1) && identical(names(p3$p$aug), "none"))
 chk("policy supplied: incomplete coverage refused, not renormalized",
@@ -193,7 +193,7 @@ chk("policy standardized: p must be supplied, not aliased",
 chk("policy within: refused as a policy, redirected",
     grepl("not a policy", err_of(nest_policy(sp, "chord_type", "within"))))
 chk("policy: bounds are the range of the vertices",
-    abs(min(vert) + 1.0479) < 1e-4 && abs(max(vert) + 0.2452) < 1e-4)
+    abs(max(vert) - 1.0479) < 1e-4 && abs(min(vert) - 0.2452) < 1e-4)
 
 ## ---- reorder invariance (belt and braces: impossible by construction) -----
 d2 <- dat
@@ -240,17 +240,17 @@ chk("depth 2: effect basis square and full rank (13 x 13)",
 e2d <- est(nest_policy(sp2d, "chord", "hierarchical"), tgt = "chord",
            model = m2d, spec = sp2d)
 chk("depth 2: hierarchical aug - maj = -0.6283",
-    abs(val(e2d, "aug - maj") + 0.6283) < 1e-4)
+    abs(val(e2d, "maj - aug") - 0.6283) < 1e-4)
 eq2d <- est(nest_policy(sp2d, "chord", "equal"), tgt = "chord",
             model = m2d, spec = sp2d)
 chk("depth 2: equal differs from hierarchical (leaves vs tree)",
-    abs(val(eq2d, "aug - maj") - val(e2d, "aug - maj")) > 1e-3)
+    abs(val(eq2d, "maj - aug") - val(e2d, "maj - aug")) > 1e-3)
 
 ## ---- estimand(): the function, and the code it kept ----------------------
 set.seed(3)
 e <- estimand(m, chord_type, spec = sp, policy = "equal")
 chk("estimand: aug - maj = -0.6779 in original labels",
-    abs(as.data.frame(e)$estimate[as.data.frame(e)$term == "aug - maj"] + 0.6779) < 1e-4)
+    abs(as.data.frame(e)$estimate[as.data.frame(e)$term == "maj - aug"] - 0.6779) < 1e-4)
 meta <- attr(e, "nestimand")
 chk("estimand: provenance recorded (policy, contrast, build)",
     identical(meta$policy, "equal") && identical(meta$contrast, "pairwise") &&
@@ -258,8 +258,8 @@ chk("estimand: provenance recorded (policy, contrast, build)",
 chk("estimand: reorder self-check runs and passes",
     identical(meta$self_check$status, "passed"))
 chk("estimand: bounds attached, -1.048 to -0.245 for aug - maj",
-    abs(meta$bounds$policy_low[meta$bounds$term == "aug - maj"] + 1.0479) < 1e-4 &&
-    abs(meta$bounds$policy_high[meta$bounds$term == "aug - maj"] + 0.2452) < 1e-4)
+    abs(meta$bounds$policy_high[meta$bounds$term == "maj - aug"] - 1.0479) < 1e-4 &&
+    abs(meta$bounds$policy_low[meta$bounds$term == "maj - aug"] - 0.2452) < 1e-4)
 ## fidelity: the code view is the code that ran, so re-running it must agree
 env <- new.env(); assign("m", m, env); assign("sp", sp, env)
 re <- eval(parse(text = paste(meta$code, collapse = "\n")), envir = env)
@@ -356,7 +356,7 @@ chk("latent: agrees with the prediction route on standard errors (1e-7)",
     max(abs(lp$std.error[match(ap$term, lp$term)] - ap$std.error)) < 1e-7)
 lv <- latent_estimand(m, "chord_type", c("0" = 0.5, "1" = 0.3, "2" = 0.2), spec = sp)
 chk("latent: a supplied policy is the convex combination of the vertices",
-    abs(lv$estimate[lv$term == "aug - maj"] - sum(vert * c(0.5, 0.3, 0.2))) < 1e-8)
+    abs(lv$estimate[lv$term == "maj - aug"] - sum(vert * c(0.5, 0.3, 0.2))) < 1e-8)
 chk("latent: reference and sequential contrasts available",
     nrow(latent_estimand(m, "chord_type", "equal", contrast = "reference", spec = sp)) == 3 &&
     nrow(latent_estimand(m, "chord_type", "equal", contrast = "sequential", spec = sp)) == 3)
@@ -407,9 +407,9 @@ chk("prior_audit: reports both spaces, one row per parameter",
     nrow(au) == 20 && setequal(unique(au$space), c("effects", "cells")))
 pfe <- prior_for_estimand(pc, "chord_type", "equal")
 chk("prior_for_estimand: aug - maj sd is 1.5 * sqrt(1 + 1/3)",
-    abs(pfe$sd[pfe$parameter == "aug - maj"] - 1.5 * sqrt(1 + 1/3)) < 1e-10)
+    abs(pfe$sd[pfe$parameter == "maj - aug"] - 1.5 * sqrt(1 + 1/3)) < 1e-10)
 chk("prior_for_estimand: a within-family contrast is tighter",
-    abs(pfe$sd[pfe$parameter == "dim - maj"] - 1.5 * sqrt(2/3)) < 1e-10)
+    abs(pfe$sd[pfe$parameter == "maj - dim"] - 1.5 * sqrt(2/3)) < 1e-10)
 spb2 <- nesting_spec(dat, response ~ chord_type * inversion + training,
                      "inversion %in% chord_type", fit = "brms")
 prb <- nest_prior(spb2, mean = 4, sd = 1.5, on = "cells", covariate_sd = 1)
@@ -438,7 +438,7 @@ chk("mfx: the emitted estimand code uses the accepted spelling",
               attr(e, "nestimand")$code, fixed = TRUE)))
 
 ## ---- engine label conventions --------------------------------------------
-## marginaleffects 0.18.x returns `term` = "aug - maj" = -0.6779; 0.32.0 returns
+## marginaleffects 0.18.x returns `term` = "maj - aug" = -0.6779; 0.32.0 returns
 ## `hypothesis` = "(maj) - (aug)" = +0.6779. Both must yield the same reported
 ## estimand, or the same analysis would report opposite signs on two machines.
 new_style <- data.frame(
@@ -454,20 +454,20 @@ cn <- mfx_canonical(new_style, levs); co <- mfx_canonical(old_style, levs)
 chk("labels: the `hypothesis` column is located as well as `term`",
     identical(mfx_term_column(new_style), "hypothesis") &&
     identical(mfx_term_column(old_style), "term"))
-chk("labels: parentheses stripped, level order restored",
-    identical(cn$term, c("aug - dim", "aug - maj", "min - maj")))
+chk("labels: parentheses stripped, declared order restored",
+    identical(cn$term, c("dim - aug", "maj - aug", "maj - min")))
 chk("labels: contrast direction fixed by the package, not the engine",
     isTRUE(all.equal(cn$estimate, co$estimate, tolerance = 1e-8)))
 chk("labels: confidence bounds swapped and negated with the estimate",
     isTRUE(all.equal(cn$conf.low, co$conf.low, tolerance = 1e-8)) &&
     isTRUE(all.equal(cn$conf.high, co$conf.high, tolerance = 1e-8)))
 chk("labels: the number of reversed rows is recorded",
-    attr(cn, "nestimand_flipped") == 3 && attr(co, "nestimand_flipped") == 0)
+    attr(cn, "nestimand_flipped") == 0 && attr(co, "nestimand_flipped") == 3)
 chk("labels: an unrecognized label is left alone rather than mangled",
     identical(mfx_canonical(data.frame(term = "b0", estimate = 1))$term, "b0"))
 chk("labels: estimand() reports contrasts in declared level order",
     identical(as.data.frame(e)$term[1:3],
-              c("aug - dim", "aug - min", "aug - maj")))
+              c("dim - aug", "min - aug", "maj - aug")))
 
 chk("show_code: the normalization is part of the saved code, not applied after",
     any(grepl("mfx_canonical", attr(e, "nestimand")$code)))
@@ -730,7 +730,7 @@ chk("estimand: the emitted code names the spec as it was named at fitting",
         attr(estimand(mf, chord_type, bounds = FALSE, self_check = FALSE),
              "nestimand")$code, fixed = TRUE)))
 chk("latent_estimand: the model alone is enough",
-    abs(latent_estimand(mf, "chord_type")$estimate[3] + 0.6779) < 1e-4)
+    abs(latent_estimand(mf, "chord_type")$estimate[3] - 0.6779) < 1e-4)
 chk("a model fitted outside nest_fit is refused, with the reason",
     grepl("does not carry one", err_of(nest_summary(m))))
 chk("a model fitted outside nest_fit needs `spec`, and says so",
@@ -782,9 +782,9 @@ m_chain <- lm(cell_formula(sp, "effects"), data = sp$data)
 val3 <- function(mm) suppressWarnings(as.data.frame(
   estimand(mm, chord_type, spec = sp, bounds = FALSE, self_check = FALSE))$estimate[3])
 chk("self-fitted: a crossed fit gives the same estimand as the cell fit",
-    abs(val3(m_cross) + 0.6779) < 1e-4)
+    abs(val3(m_cross) - 0.6779) < 1e-4)
 chk("self-fitted: a chain fit does too",
-    abs(val3(m_chain) + 0.6779) < 1e-4)
+    abs(val3(m_chain) - 0.6779) < 1e-4)
 chk("self-fitted: a model missing the nested variable is refused",
     grepl("does not contain `inversion`",
           err_of(estimand(lm(response ~ chord_type + training, data = sp$data),
@@ -806,7 +806,7 @@ chk("update: the declaration survives the refit",
     identical(class(mu)[1], "nestimand_fit") && length(coef(mu)) == 10)
 chk("update: the estimand works from the updated fit, without `spec`",
     abs(as.data.frame(estimand(mu, chord_type, bounds = FALSE,
-                               self_check = FALSE))$estimate[3] + 0.6779) < 1e-4)
+                               self_check = FALSE))$estimate[3] - 0.6779) < 1e-4)
 chk("update: the code view records the new call, not the old one",
     any(grepl("updated from the original call", attr(mu, "nestimand_code"))) &&
     !any(grepl("training", attr(mu, "nestimand_code"))))
@@ -827,7 +827,7 @@ chk("nested target: no contrast involves the sentinel level",
     nrow(dinv) == 3 && !any(grepl("none", dinv$term)))
 chk("nested target: the pooled contrasts match Section 4.1",
     max(abs(sort(round(dinv$estimate, 4)) -
-            sort(c(0.1632, 0.7337, 0.5706)))) < 1e-3)
+            sort(c(-0.1632, -0.7337, -0.5706)))) < 1e-3)
 chk("nested target: the restriction is stated in the emitted code",
     any(grepl("does not vary in every stratum", attr(einv, "nestimand")$code)) &&
     any(grepl("subset(sp$cells", attr(einv, "nestimand")$code, fixed = TRUE)))
@@ -840,7 +840,7 @@ chk("nested target: within contrasts are unaffected",
 chk("root target: no restriction applies, and the estimand is unchanged",
     is.null(degenerate_strata(sp, "chord_type")) &&
     abs(as.data.frame(estimand(mf, chord_type, bounds = FALSE,
-                               self_check = FALSE))$estimate[3] + 0.6779) < 1e-4)
+                               self_check = FALSE))$estimate[3] - 0.6779) < 1e-4)
 chk("versions: a nested variable's versions are the strata it occurs in",
     identical(sort(versions_of(sp, "inversion")[["0"]]), c("dim", "maj", "min")) &&
     identical(versions_of(sp, "inversion")[["none"]], "aug"))
@@ -900,7 +900,7 @@ sp_last <- nesting_spec(sent_last, response ~ chord_type * inversion + training,
 m_last <- nest_fit(sp_last)
 chk("sentinel last: the estimand is unchanged",
     abs(as.data.frame(estimand(m_last, chord_type, bounds = FALSE,
-                               self_check = FALSE))$estimate[3] + 0.6779) < 1e-4)
+                               self_check = FALSE))$estimate[3] - 0.6779) < 1e-4)
 chk("sentinel last: the nested contrast still excludes the sentinel",
     { d <- as.data.frame(estimand(m_last, inversion, bounds = FALSE,
                                   self_check = FALSE))
@@ -932,7 +932,7 @@ chk("sentinel: the cells parameterization needs no reordering",
 chk("sentinel: contrasts are still reported in the declared order",
     identical(as.data.frame(estimand(m_last, inversion, bounds = FALSE,
                                      self_check = FALSE))$term,
-              c("0 - 1", "0 - 2", "1 - 2")))
+              c("1 - 0", "2 - 0", "2 - 1")))
 chk("sentinel: the effect basis is the same either way",
     isTRUE(all.equal(unname(effect_basis(sp)), unname(effect_basis(sp_last)))))
 
@@ -1035,7 +1035,7 @@ chk("reference: the estimand is unaffected by the choice",
       spr <- nesting_spec(dd, response ~ chord_type * inversion + training,
                           "inversion %in% chord_type")
       abs(as.data.frame(estimand(nest_fit(spr), chord_type, bounds = FALSE,
-                                 self_check = FALSE))$estimate[3] + 0.6779) < 1e-4 })
+                                 self_check = FALSE))$estimate[3] - 0.6779) < 1e-4 })
 
 ## ---- the reorder check on a mixed model ------------------------------------
 ## Order instability is a fixed-effects phenomenon, so the check runs on the
@@ -1083,12 +1083,12 @@ if (requireNamespace("lme4", quietly = TRUE)) {
       nrow(het) == 6 && all(het$sd > 0) && all(is.finite(het$sd)))
   chk("random: it is c'Sigma c with the estimand's own contrast vector",
       { cv <- attr(latent_estimand(mm2, "chord_type", "equal"), "nestimand_cvecs")
-        cc <- cv[["aug - maj"]]
+        cc <- cv[["maj - aug"]]
         names(cc) <- sub("^cell", "", names(cc))
         S <- rcc[[1]]
         w <- cc[match(rownames(S), names(cc))]; w[is.na(w)] <- 0
         abs(sqrt(as.numeric(t(w) %*% S %*% w)) -
-            het$sd[het$term == "aug - maj"]) < 1e-10 })
+            het$sd[het$term == "maj - aug"]) < 1e-10 })
   chk("random: nest_summary shows it on request, and not otherwise",
       !is.null(attr(nest_summary(mm2, random = TRUE), "nestimand_random")) &&
       is.null(attr(nest_summary(mm2), "nestimand_random")))
@@ -1194,11 +1194,11 @@ chk("print: four decimal places by default, more on request",
                                           self_check = FALSE)))
       p8 <- capture.output(print(estimand(mf, chord_type, bounds = FALSE,
                                           self_check = FALSE), digits = 8))
-      any(grepl("-0.6779", p4, fixed = TRUE)) &&
-      any(grepl("-0.67788574", p8, fixed = TRUE)) })
+      any(grepl("0.6779", p4, fixed = TRUE)) &&
+      any(grepl("0.67788574", p8, fixed = TRUE)) })
 chk("print: the object keeps full precision whatever is shown",
     abs(as.data.frame(estimand(mf, chord_type, bounds = FALSE,
-                               self_check = FALSE))$estimate[3] +
+                               self_check = FALSE))$estimate[3] -
         0.677885742) < 1e-8)
 chk("print: nest_summary takes digits too",
     any(grepl("4.08435", capture.output(print(nest_summary(mf), digits = 6)),
@@ -1223,8 +1223,8 @@ ei <- estimand(mf, chord_type:inversion, self_check = FALSE)
 di <- as.data.frame(ei)
 cm <- tapply(dat$response, paste(dat$chord_type, dat$inversion, sep = "."), mean)
 chk("interaction: a difference of differences, matching the raw cell means",
-    abs(di$estimate[di$term == "(dim - min) x (0 - 1)"] -
-        ((cm[["dim.0"]] - cm[["dim.1"]]) - (cm[["min.0"]] - cm[["min.1"]]))) < 1e-4)
+    abs(di$estimate[di$term == "(min - dim) x (1 - 0)"] -
+        ((cm[["min.1"]] - cm[["min.0"]]) - (cm[["dim.1"]] - cm[["dim.0"]]))) < 1e-4)
 chk("interaction: 9 contrasts, none touching the sentinel stratum",
     nrow(di) == 9 && !any(grepl("aug|none", di$term)))
 chk("interaction: no policy applies, and one is refused",

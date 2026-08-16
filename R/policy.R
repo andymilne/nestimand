@@ -241,14 +241,15 @@ interaction_matrix <- function(d, vars) {
   cols <- list(); nm <- character(0)
   for (i in seq_along(a)) for (ii in seq_along(a)) if (ii > i)
     for (j in seq_along(b)) for (jj in seq_along(b)) if (jj > j) {
-      k <- c(paste(a[i], b[j], sep = "\r"), paste(a[i], b[jj], sep = "\r"),
-             paste(a[ii], b[j], sep = "\r"), paste(a[ii], b[jj], sep = "\r"))
+      k <- c(paste(a[ii], b[jj], sep = "\r"), paste(a[ii], b[j], sep = "\r"),
+             paste(a[i], b[jj], sep = "\r"), paste(a[i], b[j], sep = "\r"))
       if (!all(k %in% key)) next          # a combination that does not exist
+      ## later minus earlier in both factors, as the simple contrasts are
       v <- numeric(nrow(d))
       v[match(k[1], key)] <-  1; v[match(k[2], key)] <- -1
       v[match(k[3], key)] <- -1; v[match(k[4], key)] <-  1
       cols[[length(cols) + 1]] <- v
-      nm <- c(nm, sprintf("(%s - %s) x (%s - %s)", a[i], a[ii], b[j], b[jj]))
+      nm <- c(nm, sprintf("(%s - %s) x (%s - %s)", a[ii], a[i], b[jj], b[j]))
     }
   if (!length(cols))
     stop("no interaction contrast is available: no two levels of `", vars[1],

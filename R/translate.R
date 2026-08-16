@@ -332,8 +332,9 @@ mfx_canonical <- function(d, levs = NULL) {
   if (!any(ok)) { df$term <- as.character(df[[nm]]); return(df) }
   if (is.null(levs)) levs <- unique(unlist(lab))
   rank_of <- function(z) { i <- match(z, levs); if (is.na(i)) length(levs) + 1L else i }
+  ## canonical direction: later declared level minus earlier
   flip <- vapply(seq_along(lab), function(i)
-    ok[i] && rank_of(lab[[i]][1]) > rank_of(lab[[i]][2]), TRUE)
+    ok[i] && rank_of(lab[[i]][1]) < rank_of(lab[[i]][2]), TRUE)
   term <- vapply(seq_along(lab), function(i) {
     if (!ok[i]) return(as.character(df[[nm]][i]))
     p <- lab[[i]]; if (flip[i]) p <- rev(p)

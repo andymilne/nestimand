@@ -69,13 +69,15 @@ vcov_beta <- function(model, nm) {
   V[keep, keep, drop = FALSE]
 }
 
-## Pairwise, reference, or sequential differences of the stratum rows.
+## Pairwise, reference, or sequential differences of the stratum rows. Each runs
+## later declared level minus earlier, so that it reads as a departure from the
+## reference condition.
 contrast_pairs <- function(levs, contrast = "pairwise") {
   switch(contrast,
     pairwise = { ij <- utils::combn(seq_along(levs), 2)
-                 lapply(seq_len(ncol(ij)), function(k) ij[, k]) },
-    reference = lapply(seq_along(levs)[-1], function(j) c(1L, j)),
-    sequential = lapply(seq_along(levs)[-1], function(j) c(j - 1L, j)),
+                 lapply(seq_len(ncol(ij)), function(k) rev(ij[, k])) },
+    reference = lapply(seq_along(levs)[-1], function(j) c(j, 1L)),
+    sequential = lapply(seq_along(levs)[-1], function(j) c(j, j - 1L)),
     stop("contrast must be pairwise, reference, or sequential here."))
 }
 
