@@ -4,6 +4,56 @@
 ## reports are stated, and the realized-cell space, in which estimation is
 ## unconditionally well posed.
 
+## --- the sentinel ----------------------------------------------------------
+## A nested variable takes some level only where it is undefined - the sentinel.
+## It is found from the design rather than from its name: the level or levels
+## realized only in strata where the variable does not vary.
+sentinel_levels <- function(spec) {
+  out <- list()
+  for (fam in spec$cat_families) {
+    if (length(fam) < 2) next
+    for (k in seq_along(fam)[-1]) {
+      v <- fam[k]; above <- fam[seq_len(k - 1)]
+      tab <- spec$cells
+      key <- do.call(paste, c(unname(lapply(above, function(a)
+        as.character(tab[[a]]))), sep = "."))
+      varies <- names(which(tapply(as.character(tab[[v]]), key,
+                                   function(z) length(unique(z))) > 1))
+      free <- unique(as.character(tab[[v]])[key %in% varies])
+      s <- setdiff(unique(as.character(tab[[v]])), free)
+      if (length(s)) out[[v]] <- s
+    }
+  }
+  out
+}
+
+## The chain parameterization is legible only when the sentinel is the reference
+## level: the structurally impossible cells are then exactly the all-zero
+## columns named stratum:level. With a real level as reference the same
+## information smears across a different set of zero and dependent columns.
+## Reporting is unaffected - contrasts are stated in the declared order - so the
+## reordering is confined to the design the chain form is built from, and is
+## written into the emitted code rather than done silently.
+sentinel_first <- function(spec, data = spec$data) {
+  s <- sentinel_levels(spec)
+  for (v in names(s)) {
+    lv <- levels(factor(data[[v]]))
+    data[[v]] <- factor(data[[v]], levels = c(s[[v]], setdiff(lv, s[[v]])))
+  }
+  data
+}
+
+sentinel_relevel_code <- function(spec, data_name) {
+  s <- sentinel_levels(spec)
+  if (!length(s)) return(NULL)
+  c("## the chain form is legible only with the sentinel as reference level: the",
+    "## impossible cells are then exactly the all-zero columns. Contrasts are",
+    "## still reported in the order declared in the data.",
+    vapply(names(s), function(v)
+      sprintf('%s[["%s"]] <- relevel(factor(%s[["%s"]]), "%s")',
+              data_name, v, data_name, v, s[[v]][1]), ""))
+}
+
 ## --- fitting formulae ------------------------------------------------------
 
 ## Ordinal engines carry an intercept-like term already - the thresholds - so
@@ -109,7 +159,8 @@ cell_grid <- function(spec, data = spec$data, covariates = c("mean", "keep")) {
 ## the prior and draw translations use.
 effect_basis <- function(spec) {
   tab <- spec$cells
-  for (v in spec$cell_vars) tab[[v]] <- factor(tab[[v]], levels = levels(spec$data[[v]]))
+  ref <- sentinel_first(spec)
+  for (v in spec$cell_vars) tab[[v]] <- factor(tab[[v]], levels = levels(factor(ref[[v]])))
   f <- stats::as.formula(paste("~", paste(chain_terms(spec), collapse = " + ")))
   X <- stats::model.matrix(f, tab)
   q <- qr(X)

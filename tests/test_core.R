@@ -876,4 +876,96 @@ chk("sentinel last: the nested contrast still excludes the sentinel",
 chk("sentinel last: the effect basis is still square and full rank",
     { A <- effect_basis(sp_last); nrow(A) == 10 && qr(A)$rank == 10 })
 
+## ---- the level order of the sentinel is the package's business -------------
+## The chain form is legible only with the sentinel as reference. Rather than
+## asking for that, the package finds the sentinel from the design and reorders
+## the data the chain form is built from, visibly. Reporting keeps the declared
+## order throughout.
+chk("sentinel: found from the design, not from its name",
+    identical(unlist(sentinel_levels(sp)), c(inversion = "none")) &&
+    identical(unlist(sentinel_levels(sp_last)), c(inversion = "none")))
+spb_f <- nesting_spec(dat, response ~ chord_type * inversion + training,
+                      "inversion %in% chord_type", fit = "brms")
+spb_l <- nesting_spec(sent_last, response ~ chord_type * inversion + training,
+                      "inversion %in% chord_type", fit = "brms")
+chk("sentinel: the declarations no longer depend on the declared order",
+    identical(chain_priors(spb_f)$table$coef, chain_priors(spb_l)$table$coef))
+chk("sentinel: the reordering is written into the emitted code, not silent",
+    { cd <- nest_fit(spb_l, mode = "effects", priors = chain_priors(spb_l),
+                     dry_run = TRUE)
+      grepl("relevel(factor(spb_l$data", cd, fixed = TRUE) &&
+      grepl("still reported in the order declared", cd, fixed = TRUE) })
+chk("sentinel: the cells parameterization needs no reordering",
+    !any(grepl("relevel", attr(m_last, "nestimand_code"))))
+chk("sentinel: contrasts are still reported in the declared order",
+    identical(as.data.frame(estimand(m_last, inversion, bounds = FALSE,
+                                     self_check = FALSE))$term,
+              c("0 - 1", "0 - 2", "1 - 2")))
+chk("sentinel: the effect basis is the same either way",
+    isTRUE(all.equal(unname(effect_basis(sp)), unname(effect_basis(sp_last)))))
+
+## ---- routes: where the model is evaluated ----------------------------------
+## The policy says how versions are weighted; the route says over which rows the
+## model is evaluated. On balanced linear data the three agree; they separate
+## under covariate imbalance, which is what G-computation exists to handle.
+rt3 <- function(mm, spx, rt, pol = "equal")
+  as.data.frame(estimand(mm, chord_type, policy = pol, route = rt, spec = spx,
+                         bounds = FALSE, self_check = FALSE))$estimate[3]
+chk("routes: all three agree on balanced data with a shared covariate",
+    max(abs(diff(vapply(c("counterfactual", "observed", "cells"),
+                        function(r) rt3(mf, sp, r), 1)))) < 1e-8)
+set.seed(4)
+dun <- dat[c(rep(which(dat$inversion == "0"), 2), which(dat$inversion != "0")), ]
+dun$training <- rnorm(nrow(dun), ifelse(dun$chord_type == "aug", 7, 3), 1.5)
+dun$response <- dun$response + 0.15 * dun$training
+spu <- nesting_spec(dun, response ~ chord_type * inversion + training,
+                    "inversion %in% chord_type")
+mu2 <- nest_fit(spu)
+chk("routes: observed differs once the covariate is unbalanced across conditions",
+    abs(rt3(mu2, spu, "observed") - rt3(mu2, spu, "counterfactual")) > 0.1)
+chk("routes: equal and proportional separate once the design is unbalanced",
+    abs(rt3(mu2, spu, "counterfactual", "equal") -
+        rt3(mu2, spu, "counterfactual", "proportional")) > 1e-3)
+chk("routes: the route is recorded and printed",
+    identical(attr(estimand(mf, chord_type, route = "observed", bounds = FALSE,
+                            self_check = FALSE), "nestimand")$route, "observed"))
+chk("routes: the emitted code says which rows the model was evaluated over",
+    any(grepl("observed rows as they stand",
+        attr(estimand(mf, chord_type, route = "observed", bounds = FALSE,
+                      self_check = FALSE), "nestimand")$code)) &&
+    any(grepl("covariates at their means",
+        attr(estimand(mf, chord_type, route = "cells", bounds = FALSE,
+                      self_check = FALSE), "nestimand")$code)))
+chk("routes: the reorder check follows the route it was asked for",
+    identical(attr(estimand(mf, chord_type, route = "cells", bounds = FALSE),
+                   "nestimand")$self_check$status, "passed"))
+
+## ---- unit weights: standardizing to another population ---------------------
+## The policy weights the versions of a condition; unit weights weight the rows,
+## which is how an estimand is standardized to a population other than the
+## sample - survey weights, or post-stratification on the covariates.
+dw <- dat; dw$wt_hi <- as.numeric(dw$training > 7); dw$wt1 <- 1
+spw <- nesting_spec(dw, response ~ chord_type * inversion * training,
+                    "inversion %in% chord_type")
+mw <- nest_fit(spw)
+gw <- function(...) as.data.frame(estimand(mw, chord_type, bounds = FALSE,
+                                           self_check = FALSE, ...))$estimate[3]
+chk("weights: uniform weights leave the estimand unchanged",
+    abs(gw(weights = "wt1") - gw()) < 1e-10)
+chk("weights: reweighting to a subpopulation matches computing on those rows",
+    abs(gw(weights = "wt_hi") -
+        gw(data = subset(spw$data, training > 7))) < 1e-8)
+chk("weights: a numeric vector is accepted as well as a column name",
+    abs(gw(weights = spw$data$wt_hi) - gw(weights = "wt_hi")) < 1e-10)
+chk("weights: a vector of the wrong length is refused",
+    grepl("one weight per row", err_of(gw(weights = c(1, 2)))))
+chk("weights: an absent column is refused, and the stale-spec case explained",
+    grepl("added after the model was fitted", err_of(gw(weights = "nope"))))
+chk("weights: refused on the cells route, which has no units to weight",
+    grepl("no units to weight", err_of(gw(route = "cells", weights = "wt_hi"))))
+chk("weights: they appear in the emitted code, with their purpose",
+    any(grepl("standardized to the population",
+        attr(estimand(mw, chord_type, weights = "wt_hi", bounds = FALSE,
+                      self_check = FALSE), "nestimand")$code)))
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

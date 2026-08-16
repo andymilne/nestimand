@@ -199,3 +199,30 @@ policy_vertices <- function(spec, target) {
   vs <- versions_of(spec, target)
   expand.grid(vs, stringsAsFactors = FALSE)
 }
+
+## --- routes to an estimand -------------------------------------------------
+## A policy says how the versions are weighted. It does not say over which rows
+## the model is evaluated, and that is a separate choice with its own
+## consequences. Three routes are available.
+##
+##   counterfactual  every observed row crossed with every realized cell, so
+##                   each condition is averaged over the same covariate
+##                   distribution. G-computation; the population-averaged
+##                   effect, and the only route with a causal reading when
+##                   covariates differ across conditions.
+##   observed        the observed rows as they stand, reweighted so that the
+##                   versions enter at the policy's proportions. No prediction
+##                   is made for any row that was not run.
+##   cells           one row per realized cell, covariates at their means. The
+##                   conditional effect at an average covariate value.
+##
+## In a linear model with covariates balanced across conditions the three agree.
+## They separate under imbalance, under covariate-by-condition interaction, and
+## in any nonlinear model.
+observed_weights <- function(spec, data, policy) {
+  key <- do.call(paste, c(unname(lapply(spec$cell_vars, function(v)
+    as.character(data[[v]]))), sep = "."))
+  w <- policy_weights(spec, data, policy)
+  n <- table(key)                        # observed rows per cell
+  as.numeric(w / n[key])                 # policy mass, spread over the rows
+}

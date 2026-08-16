@@ -7,9 +7,11 @@
 
 estimand <- function(model, target, policy = "equal", at = NULL,
                      contrast = c("pairwise", "reference", "sequential", "within"),
+                     route = c("counterfactual", "observed", "cells"),
+                     weights = NULL,
                      scale = c("response", "latent"),
                      data = NULL, bounds = TRUE, self_check = TRUE,
-                     ..., spec = NULL, .env = parent.frame()) {
+                     dry_run = FALSE, ..., spec = NULL, .env = parent.frame()) {
   ## The declaration travels with a fit from nest_fit(); `spec` is needed only
   ## for a model fitted by calling the engine directly.
   spec_expr <- substitute(spec)
@@ -17,6 +19,8 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   spec <- resolve_spec(model, spec)
   check_model_spec(model, spec)
   contrast <- match.arg(contrast)
+  route <- match.arg(route)
+  wq <- substitute(weights)
   scale <- match.arg(scale)
   if (identical(scale, "latent") && identical(contrast, "within"))
     stop("contrast = \"within\" is computed through the prediction route and ",
@@ -65,6 +69,32 @@ estimand <- function(model, target, policy = "equal", at = NULL,
                else paste(deparse(substitute(data)), collapse = " ")
   if (is.null(data)) { data <- spec$data; data_name <- paste0(spec_name, "$data") }
 
+  ## Unit weights standardize to a population other than the sample: survey
+  ## weights, or post-stratification to a target distribution of the covariates.
+  ## They are a separate question from the policy, which weights the versions of
+  ## a condition, and they multiply it.
+  weights_txt <- NULL
+  if (!is.null(weights)) {
+    if (identical(route, "cells"))
+      stop("unit weights standardize over the rows of the data, and ",
+           "route = \"cells\" evaluates one row per condition with the ",
+           "covariates at their means, so there are no units to weight. Use ",
+           "route = \"counterfactual\" to standardize to a target population.")
+    if (is.character(weights) && length(weights) == 1L) {
+      if (!weights %in% names(data))
+        stop("no column `", weights, "` in the data the estimand is computed ",
+             "over. A weight column added after the model was fitted is not in ",
+             "the declaration the fit carries; add it before declaring, pass ",
+             "the data with `data =`, or supply the weights as a vector.")
+      weights_txt <- sprintf('%s[["%s"]]', data_name, weights)
+    } else {
+      if (is.numeric(weights) && length(weights) != nrow(data))
+        stop("`weights` has ", length(weights), " values but the data has ",
+             nrow(data), " rows: one weight per row is needed.")
+      weights_txt <- paste(deparse(wq), collapse = " ")
+    }
+  }
+
   ## non-core arguments, passed through verbatim to the destination function
   dots <- as.list(substitute(list(...)))[-1]
   if (has_thresholds(spec) && identical(scale, "response") && !"type" %in% names(dots))
@@ -89,7 +119,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
 
   code <- estimand_code(spec, target, policy, at, contrast, dots_txt,
                         model_name, spec_name, data_name, bounds, scale,
-                        deg)
+                        deg, route, weights_txt)
   ## if the model was fitted by nest_fit(), its call travels with it, so the
   ## code view is the whole pipeline rather than its second half
   fit_code <- attr(model, "nestimand_code")
@@ -97,6 +127,12 @@ estimand <- function(model, target, policy = "equal", at = NULL,
     fit_code <- sub("^m <- ", paste0(model_name, " <- "), fit_code)
     code <- c(fit_code, "", code)
   }
+  ## `show_code(estimand(...))` computes first and prints after, because the
+  ## inner call is evaluated first: show_code() is a printer, not a preview.
+  ## dry_run returns the code without running anything, as nest_fit() does.
+  if (isTRUE(dry_run))
+    return(structure(paste(code, collapse = "\n"), class = "nestimand_code",
+                     nestimand_code = code))
   env <- new.env(parent = .env)
   assign(model_name, model, envir = env)
   assign(spec_name,  spec,  envir = env)
@@ -105,13 +141,14 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   out <- eval(parse(text = paste(code, collapse = "\n")), envir = env)
 
   check <- if (isTRUE(self_check))
-    reorder_check(model, spec, target, policy, at, contrast, dots_txt, data, scale)
+    reorder_check(model, spec, target, policy, at, contrast, dots_txt, data, scale,
+                  route)
   else NULL
 
   structure(out,
             nestimand = list(build = nestimand_build, target = target,
                              policy = policy, at = at, contrast = contrast,
-                             scale = scale,
+                             scale = scale, route = route,
                              bounds = attr(out, "nestimand_bounds"),
                              self_check = check,
                              code = code),
@@ -122,7 +159,8 @@ estimand <- function(model, target, policy = "equal", at = NULL,
 
 estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
                           model_name, spec_name, data_name, bounds,
-                          scale = "response", deg = NULL) {
+                          scale = "response", deg = NULL,
+                          route = "counterfactual", weights_txt = NULL) {
   cn <- spec$cell_name
   pol_txt <- if (is.character(policy) && length(policy) == 1L)
     sprintf('"%s"', policy)
@@ -187,10 +225,30 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
     sprintf("## the policy: a distribution over the versions of each compound condition"),
     sprintf('pol  <- nest_policy(%s, "%s", %s%s%s)', spec_name, target, pol_txt,
             at_txt, if (is.null(deg)) "" else ", cells = cells"),
-    "## G-computation grid: every row of the data crossed with every realized",
-    "## cell, with the policy attached as row weights",
-    sprintf('grid <- counterfactual_grid(%s, %s, pol%s)', spec_name, data_name,
-            if (is.null(deg)) "" else ", cells = cells"),
+    switch(route,
+      counterfactual = c(
+        "## G-computation grid: every row of the data crossed with every realized",
+        "## cell, so each condition is averaged over the same covariate distribution",
+        sprintf('grid <- counterfactual_grid(%s, %s, pol%s)', spec_name, data_name,
+                if (is.null(deg)) "" else ", cells = cells"),
+        if (!is.null(weights_txt)) c(
+          "## unit weights: the estimand is standardized to the population those",
+          "## weights describe, rather than to the sample as observed",
+          sprintf('grid$.w <- grid$.w * (%s)[grid$.row]', weights_txt))),
+      observed = c(
+        "## the observed rows as they stand, reweighted so that the versions enter",
+        "## at the policy's proportions: no prediction is made for a row never run",
+        sprintf('grid <- %s', data_name),
+        sprintf('grid$.w <- observed_weights(%s, grid, pol)', spec_name),
+        if (!is.null(weights_txt)) c(
+          "## unit weights: standardized to the population they describe",
+          sprintf('grid$.w <- grid$.w * (%s)', weights_txt))),
+      cells = c(
+        "## one row per realized cell, covariates at their means: the conditional",
+        "## effect at an average covariate value",
+        sprintf('grid <- cell_grid(%s%s)', spec_name,
+                if (is.null(deg)) "" else "[cells$cell, ]"),
+        sprintf('grid$.w <- policy_weights(%s, grid, pol)', spec_name))),
     "## estimand in the original variable space: `by =` names an original",
     sprintf("## factor, not the fitted `%s` predictor", cn),
     sprintf('est  <- avg_predictions(%s, newdata = grid, by = "%s", wts = grid$.w,',
@@ -257,7 +315,7 @@ add_bounds <- function(est, model, spec, target, contrast = "pairwise",
 ## Order instability is impossible under the cell parameterization, so this is
 ## a belt-and-braces check on the translation layer rather than on the fit.
 reorder_check <- function(model, spec, target, policy, at, contrast, dots_txt, data,
-                          scale = "response") {
+                          scale = "response", route = "counterfactual") {
   if (inherits(model, "brmsfit"))
     return(list(status = "skipped", note = paste(
       "reorder check skipped: refitting a brms model doubles sampling time.",
@@ -273,9 +331,9 @@ reorder_check <- function(model, spec, target, policy, at, contrast, dots_txt, d
     sp2 <- nesting_spec_quiet(spec, d2)
     m2  <- stats::update(model, data = sp2$data)
     e1  <- unname(estimand_values(model, spec, target, policy, at, contrast,
-                                  spec$data, scale))
+                                  spec$data, scale, route))
     e2  <- unname(estimand_values(m2, sp2, target, policy, at, contrast,
-                                  sp2$data, scale))
+                                  sp2$data, scale, route))
     if (length(e1) != length(e2))
       list(status = "failed", note = "the two runs returned different numbers of contrasts")
     else if (!isTRUE(all.equal(sort(round(abs(e1), 8)), sort(round(abs(e2), 8)),
@@ -302,7 +360,7 @@ spec_nests <- function(spec)
     if (length(f) > 1) sprintf("%s %%in%% %s", f[-1], f[-length(f)]) else character(0)))
 
 estimand_values <- function(model, spec, target, policy, at, contrast, data,
-                            scale = "response") {
+                            scale = "response", route = "counterfactual") {
   if (contrast == "within") {
     fam <- NULL; for (f in spec$cat_families) if (target %in% f) fam <- f
     parents <- fam[seq_len(match(target, fam) - 1)]
@@ -321,7 +379,13 @@ estimand_values <- function(model, spec, target, policy, at, contrast, data,
   if (identical(scale, "latent"))
     return(latent_estimand(model, target, pol, contrast = contrast,
                            data = data, spec = spec)$estimate)
-  g <- counterfactual_grid(spec, data, pol, cells = cells)
+  g <- switch(route,
+    counterfactual = counterfactual_grid(spec, data, pol, cells = cells),
+    observed = { d <- data; d$.w <- observed_weights(spec, d, pol); d },
+    cells = { d <- cell_grid(spec, data)
+              d <- d[as.character(d[[spec$cell_name]]) %in%
+                     as.character(cells[[spec$cell_name]]), , drop = FALSE]
+              d$.w <- policy_weights(spec, d, pol); d })
   mfx_canonical(as.data.frame(marginaleffects::avg_predictions(model,
     newdata = g, by = target, wts = g$.w, hypothesis = mfx_hypothesis(contrast))),
     levels(factor(data[[target]])))$estimate
@@ -352,7 +416,7 @@ print.nestimand_estimand <- function(x, ...) {
   class(y) <- setdiff(class(y), "nestimand_estimand")
   print(y, ...)
   pol <- if (is.character(meta$policy)) meta$policy else "supplied"
-  cat("\nPolicy: ", pol, "   contrast: ", meta$contrast,
+  cat("\nPolicy: ", pol, "   route: ", meta$route, "   contrast: ", meta$contrast,
       if (identical(meta$scale, "latent")) "   scale: latent" else "", sep = "")
   if (!is.null(meta$self_check))
     cat("   reorder check: ", meta$self_check$status, sep = "")

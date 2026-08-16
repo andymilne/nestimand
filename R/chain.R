@@ -33,7 +33,8 @@ zero_columns <- function(formula, data, drop_intercept = TRUE) {
 
 ## The random-effects side uses the same design, so the same examination
 ## settles both. Returned per grouping factor, since each bar has its own.
-chain_random_zeros <- function(spec, data = spec$data) {
+chain_random_zeros <- function(spec, data = NULL) {
+  if (is.null(data)) data <- sentinel_first(spec)
   bars <- spec$random_original
   if (is.null(bars)) return(list())
   bl <- gsub("^\\(|\\)$", "", regmatches(bars, gregexpr("\\(([^()]*)\\)", bars))[[1]])
@@ -61,7 +62,8 @@ chain_random_zeros <- function(spec, data = spec$data) {
   out
 }
 
-chain_priors <- function(spec, regularize = "normal(0, 5)", data = spec$data) {
+chain_priors <- function(spec, regularize = "normal(0, 5)", data = NULL) {
+  if (is.null(data)) data <- sentinel_first(spec)
   if (!identical(spec$fit, "brms"))
     stop("chain-mode declarations are a brms facility: they hold coefficients ",
          "at zero through the prior, which frequentist engines have no way to ",

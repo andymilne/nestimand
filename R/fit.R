@@ -208,8 +208,10 @@ nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "
       "##   nothing has to be held at zero. See chain_priors() for the",
       "##   alternative, which keeps the original factors and declares the",
       "##   uninformative columns instead.")
+  relevel_code <- if (identical(mode, "effects"))
+    sentinel_relevel_code(spec, data_name)
   code <- c(sprintf("## nestimand %s -- fit", nestimand_build), lib, mode_note,
-            re_note, prior_note,
+            relevel_code, re_note, prior_note,
             sprintf("m <- %s(%s%s, data = %s%s%s)", fn, f, fam, data_name,
                     prior_txt, dots_txt))
   if (isTRUE(dry_run))
