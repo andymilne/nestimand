@@ -29,8 +29,13 @@ the combination of realized conditions that the coefficient equals, read from
 the design rather than from the label. In cell space the labels are the
 conditions themselves and need no such gloss.
 
-Covariate slopes, and any covariate-by-condition interaction, are slopes rather
-than means and are reported untranslated. Under a threshold family the reference
+These are the model's own coefficients, reparameterized: the transformation is
+exact and no refit or reference grid is involved. Covariate slopes, and any
+covariate-by-condition interaction, are slopes rather than means and are
+reported untranslated. As with any intercept, a cell mean is the linear
+predictor where the covariates are zero, so an uncentred covariate makes it an
+extrapolation; centring covariates gives cell means at the covariate average
+instead. Under a threshold family the reference
 condition has no free coefficient, its latent mean being absorbed into the
 thresholds; that row reads as exactly zero and is flagged.
 }

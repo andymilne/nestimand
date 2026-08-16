@@ -91,8 +91,7 @@ coefficient_meaning <- function(spec, Tm, cells, extras, space) {
 
 print.nestimand_summary <- function(x, digits = 4, ...) {
   space <- attr(x, "nestimand_space")
-  cat("nestimand summary: ", space,
-      " parameterization, covariates held at zero\n", sep = "")
+  cat("nestimand summary: ", space, " parameterization\n", sep = "")
   d <- as.data.frame(x)
   d$estimate <- round(d$estimate, digits)
   d$std.error <- round(d$std.error, digits)
