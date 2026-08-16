@@ -624,7 +624,7 @@ print.nestimand_estimand <- function(x, digits = 4, ...) {
     d[[k]] <- round(d[[k]], digits)
   if ("p.value" %in% names(d))
     d$p.value <- format.pval(d$p.value, digits = max(2, digits - 1), eps = 10^-digits)
-  print(d, row.names = FALSE, right = FALSE, ...)
+  print_aligned(d, ...)
   pol <- if (identical(meta$contrast, "interaction")) "not applicable"
          else if (is.character(meta$policy)) meta$policy else "supplied"
   cat("\nPolicy: ", pol, "   route: ", meta$route, "   contrast: ", meta$contrast,

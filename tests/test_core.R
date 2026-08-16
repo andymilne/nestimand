@@ -1518,6 +1518,17 @@ chk("latent: a frequentist fit still reports a test statistic",
         names(latent_estimand(mf, "chord_type", "equal"))))
 
 ## ---- printed alignment ------------------------------------------------------
+chk("print: every numeric column is right-aligned, character or not",
+    { d <- data.frame(term = "a - b", estimate = 0.5, pd = 0.99)
+      x <- structure(d, class = c("nestimand_estimand", "data.frame"),
+                     nestimand = list(policy = "equal", route = "g_computation",
+                                      contrast = "pairwise", code = "x"))
+      ln <- capture.output(print(x))
+      ## the value ends where its header ends
+      endsw <- function(h, r, nm) {
+        i <- regexpr(nm, h, fixed = TRUE)[1] + nchar(nm) - 1
+        substr(r, i, i) != " " }
+      endsw(ln[1], ln[2], "estimate") && endsw(ln[1], ln[2], "pd") })
 chk("print: numeric headers sit over their columns, right-aligned",
     { ln <- capture.output(print(estimand(mf, chord_type, bounds = FALSE,
                                           self_check = FALSE)))
