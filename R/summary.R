@@ -10,9 +10,11 @@
 ## appears to mean. Each row therefore carries the combination of conditions it
 ## actually equals, so the label cannot be read in isolation.
 
-nest_summary <- function(model, spec, space = c("effects", "cells"),
-                         conf_level = 0.95, data = spec$data) {
+nest_summary <- function(model, spec = NULL, space = c("effects", "cells"),
+                         conf_level = 0.95, data = NULL) {
   space <- match.arg(space)
+  spec <- resolve_spec(model, spec)
+  if (is.null(data)) data <- spec$data
   b <- coef_vector(model)
   V <- stats::vcov(model)
   keep <- intersect(names(b), colnames(V))

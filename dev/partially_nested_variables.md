@@ -143,6 +143,19 @@ The formula is written in *chain form* – `chord_type + chord_type:inversion` r
 
 Which cell gets absorbed depends on which columns R's pivoting happens to drop – determined by the ordering of the factor levels: reordering the inversion levels changes `chord_typemaj` from 0.2452 to 0.7405, the same label now naming maj at inversion 1 minus aug. A significant `chord_typemaj` is a statement about one inversion, not about major chords, and nothing in the output says so.
 
+The remedy is not to abandon these coefficients but to label them by what they estimate. Each is an exact linear combination of realized cell means, and which combination is determined by the design rather than guessed, so a coefficient table can carry its own interpretation:
+
+```
+ term                     estimate std.error p.value  meaning
+ (Intercept)               4.0844  0.2153    < 1e-04  aug.none
+ chord_typedim            -0.3945  0.2625    0.13281  -aug.none + dim.2
+ chord_typemaj             0.2452  0.2625    0.35013  -aug.none + maj.2
+ chord_typemaj:inversion0  0.8027  0.2625    0.00223  maj.0 + -maj.2
+ training                  0.1157  0.0122    < 1e-04  covariate, untranslated
+```
+
+The `meaning` column is mechanical: it is read off the matrix relating cell means to identified effects, so it stays correct under any reordering of the factor levels, whereas the names do not. `nestimand::nest_summary()` produces this table from a fit in either parameterization, the coefficients and their standard errors being identical to those of a chain fit. Covariate slopes are slopes rather than means and pass through untranslated; under an ordinal family the reference cell has no free coefficient, its latent mean being absorbed into the thresholds, and that row is marked as such rather than left as a bare zero.
+
 ### 3.3 The reorder test
 
 Refit with the levels of the nested factor permuted. The fit must be unchanged; anything that changes was never identified.

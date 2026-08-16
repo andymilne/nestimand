@@ -224,7 +224,22 @@ nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "
   m <- eval(parse(text = paste(c(code, "m"), collapse = "\n")), envir = env)
   attr(m, "nestimand_code") <- code
   attr(m, "nestimand_mode") <- mode
+  ## the fit carries its declaration, so the summary and estimand functions can
+  ## be called on the model alone
+  attr(m, "nestimand_spec") <- spec
+  attr(m, "nestimand_spec_name") <- spec_name
   m
+}
+
+## Recover the declaration from a fit, when it was not passed explicitly.
+resolve_spec <- function(model, spec = NULL) {
+  if (inherits(spec, "nesting_spec")) return(spec)
+  s <- attr(model, "nestimand_spec")
+  if (is.null(s))
+    stop("no `spec` supplied, and this model does not carry one. A model fitted ",
+         "by nest_fit() carries its declaration; one fitted by calling the ",
+         "engine directly does not, so pass the nesting_spec explicitly.")
+  s
 }
 
 print.nestimand_code <- function(x, ...) {

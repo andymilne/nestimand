@@ -692,4 +692,26 @@ chk("nest_summary: works on an ordinal fit, where the coding differs",
 chk("nest_summary: the absorbed reference condition is flagged, not left at a bare zero",
     grepl("absorbed into the thresholds", nso$meaning[1]))
 
+## ---- the fit carries its declaration --------------------------------------
+chk("nest_fit: the spec travels with the model",
+    inherits(attr(mf, "nestimand_spec"), "nesting_spec") &&
+    identical(attr(mf, "nestimand_spec_name"), "sp"))
+chk("nest_summary: the model alone is enough",
+    isTRUE(all.equal(nest_summary(mf)$estimate, nest_summary(mf, sp)$estimate)))
+chk("estimand: the model alone is enough, the target read from the second slot",
+    isTRUE(all.equal(
+      as.data.frame(estimand(mf, chord_type, bounds = FALSE, self_check = FALSE))$estimate,
+      as.data.frame(estimand(mf, sp, chord_type, bounds = FALSE,
+                             self_check = FALSE))$estimate)))
+chk("estimand: the emitted code names the spec as it was named at fitting",
+    any(grepl("nest_policy(sp, \"chord_type\"",
+        attr(estimand(mf, chord_type, bounds = FALSE, self_check = FALSE),
+             "nestimand")$code, fixed = TRUE)))
+chk("latent_estimand: the model alone is enough",
+    abs(latent_estimand(mf, target = "chord_type")$estimate[3] + 0.6779) < 1e-4)
+chk("a model fitted outside nest_fit is refused, with the reason",
+    grepl("does not carry one", err_of(nest_summary(m))))
+chk("a bad spec is refused rather than read as a target",
+    grepl("not a nesting_spec", err_of(estimand(mf, "nonsense", chord_type))))
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

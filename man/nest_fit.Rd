@@ -42,7 +42,9 @@ as \code{diag()} survives translation.
 }
 \value{
 \code{nest_fit} the fitted model, with the code in its \code{nestimand_code}
-attribute, or an object of class \code{nestimand_code} when \code{dry_run = TRUE}.
+attribute and the declaration in \code{nestimand_spec}, so that
+\code{\link{estimand}} and \code{\link{nest_summary}} can be called on the model
+alone, or an object of class \code{nestimand_code} when \code{dry_run = TRUE}.
 \code{random_terms} a character string; \code{random_slope_rank} a list reporting the
 columns, rank, and identically zero columns of a structural random slope.
 }

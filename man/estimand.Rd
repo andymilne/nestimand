@@ -24,7 +24,7 @@ show_code(x, ...)
 }
 \arguments{
   \item{model}{a fitted model, ideally from \code{\link{nest_fit}}.}
-  \item{spec}{a \code{nesting_spec} object.}
+  \item{spec}{a \code{nesting_spec} object. Optional when the model carries one, in which case this argument is read as \code{target}: \code{estimand(m, chord_type)}.}
   \item{target}{name of the variable whose levels are contrasted, quoted or bare.}
   \item{policy}{a distribution over the versions of a compound condition: one of \code{"equal"}, \code{"proportional"}, \code{"counterfactual"}, \code{"hierarchical"}, \code{"nominated"}, or a named numeric vector of masses.}
   \item{at}{for \code{policy = "nominated"}, a named vector giving the version, e.g. \code{c(inversion = "0")}.}
@@ -57,7 +57,7 @@ attribute. \code{show_code} prints the code and returns it invisibly.
 sp <- nesting_spec(dat, response ~ chord_type * inversion + training,
                    "inversion %in% chord_type")
 m  <- nest_fit(sp)
-e  <- estimand(m, sp, chord_type, policy = "equal")
+e  <- estimand(m, chord_type, policy = "equal")   # the fit carries its spec
 e
 show_code(e)
 }

@@ -77,9 +77,11 @@ contrast_pairs <- function(levs, contrast = "pairwise") {
     stop("contrast must be pairwise, reference, or sequential here."))
 }
 
-latent_estimand <- function(model, spec, target, policy = "equal", at = NULL,
-                            contrast = "pairwise", data = spec$data,
+latent_estimand <- function(model, spec = NULL, target, policy = "equal", at = NULL,
+                            contrast = "pairwise", data = NULL,
                             conf_level = 0.95) {
+  spec <- resolve_spec(model, spec)
+  if (is.null(data)) data <- spec$data
   pol <- if (inherits(policy, "nestimand_policy")) policy
          else nest_policy(spec, target, policy, at, data)
   M <- policy_contrast_matrix(spec, target, pol, data, model)
@@ -105,8 +107,10 @@ latent_estimand <- function(model, spec, target, policy = "equal", at = NULL,
 
 ## The Bayesian counterpart: the same c, applied draw by draw, so the result is
 ## a posterior rather than a delta-method interval.
-latent_draws <- function(model, spec, target, policy = "equal", at = NULL,
-                         contrast = "pairwise", data = spec$data) {
+latent_draws <- function(model, spec = NULL, target, policy = "equal", at = NULL,
+                         contrast = "pairwise", data = NULL) {
+  spec <- resolve_spec(model, spec)
+  if (is.null(data)) data <- spec$data
   if (!inherits(model, "brmsfit"))
     stop("draw-wise translation needs a posterior; this is a frequentist fit. ",
          "Use latent_estimand() for the delta-method interval.")

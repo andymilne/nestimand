@@ -11,17 +11,17 @@ linear, averaging predictions over that grid and averaging its rows are the same
 operation, so this is G-computation rather than an approximation to it.
 }
 \usage{
-latent_estimand(model, spec, target, policy = "equal", at = NULL,
-                contrast = "pairwise", data = spec$data, conf_level = 0.95)
+latent_estimand(model, spec = NULL, target, policy = "equal", at = NULL,
+                contrast = "pairwise", data = NULL, conf_level = 0.95)
 
-latent_draws(model, spec, target, policy = "equal", at = NULL,
-             contrast = "pairwise", data = spec$data)
+latent_draws(model, spec = NULL, target, policy = "equal", at = NULL,
+             contrast = "pairwise", data = NULL)
 
 policy_contrast_matrix(spec, target, policy, data = spec$data, model = NULL)
 }
 \arguments{
   \item{model}{a fitted model.}
-  \item{spec}{a \code{nesting_spec} object.}
+  \item{spec}{a \code{nesting_spec} object. Optional when the model carries one; name \code{target} in that case.}
   \item{target}{name of the variable whose levels are contrasted, quoted or bare.}
   \item{policy}{a distribution over the versions of a compound condition: one of \code{"equal"}, \code{"proportional"}, \code{"counterfactual"}, \code{"hierarchical"}, \code{"nominated"}, or a named numeric vector of masses.}
   \item{at}{for \code{policy = "nominated"}, a named vector giving the version, e.g. \code{c(inversion = "0")}.}

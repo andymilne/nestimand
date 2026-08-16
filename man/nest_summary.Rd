@@ -10,15 +10,15 @@ coefficients are an exact linear function of the cell means, so
 refitting anything, and with the standard errors a chain fit would give.
 }
 \usage{
-nest_summary(model, spec, space = c("effects", "cells"),
-             conf_level = 0.95, data = spec$data)
+nest_summary(model, spec = NULL, space = c("effects", "cells"),
+             conf_level = 0.95, data = NULL)
 }
 \arguments{
   \item{model}{a fitted model, ideally from \code{\link{nest_fit}}.}
-  \item{spec}{a \code{nesting_spec} object.}
+  \item{spec}{a \code{nesting_spec} object. Optional: a model fitted by \code{\link{nest_fit}} carries its own declaration.}
   \item{space}{\code{"effects"} for the identified chain coefficients, \code{"cells"} for the realized-cell means.}
   \item{conf_level}{confidence level for the intervals.}
-  \item{data}{data from which the cell grid is built.}
+  \item{data}{data from which the cell grid is built; the spec's data by default.}
 }
 \details{
 Coefficient names inherited from the design matrix are unreliable in a partially
@@ -48,7 +48,7 @@ in the \code{nestimand_map} attribute.
 sp <- nesting_spec(dat, response ~ chord_type * inversion + training,
                    "inversion \%in\% chord_type")
 m  <- nest_fit(sp)
-nest_summary(m, sp)            # effect coefficients, with their meanings
-nest_summary(m, sp, "cells")   # the realized-cell means
+nest_summary(m)                # effect coefficients, with their meanings
+nest_summary(m, space = "cells")   # the realized-cell means
 }
 }

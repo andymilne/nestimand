@@ -11,6 +11,18 @@ estimand <- function(model, spec, target,
                      scale = c("response", "latent"),
                      data = NULL, bounds = TRUE, self_check = TRUE,
                      ..., .env = parent.frame()) {
+  ## The declaration may be omitted when the model carries one, in which case
+  ## the second argument is read as the target: estimand(m, chord_type).
+  spec_expr <- substitute(spec)
+  recovered <- FALSE
+  if (!tryCatch(inherits(spec, "nesting_spec"), error = function(e) FALSE)) {
+    if (!missing(target))
+      stop("`spec` is not a nesting_spec object. Supply one, or omit it and let ",
+           "the model carry its own: estimand(model, target).")
+    target <- spec_expr
+    spec <- resolve_spec(model, NULL)
+    recovered <- TRUE
+  }
   contrast <- match.arg(contrast)
   scale <- match.arg(scale)
   if (identical(scale, "latent") && identical(contrast, "within"))
@@ -18,7 +30,7 @@ estimand <- function(model, spec, target,
          "has no linear-map form here; use scale = \"response\".")
   if (!inherits(spec, "nesting_spec"))
     stop("`spec` must be a nesting_spec object, as returned by nesting_spec().")
-  tg <- substitute(target)
+  tg <- if (recovered) target else substitute(target)
   if (is.name(tg)) target <- deparse(tg)
   if (!target %in% spec$cell_vars)
     stop("`", target, "` is not one of the declared categorical nesting ",
@@ -27,7 +39,11 @@ estimand <- function(model, spec, target,
          "policy; compute them directly.")
 
   model_name <- deparse(substitute(model))
-  spec_name  <- deparse(substitute(spec))
+  ## When the declaration came from the fit, refer to it by the name it had
+  ## when the model was fitted, so the emitted code reads as the user wrote it.
+  spec_name  <- if (recovered)
+    (if (is.null(attr(model, "nestimand_spec_name"))) "spec"
+     else attr(model, "nestimand_spec_name")) else deparse(spec_expr)
   data_name <- if (missing(data)) paste0(spec_name, "$data")
                else paste(deparse(substitute(data)), collapse = " ")
   if (is.null(data)) { data <- spec$data; data_name <- paste0(spec_name, "$data") }
