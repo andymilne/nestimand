@@ -1310,4 +1310,27 @@ chk("estimand: the fit is shown in the code but not re-run",
 chk("estimand: the code view still contains the fit",
     any(grepl("nestimand -- fit", attr(e_c, "nestimand")$code)))
 
+## ---- brms's own arguments reach the engine ---------------------------------
+## `priors` sits after the dots so that R cannot partial-match brms's `prior`
+## to it; a brms prior therefore passes straight through.
+if (requireNamespace("brms", quietly = TRUE)) {
+  cd_b <- nest_fit(spb2, dry_run = TRUE,
+                   prior = brms::set_prior("normal(0, 1)", class = "b"),
+                   sample_prior = "yes", init = 0, file = "somewhere")
+  chk("brms: `prior` is handed to the engine, not captured by `priors`",
+      grepl('prior = brms::set_prior("normal(0, 1)", class = "b")', cd_b,
+            fixed = TRUE))
+  chk("brms: the other engine arguments travel with it",
+      grepl('sample_prior = "yes"', cd_b, fixed = TRUE) &&
+      grepl("init = 0", cd_b, fixed = TRUE) &&
+      grepl('file = "somewhere"', cd_b, fixed = TRUE))
+  chk("brms: a nestimand prior still works, named in full",
+      grepl("prior_statement",
+            nest_fit(spb2, priors = prb, dry_run = TRUE), fixed = TRUE))
+  chk("brms: a brms prior in the `priors` slot is refused, with the remedy",
+      grepl("goes to the engine under its own name",
+            err_of(nest_fit(spb2, priors = brms::set_prior("normal(0,1)", class = "b"),
+                            dry_run = TRUE))))
+}
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

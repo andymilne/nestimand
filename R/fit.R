@@ -130,8 +130,8 @@ random_terms <- function(spec, structure = c("cells", "chain", "chain_slope",
 
 ## --- the fit ---------------------------------------------------------------
 nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "as_declared"),
-                     data = NULL, engine = "marginaleffects", priors = NULL,
-                     dry_run = FALSE, ..., .env = parent.frame()) {
+                     data = NULL, engine = "marginaleffects",
+                     dry_run = FALSE, ..., priors = NULL, .env = parent.frame()) {
   random_structure <- match.arg(random_structure)
   spec_name  <- deparse(substitute(spec))
   prior_name <- deparse(substitute(priors))
@@ -167,6 +167,14 @@ nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "
     }, names(dots), dots), collapse = ", ")) else ""
   prior_txt <- ""
   prior_note <- NULL
+  ## brms's own `prior` argument must reach the engine untouched. With `priors`
+  ## declared before `...` R would partial-match it here and refuse the call, so
+  ## `priors` sits after the dots and has to be named in full.
+  if (inherits(priors, "brmsprior"))
+    stop("`priors` takes a nestimand prior object - nest_prior() for a translated ",
+         "prior, chain_priors() for the chain-mode declarations. A brms prior ",
+         "goes to the engine under its own name: pass `prior = ` and it will be ",
+         "handed through unaltered.")
   if (inherits(priors, "nestimand_chain_priors")) {
     if (!identical(mode, "effects"))
       stop("chain-mode declarations belong to the chain parameterization, but ",
