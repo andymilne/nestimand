@@ -177,21 +177,35 @@ print.nesting_spec <- function(x, ...) {
   invisible(x)
 }
 
-apply_sentinel <- function(data, var, where, sentinel = "none") {
-  ## Convert NA to a sentinel ONLY where the design says the variable is
-  ## undefined. `where`: logical vector marking the structurally undefined
-  ## rows (e.g. data$chord_type == "aug"). Both mismatches are errors:
-  ## NA outside `where` is genuine missingness, not structure; non-NA
-  ## inside `where` means the coding is already inconsistent.
+apply_sentinel <- function(data, var, where = NULL, sentinel = "none") {
+  ## Convert NA to a sentinel where the design says the variable is undefined.
+  ## `where` marks the structurally undefined rows, e.g. data$chord_type == "aug".
+  ## Supplying it is worthwhile: NA conflates two things this package keeps
+  ## apart, and with `where` given, an NA outside those rows is genuine
+  ## missingness and is refused, while a non-NA inside them is inconsistent
+  ## coding and is likewise refused. Omitting it converts every NA and warns.
   x <- data[[var]]
-  if (any(is.na(x) & !where))
-    stop(sum(is.na(x) & !where), " NA value(s) in `", var,
-         "` fall outside the declared undefined rows. Those are genuine ",
-         "missing data, not structure; do not convert them to a sentinel.")
-  if (any(!is.na(x) & where))
-    stop(sum(!is.na(x) & where), " non-NA value(s) in `", var,
-         "` occur inside the declared undefined rows; resolve the ",
-         "inconsistent coding before applying a sentinel.")
+  if (is.null(where)) {
+    n <- sum(is.na(x))
+    if (n)
+      warning("converting all ", n, " NA value(s) in `", var, "` to the sentinel ",
+              "without checking which are structural. Any that are genuine ",
+              "missing data are now coded as an existing condition, and will be ",
+              "analysed as one. Supplying `where` - a logical vector marking the ",
+              "rows in which `", var, "` is undefined by design, such as ",
+              "`data$parent == \"level\"` - restricts the conversion to those ",
+              "rows and refuses the rest.", call. = FALSE)
+    where <- is.na(x)
+  } else {
+    if (any(is.na(x) & !where))
+      stop(sum(is.na(x) & !where), " NA value(s) in `", var,
+           "` fall outside the declared undefined rows. Those are genuine ",
+           "missing data, not structure; do not convert them to a sentinel.")
+    if (any(!is.na(x) & where))
+      stop(sum(!is.na(x) & where), " non-NA value(s) in `", var,
+           "` occur inside the declared undefined rows; resolve the ",
+           "inconsistent coding before applying a sentinel.")
+  }
   if (is.numeric(x)) {
     if (!is.numeric(sentinel)) sentinel <- 0
     x[where] <- sentinel

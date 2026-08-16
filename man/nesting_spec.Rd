@@ -14,7 +14,7 @@ nesting_spec(data, formula, nests,
              fit = c("lm", "glm", "lmer", "glmer", "clm", "clmm", "brms"),
              family = NULL, random = NULL, cell_name = "cell")
 
-apply_sentinel(data, var, where, sentinel = "none")
+apply_sentinel(data, var, where = NULL, sentinel = "none")
 }
 \arguments{
   \item{data}{a data frame containing the outcome, the nesting variables, and any covariates.}
@@ -25,7 +25,7 @@ apply_sentinel(data, var, where, sentinel = "none")
   \item{random}{random-effects terms, if not written into \code{formula}.}
   \item{cell_name}{name for the constructed cell factor. An existing column of that name is refused rather than overwritten.}
   \item{var}{for \code{apply_sentinel}, the variable to convert.}
-  \item{where}{logical vector marking the rows in which \code{var} is structurally undefined.}
+  \item{where}{logical vector marking the rows in which \code{var} is structurally undefined. Optional: when omitted, every \code{NA} is converted and a warning is given, since any that were genuine missing data are then coded as an existing condition. When supplied, an \code{NA} outside those rows is refused as genuine missingness, and a non-\code{NA} inside them is refused as inconsistent coding.}
   \item{sentinel}{the sentinel value; numeric variables default to \code{0}.}
 }
 \details{

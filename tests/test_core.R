@@ -643,4 +643,29 @@ chk("diag(): a plain bar is unaffected",
     identical(random_terms(mk_re("(chord_type * inversion | participant)"), "cells"),
               "(0 + cell | participant)"))
 
+## ---- apply_sentinel(): `where` is optional ---------------------------------
+dna <- dat; dna$inversion[dna$chord_type == "aug"] <- NA
+w <- NULL
+d_auto <- withCallingHandlers(apply_sentinel(dna, "inversion"),
+  warning = function(x) { w <<- conditionMessage(x); invokeRestart("muffleWarning") })
+d_expl <- apply_sentinel(dna, "inversion", dna$chord_type == "aug")
+chk("apply_sentinel: omitting `where` converts every NA",
+    !anyNA(d_auto$inversion) && identical(d_auto$inversion, d_expl$inversion))
+chk("apply_sentinel: omitting `where` warns, naming the risk and the remedy",
+    grepl("genuine missing data", w) && grepl("`where`", w) && grepl("40", w))
+chk("apply_sentinel: supplying `where` converts silently",
+    { w2 <- NULL
+      withCallingHandlers(apply_sentinel(dna, "inversion", dna$chord_type == "aug"),
+        warning = function(x) { w2 <<- conditionMessage(x); invokeRestart("muffleWarning") })
+      is.null(w2) })
+dmix <- dna; dmix$inversion[5] <- NA
+chk("apply_sentinel: with `where`, genuine missingness is still refused",
+    grepl("genuine missing data",
+          err_of(apply_sentinel(dmix, "inversion", dmix$chord_type == "aug"))))
+chk("apply_sentinel: the sentinel is placed first among the levels",
+    identical(levels(d_auto$inversion)[1], "none"))
+chk("apply_sentinel: numeric variables take 0 by default",
+    { dn <- data.frame(v = factor(c("none", "p")), r = c(NA, 5))
+      identical(apply_sentinel(dn, "r")$r, c(0, 5)) })
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
