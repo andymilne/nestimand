@@ -11,23 +11,41 @@ policy_aliases <- c("equal", "proportional", "counterfactual", "hierarchical",
 ## Versions of the compound condition within each stratum of `target`.
 ## The stratum is a level of `target`; the versions are the realized
 ## combinations of the variables nested below it in the same family.
-versions_of <- function(spec, target) {
+versions_of <- function(spec, target, cells = spec$cells) {
   fam <- NULL
   for (f in spec$cat_families) if (target %in% f) fam <- f
   if (is.null(fam))
     stop("`", target, "` is not a categorical variable of any declared nesting ",
          "family (", paste(unlist(spec$cat_families), collapse = ", "), ").")
-  pos <- match(target, fam)
-  below <- fam[-seq_len(pos)]
+  ## The versions of a condition are the realized cells it occurs in, described
+  ## by the other categorical variables. For a nesting root those are the
+  ## variables below it; for a nested variable they are the strata it appears
+  ## in, which is the same construction read the other way.
+  others <- setdiff(spec$cell_vars, target)
+  key <- if (length(others))
+    do.call(paste, c(unname(lapply(others, function(v) as.character(cells[[v]]))),
+                     sep = ".")) else rep("", nrow(cells))
+  split(key, as.character(cells[[target]]))
+}
+
+## Strata in which the target does not vary: there the comparison would leave
+## the target's own levels and compare strata instead, under the target's label.
+degenerate_strata <- function(spec, target) {
+  fam <- NULL
+  for (f in spec$cat_families) if (target %in% f) fam <- f
+  above <- fam[seq_len(match(target, fam) - 1)]
+  if (!length(above)) return(NULL)
   tab <- spec$cells
-  key <- if (length(below)) do.call(paste, c(unname(tab[below]), sep = ".")) else
-    rep("", nrow(tab))
-  split(key, as.character(tab[[target]]))
+  key <- do.call(paste, c(unname(lapply(above, function(v) as.character(tab[[v]]))),
+                          sep = "."))
+  n <- tapply(as.character(tab[[target]]), key, function(z) length(unique(z)))
+  list(vars = above, keep = names(n)[n > 1], drop = names(n)[n == 1])
 }
 
 ## p as a per-stratum named vector, from an alias or a supplied distribution.
-nest_policy <- function(spec, target, policy = "equal", at = NULL, data = spec$data) {
-  vs <- versions_of(spec, target)
+nest_policy <- function(spec, target, policy = "equal", at = NULL, data = spec$data,
+                        cells = spec$cells) {
+  vs <- versions_of(spec, target, cells)
   if (is.character(policy) && length(policy) == 1L) {
     kind <- match.arg(policy, policy_aliases)
     if (kind == "within")
@@ -49,10 +67,10 @@ nest_policy <- function(spec, target, policy = "equal", at = NULL, data = spec$d
         cellcount <- table(factor(key, levels = spec$cell_levels))
         vkey <- stats::setNames(
           do.call(paste, c(unname(lapply(setdiff(spec$cell_vars, target), function(x)
-            as.character(spec$cells[[x]]))), sep = ".")),
-          as.character(spec$cells[[spec$cell_name]]))
+            as.character(cells[[x]]))), sep = ".")),
+          as.character(cells[[spec$cell_name]]))
         lapply(names(vs), function(s) {
-          rows <- names(vkey)[as.character(spec$cells[[target]]) == s]
+          rows <- names(vkey)[as.character(cells[[target]]) == s]
           cnt <- as.numeric(cellcount[rows])
           stats::setNames(cnt / sum(cnt), vs[[s]])
         }) |> stats::setNames(names(vs))
@@ -118,9 +136,7 @@ ave_unique <- function(lev, key)
                         FUN = function(i) length(unique(lev[i]))))
 
 version_key <- function(spec, target, at, versions) {
-  fam <- NULL
-  for (f in spec$cat_families) if (target %in% f) fam <- f
-  below <- fam[-seq_len(match(target, fam))]
+  below <- setdiff(spec$cell_vars, target)
   miss <- setdiff(below, names(at))
   if (length(miss))
     stop("`at` must name a level for every variable nested below `", target,
@@ -143,8 +159,8 @@ print.nestimand_policy <- function(x, ...) {
 ## that the version distribution is not confounded with the covariate
 ## distribution. The observed-rows subset coincides with this only under
 ## balance and covariate independence.
-counterfactual_grid <- function(spec, data = spec$data, policy = NULL) {
-  cells <- spec$cells
+counterfactual_grid <- function(spec, data = spec$data, policy = NULL,
+                                cells = spec$cells) {
   keep_cols <- setdiff(names(data), c(spec$cell_vars, spec$cell_name))
   g <- data[rep(seq_len(nrow(data)), each = nrow(cells)), keep_cols, drop = FALSE]
   for (v in c(spec$cell_vars, spec$cell_name))
@@ -157,11 +173,11 @@ counterfactual_grid <- function(spec, data = spec$data, policy = NULL) {
 
 policy_weights <- function(spec, grid, policy) {
   target <- policy$target
-  fam <- NULL
-  for (f in spec$cat_families) if (target %in% f) fam <- f
-  below <- fam[-seq_len(match(target, fam))]
-  vkey <- if (length(below))
-    do.call(paste, c(unname(lapply(below, function(v) as.character(grid[[v]]))), sep = "."))
+  ## the same construction as versions_of(): a version is named by the other
+  ## categorical variables, whichever side of the target they sit on
+  others <- setdiff(spec$cell_vars, target)
+  vkey <- if (length(others))
+    do.call(paste, c(unname(lapply(others, function(v) as.character(grid[[v]]))), sep = "."))
   else rep("", nrow(grid))
   strat <- as.character(grid[[target]])
   w <- numeric(nrow(grid))

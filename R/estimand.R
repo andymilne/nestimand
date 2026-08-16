@@ -31,6 +31,15 @@ estimand <- function(model, target, policy = "equal", at = NULL,
          "of a covariate do not cross the structural boundary and need no ",
          "policy; compute them directly.")
 
+  ## A marginal contrast of a nested variable is computed only over the strata
+  ## in which that variable varies. Elsewhere it holds a single level, and a
+  ## comparison against that level leaves the variable's own levels and compares
+  ## strata instead - augmented chords against root-position triads, say, under
+  ## an inversion label.
+  deg <- if (!identical(contrast, "within")) degenerate_strata(spec, target)
+  restricted <- !is.null(deg) && length(deg$drop)
+  if (!restricted) deg <- NULL
+
   model_name <- deparse(substitute(model))
   ## When the declaration came from the fit, refer to it by the name it had
   ## when the model was fitted, so the emitted code reads as the user wrote it.
@@ -64,7 +73,8 @@ estimand <- function(model, target, policy = "equal", at = NULL,
     }, names(dots), dots), collapse = ", ")) else ""
 
   code <- estimand_code(spec, target, policy, at, contrast, dots_txt,
-                        model_name, spec_name, data_name, bounds, scale)
+                        model_name, spec_name, data_name, bounds, scale,
+                        deg)
   ## if the model was fitted by nest_fit(), its call travels with it, so the
   ## code view is the whole pipeline rather than its second half
   fit_code <- attr(model, "nestimand_code")
@@ -97,7 +107,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
 
 estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
                           model_name, spec_name, data_name, bounds,
-                          scale = "response") {
+                          scale = "response", deg = NULL) {
   cn <- spec$cell_name
   pol_txt <- if (is.character(policy) && length(policy) == 1L)
     sprintf('"%s"', policy)
@@ -148,12 +158,23 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
                 model_name, spec_name, target, contrast, dots_txt))
     return(c(body, "est"))
   }
-  body <- c(hdr,
+  cells_txt <- if (is.null(deg)) sprintf("%s$cells", spec_name) else
+    sprintf('subset(%s$cells, %s %%in%% c(%s))', spec_name, deg$vars[1],
+            paste(sprintf('"%s"', deg$keep), collapse = ", "))
+  restrict_note <- if (is.null(deg)) NULL else c(
+    sprintf("## `%s` does not vary in every stratum. The contrast is pooled over", target),
+    sprintf("## the strata in which it does - %s - since elsewhere a comparison",
+            paste(deg$keep, collapse = ", ")),
+    "## would leave its own levels and compare strata instead.",
+    sprintf("cells <- %s", cells_txt))
+  body <- c(hdr, restrict_note,
     sprintf("## the policy: a distribution over the versions of each compound condition"),
-    sprintf('pol  <- nest_policy(%s, "%s", %s%s)', spec_name, target, pol_txt, at_txt),
+    sprintf('pol  <- nest_policy(%s, "%s", %s%s%s)', spec_name, target, pol_txt,
+            at_txt, if (is.null(deg)) "" else ", cells = cells"),
     "## G-computation grid: every row of the data crossed with every realized",
     "## cell, with the policy attached as row weights",
-    sprintf('grid <- counterfactual_grid(%s, %s, pol)', spec_name, data_name),
+    sprintf('grid <- counterfactual_grid(%s, %s, pol%s)', spec_name, data_name,
+            if (is.null(deg)) "" else ", cells = cells"),
     "## estimand in the original variable space: `by =` names an original",
     sprintf("## factor, not the fitted `%s` predictor", cn),
     sprintf('est  <- avg_predictions(%s, newdata = grid, by = "%s", wts = grid$.w,',
@@ -270,11 +291,14 @@ estimand_values <- function(model, spec, target, policy, at, contrast, data,
         levels(factor(data[[target]])))$estimate
     })))
   }
-  pol <- nest_policy(spec, target, policy, at, data)
+  deg <- if (!identical(contrast, "within")) degenerate_strata(spec, target)
+  cells <- if (is.null(deg) || !length(deg$drop)) spec$cells else
+    spec$cells[as.character(spec$cells[[deg$vars[1]]]) %in% deg$keep, , drop = FALSE]
+  pol <- nest_policy(spec, target, policy, at, data, cells = cells)
   if (identical(scale, "latent"))
     return(latent_estimand(model, target, pol, contrast = contrast,
                            data = data, spec = spec)$estimate)
-  g <- counterfactual_grid(spec, data, pol)
+  g <- counterfactual_grid(spec, data, pol, cells = cells)
   mfx_canonical(as.data.frame(marginaleffects::avg_predictions(model,
     newdata = g, by = target, wts = g$.w, hypothesis = mfx_hypothesis(contrast))),
     levels(factor(data[[target]])))$estimate

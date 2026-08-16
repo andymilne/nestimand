@@ -785,4 +785,34 @@ chk("class: the engine's own methods still work",
     length(predict(mf, newdata = head(sp$data))) == 6 &&
     inherits(summary(mf), "summary.lm") && nrow(vcov(mf)) == 11)
 
+## ---- marginal contrasts of a nested variable ------------------------------
+## `inversion` holds only the sentinel in the augmented stratum, so a contrast
+## against that level would compare strata rather than inversions. Such strata
+## are excluded, giving the pooled estimand of Section 4.1.
+einv <- estimand(mf, inversion, bounds = FALSE, self_check = FALSE)
+dinv <- as.data.frame(einv)
+chk("nested target: no contrast involves the sentinel level",
+    nrow(dinv) == 3 && !any(grepl("none", dinv$term)))
+chk("nested target: the pooled contrasts match Section 4.1",
+    max(abs(sort(round(dinv$estimate, 4)) -
+            sort(c(0.1632, 0.7337, 0.5706)))) < 1e-3)
+chk("nested target: the restriction is stated in the emitted code",
+    any(grepl("does not vary in every stratum", attr(einv, "nestimand")$code)) &&
+    any(grepl("subset(sp$cells", attr(einv, "nestimand")$code, fixed = TRUE)))
+chk("nested target: it passes the reorder check",
+    identical(attr(estimand(mf, inversion, bounds = FALSE),
+                   "nestimand")$self_check$status, "passed"))
+chk("nested target: within contrasts are unaffected",
+    nrow(as.data.frame(estimand(mf, inversion, contrast = "within",
+                                bounds = FALSE, self_check = FALSE))) == 9)
+chk("root target: no restriction applies, and the estimand is unchanged",
+    is.null(degenerate_strata(sp, "chord_type")) &&
+    abs(as.data.frame(estimand(mf, chord_type, bounds = FALSE,
+                               self_check = FALSE))$estimate[3] + 0.6779) < 1e-4)
+chk("versions: a nested variable's versions are the strata it occurs in",
+    identical(sort(versions_of(sp, "inversion")[["0"]]), c("dim", "maj", "min")) &&
+    identical(versions_of(sp, "inversion")[["none"]], "aug"))
+chk("versions: a root variable's versions are unchanged",
+    identical(sort(versions_of(sp, "chord_type")[["maj"]]), c("0", "1", "2")))
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
