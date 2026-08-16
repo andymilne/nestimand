@@ -171,12 +171,23 @@ estimand <- function(model, target, policy = "equal", at = NULL,
     if (length(target) < 2)
       stop("an interaction contrast needs at least two targets, e.g. ",
            "estimand(model, chord_type:inversion).")
-    if (!identical(policy, "equal"))
-      stop("an interaction contrast crosses no structural boundary - every cell ",
-           "it uses exists - so it takes no policy. Drop `policy`, or ask for a ",
-           "marginal contrast of one variable instead.")
+    ## A policy weights the versions of a compound condition. An interaction
+    ## uses only cells that exist, so it crosses no boundary and there is
+    ## nothing for a policy to weight. Rather than refuse the call - which would
+    ## also refuse the marginal contrasts of `a * b`, where the policy does
+    ## apply - it is dropped here, and said so.
+    if (!identical(policy, "equal")) {
+      message("`policy = \"", if (is.character(policy)) policy else "supplied",
+              "\"` does not apply to an interaction contrast: every cell it uses ",
+              "exists, so no boundary is crossed and there are no versions to ",
+              "weight. The interaction was computed without it; any marginal ",
+              "contrasts requested alongside it keep the policy.")
+      policy <- "equal"
+      policy_dropped <- TRUE
+    }
     bounds <- FALSE
   }
+  if (!exists("policy_dropped", inherits = FALSE)) policy_dropped <- FALSE
   code <- estimand_code(spec, target, policy, at, contrast, dots_txt,
                         model_name, spec_name, data_name, bounds, scale,
                         deg, route, weights_txt, re_note)
@@ -213,6 +224,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
             nestimand = list(build = nestimand_build, target = target,
                              policy = policy, at = at, contrast = contrast,
                              scale = scale, route = route,
+                             policy_dropped = policy_dropped,
                              bounds = attr(out, "nestimand_bounds"),
                              self_check = check,
                              code = code),
@@ -534,7 +546,8 @@ print.nestimand_estimand <- function(x, digits = 4, ...) {
   if ("p.value" %in% names(d))
     d$p.value <- format.pval(d$p.value, digits = max(2, digits - 1), eps = 10^-digits)
   print(d, row.names = FALSE, right = FALSE, ...)
-  pol <- if (is.character(meta$policy)) meta$policy else "supplied"
+  pol <- if (identical(meta$contrast, "interaction")) "not applicable"
+         else if (is.character(meta$policy)) meta$policy else "supplied"
   cat("\nPolicy: ", pol, "   route: ", meta$route, "   contrast: ", meta$contrast,
       if (identical(meta$scale, "latent")) "   scale: latent" else "", sep = "")
   if (!is.null(meta$self_check))

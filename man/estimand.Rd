@@ -99,7 +99,9 @@ a summary of particular rows is wanted.
 
 An interaction contrast is a different kind of quantity: every cell it uses
 exists, so no boundary is crossed, no policy applies, and there are no bounds to
-report. It is computed only over the strata in which every target varies, so the
+report. A policy supplied alongside one is dropped rather than refused, with a
+message saying so, since \code{a * b} asks for marginal contrasts as well, and
+there the policy does apply. It is computed only over the strata in which every target varies, so the
 degenerate stratum drops out by construction.
 
 \code{weights} is a third and independent choice: it weights the rows rather

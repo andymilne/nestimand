@@ -1227,9 +1227,26 @@ chk("interaction: a difference of differences, matching the raw cell means",
         ((cm[["min.1"]] - cm[["min.0"]]) - (cm[["dim.1"]] - cm[["dim.0"]]))) < 1e-4)
 chk("interaction: 9 contrasts, none touching the sentinel stratum",
     nrow(di) == 9 && !any(grepl("aug|none", di$term)))
-chk("interaction: no policy applies, and one is refused",
-    grepl("crosses no structural boundary",
-          err_of(estimand(mf, chord_type:inversion, policy = "proportional"))))
+chk("interaction: a policy is dropped rather than refused, and reported",
+    { msg <- NULL
+      r <- withCallingHandlers(
+        estimand(mf, chord_type:inversion, policy = "proportional",
+                 self_check = FALSE),
+        message = function(m) { msg <<- conditionMessage(m)
+                                invokeRestart("muffleMessage") })
+      grepl("does not apply to an interaction", msg) &&
+      isTRUE(attr(r, "nestimand")$policy_dropped) &&
+      nrow(as.data.frame(r)) == 9 })
+chk("interaction: dropping it leaves the marginal contrasts' policy intact",
+    { r <- suppressMessages(estimand(mf, chord_type * inversion,
+                                     policy = "proportional", bounds = FALSE,
+                                     self_check = FALSE))
+      identical(attr(r[["chord_type"]], "nestimand")$policy, "proportional") &&
+      isTRUE(attr(r[["chord_type:inversion"]], "nestimand")$policy_dropped) })
+chk("interaction: the printed policy reads as not applicable",
+    any(grepl("Policy: not applicable",
+        capture.output(print(estimand(mf, chord_type:inversion,
+                                      self_check = FALSE))))))
 chk("interaction: no bounds, since there is no policy to vary",
     is.null(attr(ei, "nestimand")$bounds))
 est_star <- estimand(mf, chord_type * inversion, bounds = FALSE, self_check = FALSE)
