@@ -316,11 +316,25 @@ add_bounds <- function(est, model, spec, target, contrast = "pairwise",
 ## a belt-and-braces check on the translation layer rather than on the fit.
 reorder_check <- function(model, spec, target, policy, at, contrast, dots_txt, data,
                           scale = "response", route = "g_computation") {
-  if (inherits(model, "brmsfit"))
-    return(list(status = "skipped", note = paste(
-      "reorder check skipped: refitting a brms model doubles sampling time.",
-      "Re-run with self_check = TRUE on a cheaper fit of the same structure,",
-      "or accept the check as unnecessary under the cell parameterization.")))
+  ## Order instability is a fixed-effects phenomenon: it arises from which
+  ## columns a pivot drops, not from the random structure. Refitting a mixed
+  ## model to test for it is therefore both expensive and unreliable - a large
+  ## random structure can settle on a different optimum, and the estimands then
+  ## differ by an amount that has nothing to do with level order. The check
+  ## accordingly runs on the fixed-effects shadow model: the same cell formula
+  ## fitted without the random terms.
+  shadow <- switch(spec$fit,
+    lmer = "lm", glmer = "glm", clmm = "clm",
+    brms = if (has_thresholds(spec)) "clm" else if (is.null(spec$family)) "lm" else "glm",
+    NULL)
+  fit_shadow <- function(spx, dta) {
+    f <- cell_formula(spx)
+    switch(shadow,
+      lm  = stats::lm(f, data = dta),
+      glm = stats::glm(f, data = dta,
+                       family = eval(parse(text = spx$family %||% "gaussian"))),
+      clm = ordinal::clm(f, data = dta))
+  }
   d2 <- data
   d2[[spec$cell_name]] <- NULL   # rebuilt from the permuted factors below
   for (v in spec$cell_vars) {
@@ -329,18 +343,26 @@ reorder_check <- function(model, spec, target, policy, at, contrast, dots_txt, d
   }
   out <- tryCatch({
     sp2 <- nesting_spec_quiet(spec, d2)
-    m2  <- stats::update(model, data = sp2$data)
-    e1  <- unname(estimand_values(model, spec, target, policy, at, contrast,
-                                  spec$data, scale, route))
-    e2  <- unname(estimand_values(m2, sp2, target, policy, at, contrast,
-                                  sp2$data, scale, route))
+    if (is.null(shadow)) {
+      m1 <- model; m2 <- stats::update(model, data = sp2$data)
+    } else {
+      m1 <- fit_shadow(spec, spec$data); m2 <- fit_shadow(sp2, sp2$data)
+    }
+    e1 <- unname(estimand_values(m1, spec, target, policy, at, contrast,
+                                 spec$data, scale, route))
+    e2 <- unname(estimand_values(m2, sp2, target, policy, at, contrast,
+                                 sp2$data, scale, route))
+    note <- if (is.null(shadow)) "estimand unchanged under level permutation"
+            else paste0("estimand unchanged under level permutation (checked on ",
+                        "the fixed-effects shadow model, since order instability ",
+                        "is a fixed-effects phenomenon)")
     if (length(e1) != length(e2))
       list(status = "failed", note = "the two runs returned different numbers of contrasts")
     else if (!isTRUE(all.equal(sort(round(abs(e1), 8)), sort(round(abs(e2), 8)),
                                tolerance = 1e-8)))
       list(status = "failed",
            note = sprintf("max |change| = %s", format(max(abs(sort(abs(e1)) - sort(abs(e2)))))))
-    else list(status = "passed", note = "estimand unchanged under level permutation")
+    else list(status = "passed", note = note)
   }, error = function(e) list(status = "error", note = conditionMessage(e)))
   if (identical(out$status, "failed"))
     warning("reorder self-check FAILED (", out$note, "): the estimate moved when ",
@@ -349,6 +371,8 @@ reorder_check <- function(model, spec, target, policy, at, contrast, dots_txt, d
             "Do not report it.", call. = FALSE)
   out
 }
+
+`%||%` <- function(a, b) if (is.null(a)) b else a
 
 nesting_spec_quiet <- function(spec, data) {
   suppressMessages(nesting_spec(data, spec$formula_in,

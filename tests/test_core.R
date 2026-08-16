@@ -1037,4 +1037,32 @@ chk("reference: the estimand is unaffected by the choice",
       abs(as.data.frame(estimand(nest_fit(spr), chord_type, bounds = FALSE,
                                  self_check = FALSE))$estimate[3] + 0.6779) < 1e-4 })
 
+## ---- the reorder check on a mixed model ------------------------------------
+## Order instability is a fixed-effects phenomenon, so the check runs on the
+## fixed-effects shadow model. Refitting a large random structure is expensive
+## and can settle on a different optimum, which would report a failure that has
+## nothing to do with level order.
+if (requireNamespace("lme4", quietly = TRUE)) {
+  set.seed(9)
+  d6 <- do.call(rbind, lapply(1:3, function(i) {
+    x <- dat; x$response <- x$response + rnorm(nrow(x), 0, 0.4); x }))
+  spm2 <- nesting_spec(d6, response ~ chord_type * inversion + training +
+                       (chord_type * inversion | participant),
+                       "inversion %in% chord_type", fit = "lmer")
+  mm2 <- suppressWarnings(nest_fit(spm2))
+  rc <- suppressWarnings(attr(estimand(mm2, chord_type, bounds = FALSE),
+                              "nestimand")$self_check)
+  chk("reorder: a mixed fit is checked on the shadow model, and passes",
+      identical(rc$status, "passed") && grepl("shadow model", rc$note))
+  chk("reorder: the note says why the shadow model was used",
+      grepl("fixed-effects phenomenon", rc$note))
+}
+chk("reorder: a plain fit is still checked on the model itself",
+    { r <- attr(estimand(mf, chord_type, bounds = FALSE), "nestimand")$self_check
+      identical(r$status, "passed") && !grepl("shadow", r$note) })
+chk("reorder: an ordinal fit uses an ordinal shadow",
+    { r <- attr(estimand(mo, chord_type, scale = "latent", bounds = FALSE),
+                "nestimand")$self_check
+      identical(r$status, "passed") })
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

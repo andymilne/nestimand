@@ -36,7 +36,7 @@ show_code(x, ...)
   \item{scale}{\code{"response"} goes through the prediction machinery; \code{"latent"} computes the contrast as a linear functional of the coefficients, which is exact on a linear scale and necessary for ordinal fits.}
   \item{data}{data over which the estimand is averaged.}
   \item{bounds}{attach the partial-identification region.}
-  \item{self_check}{re-run the estimand with nested factor levels permuted, and warn if it moves.}
+  \item{self_check}{re-run the estimand with nested factor levels permuted, and warn if it moves. For a mixed or Bayesian fit the check runs on the fixed-effects shadow model - the same cell formula without the random terms - because order instability is a fixed-effects phenomenon, and refitting a large random structure is both expensive and liable to settle on a different optimum, which would report a failure having nothing to do with level order.}
   \item{dry_run}{return the code without computing anything. \code{show_code()} prints the code of a result that has already been computed, since the inner call is evaluated first; this is the way to see the code beforehand.}
   \item{...}{passed to the estimand engine and written into the saved code.}
   \item{.env}{environment in which the assembled code is evaluated.}
