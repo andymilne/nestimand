@@ -131,7 +131,11 @@ random_terms <- function(spec, structure = c("cells", "chain", "chain_slope",
 ## --- the fit ---------------------------------------------------------------
 nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "as_declared"),
                      data = NULL, engine = "marginaleffects",
-                     dry_run = FALSE, ..., priors = NULL, .env = parent.frame()) {
+                     dry_run = FALSE, ..., priors = NULL,
+                     prior_space = c("effects", "cells"), .env = parent.frame()) {
+  ## `priors` and `prior_space` sit after the dots: both would otherwise be
+  ## partial-matched by brms's own `prior`, which must reach the engine.
+  prior_space <- match.arg(prior_space)
   random_structure <- match.arg(random_structure)
   spec_name  <- deparse(substitute(spec))
   prior_name <- deparse(substitute(priors))
@@ -160,6 +164,47 @@ nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "
   if (!is.null(re)) f <- paste(f, "+", re)
   fam <- if (!is.null(spec$family)) sprintf(", family = %s", spec$family) else ""
   dots <- as.list(substitute(list(...)))[-1]
+  ## brms's own `prior` is the route to everything the translation does not
+  ## touch - the random-effects sd and correlations, the thresholds, sigma. It
+  ## is passed through untouched. A `class = "b"` entry is a different matter:
+  ## those coefficients are the cells, not the original effects, so a prior
+  ## written for the effects would mean something else there.
+  user_prior <- NULL
+  user_prior_txt <- NULL
+  if ("prior" %in% names(dots)) {
+    user_prior <- tryCatch(eval(dots$prior, .env), error = function(e) NULL)
+    user_prior_txt <- paste(deparse(dots$prior), collapse = " ")
+  }
+  ## A `class = "b"` prior describes the mean structure. Written in the original
+  ## variables - the default - it is translated into cell space and travels to
+  ## Stan through stanvars, so the user states priors once, in brms syntax, and
+  ## the translation is the package's business. `prior_space = "cells"` says the
+  ## prior was written for the fitted coefficients and leaves it alone.
+  if (inherits(user_prior, "brmsprior") && any(user_prior$class == "b") &&
+      identical(mode, "cells") && identical(prior_space, "effects")) {
+    if (!is.null(priors))
+      stop("`prior` carries an entry for class \"b\" and `priors` supplies one ",
+           "too, so the mean structure would be given two priors. Use one or ",
+           "the other: `prior` in brms syntax, or a nestimand prior built with ",
+           "nest_prior().")
+    split <- prior_from_brms(spec, user_prior, space = prior_space)
+    priors <- split$translated
+    prior_name <- ".prior"
+    message("the `class = \"b\"` prior was stated for the original variables ",
+            "and has been translated to the ", spec$cell_name, " coefficients: ",
+            "mu ~ N(A m, A D A'), reaching Stan through stanvars. ",
+            "prior_for_estimand() shows what it implies for a contrast; ",
+            "prior_space = \"cells\" leaves it as written instead.")
+    user_prior_txt <- if (!is.null(split$other) && nrow(split$other))
+      sprintf("brms::prior_string(%s, class = %s%s)",
+              paste0("c(", paste(sprintf('"%s"', split$other$prior), collapse = ", "), ")"),
+              paste0("c(", paste(sprintf('"%s"', split$other$class), collapse = ", "), ")"),
+              "") else NULL
+    dots$prior <- NULL
+    user_prior <- split$other
+  }
+  if (!is.null(priors) && !is.null(user_prior) && "prior" %in% names(dots))
+    dots$prior <- NULL
   dots_txt <- if (length(dots))
     paste0(", ", paste(mapply(function(nm, v) {
       v <- paste(deparse(v), collapse = " ")
@@ -180,7 +225,10 @@ nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "
       stop("chain-mode declarations belong to the chain parameterization, but ",
            "the fitting mode is `", mode, "`. Pass mode = \"effects\", or use ",
            "nest_prior() for a translated prior on the cell parameterization.")
-    prior_txt <- sprintf(", prior = chain_prior_object(%s)", prior_name)
+    other <- user_prior_txt
+    prior_txt <- if (is.null(other))
+      sprintf(", prior = chain_prior_object(%s)", prior_name)
+    else sprintf(", prior = c(chain_prior_object(%s), %s)", prior_name, other)
     prior_note <- c(priors$code[1:4],
       "## Held at zero below; every other coefficient is estimated as usual.")
     priors_obj <- priors
@@ -193,8 +241,14 @@ nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "
       stop("translated priors apply to the brms engine; the declared engine is `",
            fit, "`, which has no prior to state.")
     check_prior_dimension(priors, spec, mode)
-    prior_txt <- sprintf(", prior = prior_statement(%s), stanvars = prior_stanvars(%s)",
-                         prior_name, prior_name)
+    ## a prior for the classes the translation does not cover is combined with
+    ## it rather than emitted a second time, which brms would refuse
+    other <- user_prior_txt
+    prior_txt <- if (is.null(other))
+      sprintf(", prior = prior_statement(%s), stanvars = prior_stanvars(%s)",
+              prior_name, prior_name)
+    else sprintf(", prior = c(prior_statement(%s), %s), stanvars = prior_stanvars(%s)",
+                 prior_name, other, prior_name)
     prior_note <- c(
       sprintf("## prior stated on %s and translated to the cell means:", priors$stated_on),
       "## mu ~ N(A m, A D A'), exact and basis-free, since Stan accepts a",

@@ -11,11 +11,7 @@ nest_prior <- function(spec, mean, sd = NULL, cov = NULL,
                        covariate_mean = 0, covariate_sd = NULL) {
   on <- match.arg(on)
   family <- match.arg(family)
-  if (has_thresholds(spec))
-    stop("a prior on cell means is not yet supported for ordinal families: the ",
-         "threshold coding means the coefficients are cell contrasts rather ",
-         "than cell means, so the translation matrix differs. State priors on ",
-         "the thresholds and contrasts directly for now.")
+
   A <- effect_basis(spec)
   nm <- if (on == "effects") colnames(A) else rownames(A)
   mean <- expand_named(mean, nm, "mean")
@@ -51,7 +47,16 @@ nest_prior <- function(spec, mean, sd = NULL, cov = NULL,
   ## receives mismatched dimensions and the chains fail without a usable
   ## message. The covariate block is appended here, independent of the cells,
   ## in the order the design matrix produces.
+  ## Under a threshold family the fitted coefficients are contrasts of cell
+  ## means against the reference condition, not the means themselves: the
+  ## overall level has no coefficient, being absorbed into the thresholds. The
+  ## translation is still linear - b = C mu - so the prior carries across in the
+  ## same way, with one qualification recorded below.
+  Cmap <- prior_cell_map(spec)
   covs <- fitted_covariate_names(spec)
+  mean_mean <- as.numeric(Cmap %*% cell_mean)
+  mean_cov  <- Cmap %*% cell_cov %*% t(Cmap)
+  mean_nm   <- rownames(Cmap)
   if (length(covs)) {
     if (is.null(covariate_sd))
       stop("the model has population-level covariate coefficient(s) `",
@@ -62,21 +67,21 @@ nest_prior <- function(spec, mean, sd = NULL, cov = NULL,
            "applies to all, or name them individually.")
     cm <- expand_named(covariate_mean, covs, "covariate_mean")
     cs <- expand_named(covariate_sd, covs, "covariate_sd")
-    full_mean <- c(stats::setNames(cell_mean, fitted_cell_names(spec)), cm)
-    full_cov <- rbind(cbind(cell_cov, matrix(0, nrow(cell_cov), length(covs))),
-                      cbind(matrix(0, length(covs), ncol(cell_cov)),
+    full_mean <- c(stats::setNames(mean_mean, mean_nm), cm)
+    full_cov <- rbind(cbind(mean_cov, matrix(0, nrow(mean_cov), length(covs))),
+                      cbind(matrix(0, length(covs), ncol(mean_cov)),
                             diag(cs^2, nrow = length(cs))))
     dimnames(full_cov) <- list(names(full_mean), names(full_mean))
   } else {
-    full_mean <- stats::setNames(cell_mean, fitted_cell_names(spec))
-    full_cov <- cell_cov
+    full_mean <- stats::setNames(mean_mean, mean_nm)
+    full_cov <- mean_cov
     dimnames(full_cov) <- list(names(full_mean), names(full_mean))
   }
   structure(list(spec = spec, stated_on = on, family = family, df = df,
                  cell_mean = cell_mean, cell_cov = cell_cov,
                  eff_mean = eff_mean, eff_cov = eff_cov, A = A,
                  full_mean = full_mean, full_cov = full_cov,
-                 covariates = covs),
+                 covariates = covs, thresholds = has_thresholds(spec)),
             class = "nestimand_prior")
 }
 
@@ -155,6 +160,11 @@ prior_for_estimand <- function(prior, target, policy = "equal", at = NULL,
 
 print.nestimand_prior <- function(x, ...) {
   cat("nestimand prior: ", x$family, ", stated on ", x$stated_on, "\n", sep = "")
+  if (isTRUE(x$thresholds))
+    cat("  ordinal family: the fitted coefficients are contrasts against `",
+        rownames(x$A)[1], "`, and the overall\n  level is carried by the ",
+        "thresholds, so the prior on that direction is not transmitted.\n",
+        sep = "")
   tab <- prior_audit(x)
   for (sp in c("effects", "cells")) {
     cat("  ", sp, ":\n", sep = "")
@@ -177,6 +187,28 @@ prior_stanvars <- function(prior) {
     brms::stanvar(as.matrix(prior$full_cov), name = "prior_cov")
 }
 
+## From cell means to the coefficients the engine will actually estimate. With a
+## zero-intercept coding they are the same thing; under a threshold family they
+## are contrasts against the reference condition, and the overall level is
+## carried by the thresholds instead - so a prior on that direction is not
+## transmitted, and must be stated on the thresholds separately.
+prior_cell_map <- function(spec) {
+  cells <- as.character(spec$cells[[spec$cell_name]])
+  nm <- fitted_cell_names(spec)
+  if (!has_thresholds(spec)) {
+    M <- diag(length(cells)); dimnames(M) <- list(nm, cells); return(M)
+  }
+  ref <- cells[1]
+  others <- setdiff(cells, ref)
+  M <- matrix(0, length(others), length(cells),
+              dimnames = list(paste0(spec$cell_name, others), cells))
+  for (i in seq_along(others)) {
+    M[i, ref] <- -1
+    M[i, others[i]] <- 1
+  }
+  M
+}
+
 ## The population-level coefficient names the fitted model will carry, taken
 ## from the design matrix rather than assumed, so the prior can be checked
 ## against them before sampling starts.
@@ -185,8 +217,11 @@ fitted_coef_names <- function(spec, mode = "cells") {
   setdiff(colnames(X), "(Intercept)")
 }
 ## the design matrix prefixes the factor name: `cellaug.none`, not `aug.none`
-fitted_cell_names <- function(spec)
-  paste0(spec$cell_name, as.character(spec$cells[[spec$cell_name]]))
+fitted_cell_names <- function(spec) {
+  cells <- as.character(spec$cells[[spec$cell_name]])
+  if (has_thresholds(spec)) cells <- cells[-1]     # the reference has no column
+  paste0(spec$cell_name, cells)
+}
 fitted_covariate_names <- function(spec)
   setdiff(fitted_coef_names(spec), fitted_cell_names(spec))
 
@@ -219,3 +254,71 @@ prior_statement <- function(prior) {
 ## Priors that pin the fitting basis: independent non-elliptical, or bounded
 ## support, are declarable only where the coordinates are the effects.
 requires_effect_basis <- function(prior) isTRUE(attr(prior, "requires_effect_basis"))
+
+
+## --- priors written in brms syntax -----------------------------------------
+## A user states every prior as they would for brm(). The `class = "b"` block
+## describes the mean structure and is translated into cell space, travelling to
+## Stan through stanvars rather than as a prior argument; everything else - the
+## thresholds, the random-effects standard deviations and correlations, sigma -
+## is passed through untouched. Which space the b priors are written in is an
+## argument rather than a guess: `effects` by default, since that is the space
+## the questions are asked in.
+split_brms_prior <- function(prior) {
+  if (is.null(prior)) return(list(b = NULL, other = NULL))
+  d <- as.data.frame(prior)
+  list(b = d[d$class == "b", , drop = FALSE],
+       other = d[d$class != "b", , drop = FALSE])
+}
+
+## normal(m, s) and student_t(df, m, s) are elliptical and translate exactly;
+## anything else does not, and is refused rather than approximated.
+parse_normal_prior <- function(txt) {
+  txt <- trimws(txt)
+  num <- function(x) suppressWarnings(as.numeric(trimws(x)))
+  if (grepl("^normal\\(", txt)) {
+    a <- num(strsplit(sub("^normal\\((.*)\\)$", "\\1", txt), ",")[[1]])
+    if (length(a) == 2 && !anyNA(a))
+      return(list(family = "normal", mean = a[1], sd = a[2], df = 3))
+  }
+  if (grepl("^student_t\\(", txt)) {
+    a <- num(strsplit(sub("^student_t\\((.*)\\)$", "\\1", txt), ",")[[1]])
+    if (length(a) == 3 && !anyNA(a))
+      return(list(family = "student_t", mean = a[2], sd = a[3], df = a[1]))
+  }
+  NULL
+}
+
+## The whole thing: a brms prior in, a nestimand prior out, with the rest of the
+## specification carried alongside it.
+prior_from_brms <- function(spec, prior, space = c("effects", "cells"),
+                            covariate_mean = 0, covariate_sd = NULL) {
+  space <- match.arg(space)
+  sp <- split_brms_prior(prior)
+  if (!nrow(sp$b)) return(list(translated = NULL, other = prior))
+  if (any(nzchar(sp$b$coef)))
+    stop("a `class = \"b\"` prior naming individual coefficients cannot be ",
+         "translated as it stands: the translation is a joint one, so the whole ",
+         "mean structure has to be described. State one prior for the class - ",
+         "set_prior(\"normal(0, 1)\", class = \"b\") - or build the prior with ",
+         "nest_prior(), which takes a mean and a standard deviation per ",
+         "parameter and names them in the space you choose.")
+  if (nrow(sp$b) > 1)
+    stop("several `class = \"b\"` priors were given; the translation needs one ",
+         "description of the mean structure. Combine them, or use nest_prior().")
+  pr <- parse_normal_prior(sp$b$prior[1])
+  if (is.null(pr))
+    stop("`", sp$b$prior[1], "` is not an elliptical prior, and only those ",
+         "translate exactly: a normal or student_t prior on the effects induces ",
+         "a normal or student_t prior on the cells, mu ~ N(A m, A D A'). For a ",
+         "prior of another shape, fit in the chain parameterization, where the ",
+         "coefficients are the effects themselves: nest_fit(spec, ",
+         "mode = \"effects\", priors = chain_priors(spec)).")
+  np <- nest_prior(spec, mean = pr$mean, sd = pr$sd, on = space,
+                   family = pr$family, df = pr$df,
+                   covariate_mean = covariate_mean,
+                   covariate_sd = if (is.null(covariate_sd)) pr$sd else covariate_sd)
+  list(translated = np,
+       other = if (nrow(sp$other)) do.call(rbind, list(sp$other)) else NULL,
+       stated = sp$b$prior[1], space = space)
+}

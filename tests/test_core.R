@@ -501,9 +501,22 @@ bad_prior <- prb; bad_prior$full_mean <- bad_prior$full_mean[1:5]
 chk("prior: a mismatched prior is caught rather than passed to Stan",
     grepl("must span every population-level",
           err_of(check_prior_dimension(bad_prior, spb2))))
-chk("prior: ordinal families refused for now, with the reason",
-    grepl("threshold coding",
-          err_of(nest_prior(spbo, mean = 4, sd = 1.5, on = "cells"))))
+## ---- ordinal families: the coefficients are contrasts, and translate so ----
+po <- nest_prior(spbo, mean = 0, sd = 1, on = "cells")
+chk("prior: an ordinal fit takes a translated prior too",
+    length(po$full_mean) == 9 &&
+    identical(names(po$full_mean), fitted_coef_names(spbo)))
+chk("prior: independent cell priors of sd s imply contrast sds of s*sqrt(2)",
+    max(abs(sqrt(diag(po$full_cov)) - sqrt(2))) < 1e-10)
+chk("prior: neighbouring contrasts share the reference, so they correlate 0.5",
+    abs(stats::cov2cor(po$full_cov)[1, 2] - 0.5) < 1e-10)
+chk("prior: the dimension matches what the ordinal model will estimate",
+    isTRUE(check_prior_dimension(po, spbo)))
+chk("prior: the absorbed level is disclosed when printed",
+    any(grepl("carried by the .*thresholds",
+              capture.output(print(po)))))
+chk("prior: a prior on effects translates for an ordinal fit as well",
+    length(nest_prior(spbo, mean = 0, sd = 1, on = "effects")$full_mean) == 9)
 
 ## ---- brms draw naming ----------------------------------------------------
 chk("draws: exact `b_` names matched, full stops included",
@@ -1314,12 +1327,12 @@ chk("estimand: the code view still contains the fit",
 ## `priors` sits after the dots so that R cannot partial-match brms's `prior`
 ## to it; a brms prior therefore passes straight through.
 if (requireNamespace("brms", quietly = TRUE)) {
-  cd_b <- nest_fit(spb2, dry_run = TRUE,
+  cd_b <- suppressMessages(nest_fit(spb2, dry_run = TRUE,
                    prior = brms::set_prior("normal(0, 1)", class = "b"),
-                   sample_prior = "yes", init = 0, file = "somewhere")
+                   sample_prior = "yes", init = 0, file = "somewhere"))
   chk("brms: `prior` is handed to the engine, not captured by `priors`",
-      grepl('prior = brms::set_prior("normal(0, 1)", class = "b")', cd_b,
-            fixed = TRUE))
+      grepl("prior = ", cd_b, fixed = TRUE) &&
+      grepl("stanvars = prior_stanvars", cd_b, fixed = TRUE))
   chk("brms: the other engine arguments travel with it",
       grepl('sample_prior = "yes"', cd_b, fixed = TRUE) &&
       grepl("init = 0", cd_b, fixed = TRUE) &&
@@ -1331,6 +1344,62 @@ if (requireNamespace("brms", quietly = TRUE)) {
       grepl("goes to the engine under its own name",
             err_of(nest_fit(spb2, priors = brms::set_prior("normal(0,1)", class = "b"),
                             dry_run = TRUE))))
+}
+
+## ---- brms priors: what belongs where ---------------------------------------
+if (requireNamespace("brms", quietly = TRUE)) {
+  spb_re <- nesting_spec(dat, response ~ chord_type * inversion + (1 | participant),
+                         "inversion %in% chord_type", fit = "brms")
+  pb <- nest_prior(spb_re, mean = 4, sd = 1.5, on = "cells")
+  chk("brms priors: sd and cor priors pass through in silence",
+      { msg <- NULL
+        withCallingHandlers(nest_fit(spb_re, dry_run = TRUE,
+          prior = brms::set_prior("exponential(1)", class = "sd")),
+          message = function(m) { msg <<- conditionMessage(m)
+                                  invokeRestart("muffleMessage") })
+        is.null(msg) })
+  chk("brms priors: a class b prior is translated, and the translation reported",
+      { msg <- NULL
+        cd <- withCallingHandlers(nest_fit(spb_re, dry_run = TRUE,
+          prior = brms::set_prior("normal(0, 1)", class = "b")),
+          message = function(m) { msg <<- conditionMessage(m)
+                                  invokeRestart("muffleMessage") })
+        grepl("has been translated", msg) &&
+        grepl("prior_statement", cd, fixed = TRUE) &&
+        grepl("stanvars = prior_stanvars", cd, fixed = TRUE) })
+  chk("brms priors: prior_space = \"cells\" leaves the prior as written",
+      { cd <- suppressMessages(nest_fit(spb_re, dry_run = TRUE,
+                prior_space = "cells",
+                prior = brms::set_prior("normal(0, 1)", class = "b")))
+        grepl('class = "b")', cd, fixed = TRUE) &&
+        !grepl("stanvars", cd, fixed = TRUE) })
+  chk("brms priors: the other classes travel alongside the translated one",
+      { cd <- suppressMessages(nest_fit(spb_re, dry_run = TRUE,
+                prior = c(brms::set_prior("normal(0, 1)", class = "b"),
+                          brms::set_prior("exponential(1)", class = "sd"))))
+        grepl("prior_statement", cd, fixed = TRUE) &&
+        grepl("exponential(1)", cd, fixed = TRUE) })
+  chk("brms priors: what the stated prior implies for a contrast is recoverable",
+      { tr <- prior_from_brms(spb_re, brms::set_prior("normal(0, 1)", class = "b"))
+        abs(prior_for_estimand(tr$translated, "chord_type", "equal")$sd[3] -
+            1.1055) < 1e-3 })
+  chk("brms priors: a coefficient-specific b prior is refused, with the remedy",
+      grepl("whole mean structure",
+            err_of(prior_from_brms(spb_re,
+              brms::set_prior("normal(0,1)", class = "b", coef = "cellmaj.0")))))
+  chk("brms priors: a prior that is not elliptical is refused, with the remedy",
+      grepl("translate exactly",
+            err_of(prior_from_brms(spb_re,
+              brms::set_prior("cauchy(0, 1)", class = "b")))))
+  chk("brms priors: a translated prior combines with priors for other classes",
+      grepl("prior = c(prior_statement(pb), brms::set_prior(\"exponential(1)\", class = \"sd\"))",
+            nest_fit(spb_re, priors = pb, dry_run = TRUE,
+                     prior = brms::set_prior("exponential(1)", class = "sd")),
+            fixed = TRUE))
+  chk("brms priors: two priors for the mean structure are refused",
+      grepl("would be given two priors",
+            err_of(nest_fit(spb_re, priors = pb, dry_run = TRUE,
+                            prior = brms::set_prior("normal(0,1)", class = "b")))))
 }
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

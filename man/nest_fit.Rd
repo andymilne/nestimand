@@ -14,7 +14,8 @@ pipeline. Arguments in \code{...} reach the engine unaltered.
 \usage{
 nest_fit(spec, mode = NULL, random_structure = c("cells", "chain", 
          "as_declared"), data = NULL, engine = "marginaleffects",
-         dry_run = FALSE, ..., priors = NULL, .env = parent.frame())
+         dry_run = FALSE, ..., priors = NULL, prior_space = c("effects",
+         "cells"), .env = parent.frame())
 
 random_terms(spec, structure = c("cells", "chain", "chain_slope", 
              "as_declared"))
@@ -29,12 +30,13 @@ has_thresholds(spec)
   \item{random_structure}{how a declared random structure is translated: \code{"cells"} for an unstructured covariance over realized cells, \code{"chain"} for the grouping-factor submodel, \code{"chain_slope"} for the chain counterpart of the cell covariance, \code{"as_declared"} to pass it through unchanged.}
   \item{data}{data to fit; the spec's data by default.}
   \item{engine}{the estimand engine the fit is intended for.}
-  \item{priors}{a \code{\link{nest_prior}} or \code{\link{chain_priors}} object - a nestimand prior, translated or derived. It sits after \code{...} and must be named in full, so that \pkg{brms}'s own \code{prior} argument reaches the engine rather than being partial-matched to it.}
+  \item{priors}{a \code{\link{nest_prior}} or \code{\link{chain_priors}} object - a nestimand prior, translated or derived. It governs the mean structure; \pkg{brms}'s own \code{prior} remains the route to everything else - the random-effects standard deviations and correlations, the thresholds, sigma - and the two are combined into one call. A \code{class = "b"} entry in \code{prior} draws a note, since those coefficients are the realized conditions rather than the effects of the original variables, and supplying one alongside \code{priors} is refused as two priors for the same structure. It sits after \code{...} and must be named in full, so that \pkg{brms}'s own \code{prior} argument reaches the engine rather than being partial-matched to it.}
   \item{dry_run}{return the code without fitting, which matters when the fit is a sampling run.}
   \item{...}{passed to the engine and written into the saved code: this is how \code{prior}, \code{sample_prior}, \code{save_pars}, \code{init}, \code{threads}, \code{file}, \code{chains}, \code{iter}, \code{seed} and the rest reach \pkg{brms}, and their counterparts reach the other engines.}
   \item{.env}{environment in which the assembled call is evaluated.}
   \item{structure}{as \code{random_structure}.}
   \item{x}{an object to print.}
+  \item{prior_space}{the space a \code{class = "b"} prior in \code{prior} is written in: \code{"effects"}, the original variables, in which case it is translated to the fitted coefficients, or \code{"cells"}, in which case it is left as written. Named in full, since \pkg{brms}'s own \code{prior} would otherwise partial-match it.}
 }
 \details{
 Only terms crossing the structural boundary are translated: a random intercept, a slope
