@@ -7,7 +7,7 @@ suppressPackageStartupMessages({library(marginaleffects)})
 ## anywhere below. The folder layout does not matter.
 local({
   want <- c("spec.R", "translate.R", "policy.R", "estimand.R", "fit.R",
-            "latent.R", "priors.R", "chain.R")
+            "latent.R", "priors.R", "chain.R", "summary.R")
   found <- list.files(".", pattern = "[.][Rr]$", recursive = TRUE, full.names = TRUE)
   hits <- found[basename(found) %in% want]
   missing <- setdiff(want, basename(hits))
@@ -667,5 +667,29 @@ chk("apply_sentinel: the sentinel is placed first among the levels",
 chk("apply_sentinel: numeric variables take 0 by default",
     { dn <- data.frame(v = factor(c("none", "p")), r = c(NA, 5))
       identical(apply_sentinel(dn, "r")$r, c(0, 5)) })
+
+## ---- nest_summary(): the fit in the original parameterization -------------
+ns <- nest_summary(mf, sp)
+cc <- coef(mc)[!is.na(coef(mc))]
+i <- match(names(cc), ns$term)
+chk("nest_summary: effect estimates match a directly fitted chain model",
+    !anyNA(i) && max(abs(ns$estimate[i] - cc)) < 1e-10)
+chk("nest_summary: standard errors match it too",
+    max(abs(ns$std.error[i] - sqrt(diag(vcov(mc)))[names(cc)])) < 1e-10)
+chk("nest_summary: the covariate is carried through untranslated",
+    identical(ns$meaning[ns$term == "training"], "covariate, untranslated") &&
+    abs(ns$estimate[ns$term == "training"] - coef(mf)[["training"]]) < 1e-10)
+chk("nest_summary: each row states the conditions it equals",
+    identical(ns$meaning[ns$term == "chord_typemaj"], "-aug.none + maj.2") &&
+    identical(ns$meaning[ns$term == "(Intercept)"], "aug.none"))
+nsc <- nest_summary(mf, sp, "cells")
+chk("nest_summary: cell space returns the cell means themselves",
+    nrow(nsc) == 11 && identical(nsc$meaning[1], "aug.none") &&
+    abs(nsc$estimate[1] - coef(mf)[["cellaug.none"]]) < 1e-10)
+nso <- nest_summary(mo, spo)
+chk("nest_summary: works on an ordinal fit, where the coding differs",
+    abs(nso$estimate[nso$term == "chord_typemaj"] - 0.4700) < 1e-3)
+chk("nest_summary: the absorbed reference condition is flagged, not left at a bare zero",
+    grepl("absorbed into the thresholds", nso$meaning[1]))
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
