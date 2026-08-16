@@ -1,0 +1,318 @@
+# nestimand: implementation status
+
+*Build 2026-08-15.11. Two kinds of claim are distinguished below: things that were
+run in the development container and observed to work, and things that are
+written but could not be run here and need running on a machine with a working
+brms. Environment: R 4.3.3, marginaleffects 0.18.0, emmeans 1.10.0,
+brms 2.20.4, lme4 1.1.35.1, ordinal 2023.12.4, posterior 1.5.0.*
+
+## Why cells: the random-effects argument
+
+*Corrected 2026-08-15.11. An earlier version of this note claimed that the chain
+form cannot express an unstructured covariance at all. That is false, and the
+test is recorded below: deleting the six uninformative columns and placing an
+unrestricted covariance on the ten that remain reproduces the cell fit to
+optimizer tolerance. The accurate claim is that the ten columns cannot be
+produced by any formula, so reaching them means building them by hand, or
+silencing six coefficients by prior and reading around an over-sized covariance
+afterwards.*
+
+The cell parameterization is often introduced through the fixed effects — full
+rank, no aliasing, no identification constraints — but the decisive reason is the
+random effects, and it is a reason of kind rather than degree. The chain form can
+express only a subset of the random-effects structures R offers; the cell form
+can express all of them.
+
+**Under the chain form, a random slope over the nesting structure is
+rank-deficient by construction.** The columns for impossible combinations are
+identically zero for every group, so the covariance has more dimensions than any
+amount of data can identify. On the demonstration data the structural random
+slope has 16 columns of rank 10, three of them identically zero: six dimensions
+of the covariance are unidentified, and no sample size changes that.
+
+**No engine refuses it.** Fitting that structure in lme4 on 2400 rows with six
+trials per participant per cell produces a 16-dimensional covariance, a
+degenerate Hessian with 21 negative eigenvalues, and a convergence warning — the
+kind of warning routinely attributed to sparse data and worked around by
+simplifying the model. The structure is not sparse-data-limited; it is
+unidentified in principle. `nestimand` now reports this explicitly, with the
+column count, the rank, and the remedy, whenever such a structure is passed
+through unchanged.
+
+**So the chain form is confined *in formula terms* to nested grouping factors** —
+`(1|p) + (1|p:chord) + (1|p:chord:inversion)` — which impose compound symmetry:
+one variance per level, and equal correlations among cells sharing a stratum.
+
+A correction to an earlier draft of this note, which claimed the demonstration
+data exhibit a correlation pattern compound symmetry cannot represent. The fitted
+correlations do range from −0.319 to 0.453, but the unstructured covariance costs
+fifty-two parameters for twenty-nine log-likelihood units, which a
+likelihood-ratio test does not distinguish from chance (p = 0.221). With forty
+participants that spread is consistent with sampling noise around a common value.
+The argument does not need the stronger claim and should not make it: the point
+is that the chain form cannot express the alternatives, so the question of which
+structure the data support cannot be asked at all. Under the cell form both
+candidates can be fitted, compared, and reported, and on these data compound
+symmetry is a defensible answer.
+
+**The cell form places the whole categorical structure on one factor**, where the
+entire menu is available and every dimension identified: unstructured
+(`(0 + cell | p)`, 10 variances and 45 correlations), diagonal
+(`(0 + cell || p)`), any brms covariance structure, or the grouping chain itself
+as a constrained submodel via `random_structure = "chain"`. Choosing among them
+becomes a modelling decision about the data rather than a limitation imposed by
+the parameterization — which is the whole point of the translation architecture,
+arrived at from the random-effects side.
+
+## What is implemented
+
+**`R/spec.R` – declaration surface.** Carried over from the prototype with its
+user-facing form intact: bare or quoted `nests`, the NA refusal with the
+`apply_sentinel` remedy, the continuous-parent refusal, the outcome-type and
+saturation guards, `apply_sentinel` itself. What changed beneath it is that the
+declared structure now compiles into a realized-cell factor rather than into a
+chain of interaction terms. The cell factor is written into the returned data
+under `cell_name` (default `"cell"`); a name collision with an existing column
+is refused rather than overwritten.
+
+**`R/translate.R` – the translation module.** Replaces `model_formula()`.
+`cell_formula(spec, mode)` emits either parameterization; `chain_terms()`
+retains the ancestry-closed chain form for the effect basis and the emmeans
+engine; `add_cells()` recomputes the cell factor from the crossed original
+factors, dropping unrealized combinations by default and refusing them on
+request; `cell_grid()` builds the realized grid in original space;
+`effect_basis()` returns A, QR-pivot-selected and rank-checked;
+`translation()` bundles A and its inverse with the cell and effect names;
+`fitting_mode()` states the basis choice and its reason.
+
+**`R/policy.R` – the weighting policy.** One object: a distribution p over the
+versions of a compound condition. `nest_policy()` builds p from an alias
+(`equal`, `proportional` / `counterfactual`, `hierarchical`, `nominated`) or from
+a supplied distribution; `counterfactual_grid()` forms the G-computation grid
+with p attached as row weights; `policy_vertices()` enumerates the single-version
+policies whose contrast range is the partial-identification region.
+
+**`R/estimand.R` – the estimand function and its code view.** `estimand()` takes a
+fitted model and a declared spec and returns a labelled estimand table in the
+original variable names, with a policy, partial-identification bounds, a reorder
+self-check, and provenance attached. The code view is guaranteed rather than
+maintained: the function assembles the analysis as text and then evaluates that
+text, so `show_code()` returns the object that was run, and cannot drift from it.
+Non-core arguments in `...` are deparsed into the same text, so they reach the
+destination function unaltered and appear in the saved code, which is what makes
+the code re-usable and adaptable. `contrast = "within"` emits per-stratum
+contrasts, which cross no boundary and so take no policy.
+
+**`R/fit.R` – the fitting side.** `nest_fit()` dispatches to the declared engine,
+assembling the call as text and evaluating it, so the fitted model carries the
+call that made it; `estimand()` finds that code and joins the two into a single
+pipeline in the code view. `...` reaches the engine unaltered, which is how
+`chains`, `iter`, `seed`, and their kind are supplied. `dry_run = TRUE` returns
+the code without fitting, which matters when the fit is a sampling run.
+`random_terms()` translates a declared random structure: `cells` gives the
+unstructured covariance over realized cells, `chain` the progressive grouping
+submodel, `as_declared` passes the structure through untouched. A clean
+intercept term is left alone.
+
+**`R/latent.R` – estimands as linear functionals.** On a linear scale – the
+latent scale of an ordinal model, the link scale of a generalized linear model –
+a policy contrast is exactly c′b, where c is a weighted difference of
+design-matrix rows formed on the counterfactual grid. Because the scale is
+linear, averaging predictions over that grid and averaging its design-matrix rows
+are the same operation, so this is G-computation rather than an approximation to
+it. `latent_estimand()` returns the contrast with a delta-method interval;
+`latent_draws()` applies the same c draw by draw to a `brms` posterior, which is
+the Bayesian counterpart and the entry point for the derived-draws output.
+`estimand(..., scale = "latent")` routes through it, bounds included.
+
+## Run and observed to work
+
+- The cell parameterization is full rank with no aliased coefficients, where the
+  chain form aliases six; the two are the same fit (equal log-likelihood).
+- The effect basis is square and full rank at depth one (10 × 10) and depth two
+  (13 × 13); μ = A m reproduces the cell means, and A⁻¹ recovers the effect
+  coefficients from them, to 10⁻¹⁰.
+- `by =` on the non-predictor original factors returns estimands in original
+  labels from a cell fit: aug − maj = −0.6779, matching the prototype.
+- `equal`, `proportional`, `counterfactual`, and `hierarchical` all return
+  −0.6779 at depth one; `hierarchical` returns −0.6283 at depth two, matching the
+  prototype; `equal` and `hierarchical` differ at depth two, as the tree-versus-
+  leaves distinction requires.
+- A supplied p = (0.5, 0.3, 0.2) returns exactly the convex combination of the
+  three single-version contrasts (agreement to 10⁻¹⁰).
+- The partial-identification region on the demonstration data is −1.048 to
+  −0.245, with the equal-weight point at −0.678.
+- The estimand is unchanged under permutation of every nested factor's levels.
+- Grids: unrealized combinations dropped (six of sixteen) or refused; a grid
+  missing a nesting variable refused; recomputed cells agree with the fitted
+  factor.
+- The code returned by `show_code()` re-runs in a fresh environment and
+  reproduces the estimand it came from.
+- A non-core argument (`conf_level = 0.9`) reaches `marginaleffects`, changes the
+  interval, and appears in the saved code.
+- `contrast = "within"` returns three contrasts in each of the three strata in
+  which inversion varies, with no sentinel contrast, and passes the reorder check.
+
+- `nest_fit()` produces a full-rank cell fit whose code re-states the
+  parameterization and the reason for it; `engine = "emmeans"` selects the
+  effect basis instead, as designed.
+- A declared random structure `(chord_type * inversion + training | participant)`
+  translates to `(0 + cell + training | participant)` under `cells` and to the
+  progressive grouping chain under `chain`.
+- Ordinal engines: `clm` fits the threshold-aware coding at 15 parameters and no
+  longer warns; the brms cumulative family is threaded into the emitted call;
+  non-core arguments reach brms and appear in the saved code.
+
+- The linear map agrees with the prediction route to 5 × 10⁻¹⁴ on estimates and
+  1.6 × 10⁻⁹ on standard errors, and reproduces the convex-combination identity.
+- On an ordinal `clm` fit the latent route returns one number per contrast, with
+  bounds and a passing reorder check, where the prediction route refuses.
+
+- A prior of independent cell means with sd 1.5 implies effect sds of 1.5√2 with
+  non-zero covariances, and translating back recovers the stated sds exactly.
+- The implied prior on the equal-weight aug − maj contrast is 1.5√(1 + 1/3), and
+  on the within-family dim − maj contrast 1.5√(2/3), both to 10⁻¹⁰.
+- A prior silent on a parameter is refused rather than quietly widened.
+
+105 checks, all passing (`tests/test_core.R`).
+
+## Findings from the fitting side
+
+**Ordinal engines needed a different intercept convention.** A zero-intercept
+cell coding is one parameter too many where thresholds already carry the
+intercept: `clm()` warns and reinstates the intercept silently, and a brms
+ordinal model would sample a weakly identified parameterization. The cell factor
+under default contrasts is full rank either way – dummy coding of a single factor
+cannot produce structural zeros – so the coding switches to `~ cell` for `clm`,
+`clmm`, and the ordinal brms families, and no estimand changes.
+
+**The clmm-by-marginaleffects support boundary is real**, as the design
+document's checklist anticipated. On ordinal fits marginaleffects returns
+per-category output even on the latent scale, and version 0.18.0 refuses the
+pairwise comparison as too large. `estimand()` therefore requires the scale to be
+stated for ordinal fits rather than assuming one, and offers the remedy that the
+translation layer makes available: `scale = "latent"`, which computes the
+contrast as a linear functional of the cell coefficients. That route is exact,
+costs one matrix product, is immune to the per-category expansion, and – since it
+never calls the prediction machinery – is not subject to the engine's guard
+rails at all. It is now the recommended route for ordinal fits, and it doubles as
+the mechanism the derived-draws output will need.
+
+**`R/priors.R` – prior translation.** A prior is stated where it is thought – on
+named effects, or on cell means – and fitted where estimation is well posed. For
+an elliptical prior the translation is exact and needs no reparameterization: if
+the effects carry m ~ N(m0, D) then the cell means carry mu ~ N(A m0, A D A'),
+and Stan accepts a correlated prior directly, so the whole thing reduces to two
+data blocks and one prior statement. `prior_audit()` reports what a stated prior
+implies in the other space; `prior_for_estimand()` reports what it implies for a
+named contrast, which is the form a report actually states.
+
+## Engine version differences, found by running on a second machine
+
+The development container has marginaleffects 0.18.0; a target machine running
+0.32.0 exposed three changes at once, all of which the package now absorbs.
+
+1. **The `hypothesis` argument.** The string form (`"pairwise"`) was accepted up
+   to 0.18.x and the formula form (`~pairwise`) is required from 0.19.0. The
+   package emits whichever the installed version accepts, in the computation and
+   in the code view alike.
+2. **The label column.** The contrast label lived in `term` and now lives in
+   `hypothesis`. The label is located by content rather than by name, and a
+   `term` column is guaranteed on every estimand returned.
+3. **The direction of the contrast, which reversed.** 0.18.0 returns
+   `aug - maj = -0.6779`; 0.32.0 returns `(maj) - (aug) = +0.6779`. This one is
+   not cosmetic: inheriting the engine's convention would mean the same analysis
+   reporting opposite-signed effects on two machines, with nothing to alert
+   either user. The package therefore fixes the convention itself – contrasts
+   run in declared factor-level order, earlier level minus later – negating the
+   estimate, the statistic, and the swapped confidence bounds where the engine
+   ran the difference the other way. The number of reversed rows is recorded on
+   the result.
+
+The general lesson is recorded here because it will recur: the estimand layer
+must not inherit presentation conventions from whichever engine version happens
+to be installed. Anything a user would report is normalized by the package.
+
+## Verified on the target machine (R 4.6.1, marginaleffects 0.32.0, cmdstanr)
+
+`tests/test_brms.R`, eight checks, all passing.
+
+- The cell parameterization samples cleanly in brms, eleven population-level
+  coefficients, and the fitted call travels with the model.
+- **The draw-wise translation agrees with the linear map exactly.** Posterior
+  mean −0.6788 with sd 0.2076, against a delta-method point estimate of −0.6788
+  with se 0.2076. The same functional computed two ways.
+- **The translated prior samples and reproduces its audit table.** Drawing from
+  mu ~ N(A m, A D A') with no data gives sd 1.644 on the across-boundary
+  contrast against 1.732 stated, and 1.150 on a within-family contrast against
+  1.225, each centred where stated. This is the empirical confirmation that the
+  prior translation is correct.
+- The latent route is unaffected by the presence of random effects.
+
+Two findings came out of that run. brms names cell coefficients with the
+punctuation intact (`b_cellaug.none`), where the draw-matching rule had stripped
+it; matching is now exact with a punctuation-insensitive fallback. And a brms
+prior of `class = "b"` covers every population-level coefficient, covariates
+included, so a prior stated only on the cells left Stan with mismatched
+dimensions — reported merely as chains finishing unexpectedly, with nothing to
+indicate the cause. The prior now spans the full vector, and the dimension is
+checked before sampling begins.
+
+### The prior scale, checked and cleared
+
+A first run of the prior check, at 1000 draws, returned sampled standard
+deviations about five per cent below the stated ones for both contrasts tested,
+in the same direction — enough to be worth ruling out, since a systematic loss of
+scale in A D A' would invalidate the prior route. Repeating at 10,000 draws
+returned a ratio of 0.986 on the across-boundary contrast and ratios of
+0.969, 1.001, 0.986, 0.997, 0.980, 1.000 across all six, scattering either side
+of one with no pattern by contrast type. A discrepancy that shrinks as the draw
+count rises is Monte Carlo noise; a systematic error would have persisted. The
+residual spread slightly exceeds the naive Monte Carlo error of 1/sqrt(2n),
+which indicates an effective sample size below the nominal draw count; the check
+now reports that figure where the `posterior` package is available.
+
+The prior check runs 10,000 draws and a five per cent tolerance for this reason:
+comparing a sampled standard deviation against a stated one is a low-precision
+comparison, and a tolerance loose enough to accommodate noise at 1000 draws would
+be too loose to detect a real error.
+
+## Not run here: needs a machine that can compile Stan
+
+`tests/test_brms.R` collects four checks that require sampling. The container
+compiles Stan too slowly to finish one within a session, so the brms path is
+verified here only as far as the emitted call, the family threading, the prior
+objects, and the argument passthrough. The most consequential of the four is the
+second: `latent_draws()` assumes brms names cell coefficients `b_` followed by
+the cell label with non-alphanumeric characters removed, and cell labels contain
+full stops, so that assumption is the one most likely to be wrong.
+
+## Not yet implemented
+
+The prior translation and audit
+functions, the prediction modes, the four typed outputs, the random-effects cell
+structure, and the emmeans effect-basis path.
+
+## Decisions raised by the implementation
+
+1. **`hierarchical` is absent from the design document's policy table** but is
+   retained here, since it is a distinct p – uniform at each level of the chain
+   rather than uniform over the leaves – and the depth-two prototype anchor
+   (−0.6283) is stated in terms of it. The table should either gain the row or
+   the alias should be retired with its anchor restated.
+2. **Incomplete coverage of a supplied p is refused rather than renormalized.**
+   Restricting p to the named versions and renormalizing is a different
+   intervention, and choosing it silently would violate the no-silent-defaults
+   rule. A degenerate stratum, having no choice to make, takes its single
+   realized version at mass one.
+3. **Settled: functions, plus a code view.** The package computes through
+   functions, and the code that a function ran is retrievable with `show_code()`
+   for saving, adapting, and re-use. Emitted code calls `nestimand` rather than
+   inlining cell tables and weight vectors as literals, on the ground that a
+   reader of the code can be expected to have the package installed. The reorder
+   self-check accordingly runs inside `estimand()` rather than being pasted into
+   a script, and is reported in the printed output.
+4. **The reorder check refits the model**, and so is skipped with a stated note
+   for `brms` fits, where a refit doubles sampling time. Under the cell
+   parameterization order instability is impossible by construction, so the check
+   now verifies the translation layer rather than the fit.

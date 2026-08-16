@@ -1,0 +1,18 @@
+Package: nestimand
+Title: Estimands for Partially Nested Designs by Cell Translation
+Version: 0.1.0.9000
+Authors@R: person("Andrew J.", "Milne",
+                  email = "A.Milne@westernsydney.edu.au",
+                  role = c("aut", "cre"))
+Description: Declares a partially nested design once, fits it in the realized-cell
+    parameterization, where estimation is unconditionally well posed, and
+    translates grids, labels, draws, priors, and results back into the original
+    variable space in which research questions, priors, and reports are stated.
+    Estimand scripts are emitted as readable code rather than executed behind a
+    wrapper.
+License: GPL-3
+Encoding: UTF-8
+Depends: R (>= 4.1)
+Imports: stats, utils
+Suggests: marginaleffects, emmeans, lme4, ordinal, brms, posterior
+RoxygenNote: 7.3.1
