@@ -1491,4 +1491,23 @@ chk("latent: an ordinal star form gives all three, correctly sized",
       identical(unname(vapply(eo2, function(z) nrow(as.data.frame(z)), 1L)),
                 c(6L, 3L, 9L)) })
 
+## ---- the contrast matrix is shared by both evaluations ---------------------
+## Whether a contrast is evaluated at the coefficients or draw by draw, it is
+## the same C: only the summary differs.
+Cc <- latent_contrast_matrix(mf, sp, "chord_type", "equal")
+chk("latent: C has one row per contrast and one column per coefficient",
+    nrow(Cc) == 6 && identical(rownames(Cc)[3], "maj - aug") &&
+    all(colnames(Cc) %in% names(coef(mf))))
+chk("latent: C b reproduces the reported estimates",
+    { b <- coef(mf)[colnames(Cc)]
+      max(abs(as.numeric(Cc %*% b) -
+              latent_estimand(mf, "chord_type", "equal")$estimate)) < 1e-10 })
+Ci2 <- latent_contrast_matrix(mf, sp, c("chord_type", "inversion"),
+                              contrast = "interaction")
+chk("latent: the interaction C has one row per difference of differences",
+    nrow(Ci2) == 9 && all(abs(rowSums(Ci2)) < 1e-10))
+chk("latent: a frequentist fit still reports a test statistic",
+    all(c("statistic", "p.value") %in%
+        names(latent_estimand(mf, "chord_type", "equal"))))
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

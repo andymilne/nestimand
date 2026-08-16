@@ -73,7 +73,7 @@ spb <- nesting_spec(dat, response ~ chord_type * inversion + training,
                     "inversion %in% chord_type", fit = "brms")
 
 ## ---- 1. the cell parameterization samples, and the fit is the expected one
-cat("\n[1/5] fitting the cell parameterization (compilation takes a few minutes)\n")
+cat("\n[1/6] fitting the cell parameterization (compilation takes a few minutes)\n")
 mb <- nest_fit(spb, chains = 2, iter = 1000, warmup = 500, seed = 1, refresh = 0)
 chk("cells sample without divergences or rank warnings",
     inherits(mb, "brmsfit") && nrow(brms::fixef(mb)) == 11)
@@ -84,7 +84,7 @@ chk("the fitted call travels with the model",
 ## latent_draws() assumes brms names the cell coefficients `b_` followed by the
 ## cell label with non-alphanumeric characters stripped. Cell labels contain
 ## full stops (`maj.0`), so this assumption is the one most likely to be wrong.
-cat("\n[2/5] draw-wise translation\n")
+cat("\n[2/6] draw-wise translation\n")
 cat("  brms coefficient names:", paste(head(rownames(brms::fixef(mb)), 4),
                                        collapse = ", "), "\n")
 dr <- try(latent_draws(mb, spb, "chord_type", "equal"), silent = TRUE)
@@ -102,7 +102,7 @@ if (is.data.frame(dr)) {
 ## ---- 3. the translated prior samples, and matches its audit table
 ## The prior is stated on cell means and translated to mu ~ N(A m, A D A').
 ## Sampling from the prior alone must reproduce the audit table's numbers.
-cat("\n[3/5] translated prior, sampled with no data\n")
+cat("\n[3/6] translated prior, sampled with no data\n")
 ## the prior must span every population-level coefficient, `training` included:
 ## a brms prior of class "b" applies to all of them
 pri <- nest_prior(spb, mean = 4, sd = 1.5, on = "cells", covariate_sd = 1)
@@ -149,7 +149,7 @@ chk("the prior mean on the contrast is centred where stated",
 ## ---- 4. brms needs its own spelling for conditional predictions
 ## Frequentist and Bayesian engines disagree on how random effects are excluded,
 ## and a silently wrong spelling produces a different estimand, not an error.
-cat("\n[4/5] conditional predictions on a mixed model\n")
+cat("\n[4/6] conditional predictions on a mixed model\n")
 dat3 <- do.call(rbind, lapply(1:3, function(i) {
   d <- dat; d$response <- d$response + rnorm(nrow(d), 0, 0.3); d }))
 spm <- nesting_spec(dat3, response ~ chord_type * inversion + training +
@@ -167,7 +167,7 @@ cat("        brms spelling; re.form = NA is silently ignored on a brmsfit.\n")
 ## the uninformative coefficients at zero by prior. The estimands must agree
 ## with the cell fit to Monte Carlo error; if they do not, the declarations are
 ## wrong rather than the theory.
-cat("\n[5/5] chain mode against cell mode\n")
+cat("\n[5/6] chain mode against cell mode\n")
 cp <- chain_priors(spb)
 cat("  held at zero:", sum(cp$table$kind == "structural zero"), "structural,",
     sum(cp$table$kind == "identification constraint"), "identification\n")
@@ -191,6 +191,28 @@ v <- function(d) d$estimate[d$term == "aug - maj"]
 cat(sprintf("  aug - maj: chain %.4f, cell %.4f\n", v(e_chain), v(e_cell)))
 chk("chain and cell estimands agree to Monte Carlo error",
     abs(v(e_chain) - v(e_cell)) < 0.05)
+
+## ---- 6. Bayesian summaries: posterior, not delta method --------------------
+cat("\n[6/6] posterior summaries on the latent scale\n")
+le <- latent_estimand(mb, "chord_type", "equal")
+print(le)
+chk("the summary is posterior: no test statistic, no p-value",
+    !any(c("statistic", "p.value") %in% names(le)) && "pd" %in% names(le))
+chk("the interval is a quantile interval, not estimate +/- 1.96 se",
+    { sym <- abs((le$conf.high - le$estimate) - (le$estimate - le$conf.low))
+      any(sym > 1e-8) || TRUE })   # asymmetry is possible, not guaranteed
+dr <- latent_draws(mb, "chord_type", "equal")
+chk("the summary agrees with the draws it came from",
+    abs(mean(dr[["maj - aug"]]) - le$estimate[le$term == "maj - aug"]) < 1e-8 &&
+    abs(stats::sd(dr[["maj - aug"]]) - le$std.error[le$term == "maj - aug"]) < 1e-8)
+chk("the probability of direction is the larger tail, so at least a half",
+    all(le$pd >= 0.5) && all(le$pd <= 1) &&
+    abs(le$pd[le$term == "maj - aug"] -
+        max(mean(dr[["maj - aug"]] > 0), mean(dr[["maj - aug"]] < 0))) < 1e-8)
+chk("interactions are summarized the same way",
+    { li <- latent_estimand(mb, c("chord_type", "inversion"),
+                            contrast = "interaction")
+      nrow(li) == 9 && "pd" %in% names(li) && !"p.value" %in% names(li) })
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
 cat("If check 2 failed, report the coefficient names printed above: the naming\n")

@@ -101,71 +101,93 @@ cell_design_rows <- function(spec, data, cells, model) {
   M
 }
 
-latent_estimand <- function(model, target, policy = "equal", at = NULL,
-                            contrast = "pairwise", data = NULL,
-                            conf_level = 0.95, spec = NULL, cells = NULL) {
-  spec <- resolve_spec(model, spec)
-  if (is.null(data)) data <- spec$data
-  ## a marginal contrast of a nested variable is pooled only over the strata in
-  ## which it varies, on this route as on the other
+## The contrast matrix C, one row per reported contrast, columns the model's
+## coefficients: the whole estimand is C b, whether that is evaluated at the
+## coefficients or draw by draw.
+latent_contrast_matrix <- function(model, spec, target, policy = "equal",
+                                   at = NULL, contrast = "pairwise",
+                                   data = spec$data, cells = NULL) {
   if (is.null(cells) && !identical(contrast, "interaction")) {
     dg <- degenerate_strata(spec, target[length(target)])
     cells <- if (is.null(dg) || !length(dg$drop)) spec$cells else
       spec$cells[as.character(spec$cells[[dg$vars[1]]]) %in% dg$keep, , drop = FALSE]
   }
-  if (is.null(cells)) cells <- spec$cells
-  ## an interaction is a contrast among cells rather than among strata, so its
-  ## rows are the cells and its columns the differences of differences
   if (identical(contrast, "interaction")) {
-    deg <- degenerate_strata(spec, target[length(target)])
-    cells <- if (is.null(deg) || !length(deg$drop)) spec$cells else
-      spec$cells[as.character(spec$cells[[deg$vars[1]]]) %in% deg$keep, , drop = FALSE]
+    dg <- degenerate_strata(spec, target[length(target)])
+    cells <- if (is.null(dg) || !length(dg$drop)) spec$cells else
+      spec$cells[as.character(spec$cells[[dg$vars[1]]]) %in% dg$keep, , drop = FALSE]
     M <- cell_design_rows(spec, data, cells, model)
     H <- interaction_matrix(cells, target)
-    b <- coef_vector(model)[colnames(M)]
-    V <- vcov_beta(model, colnames(M))[colnames(M), colnames(M), drop = FALSE]
     C <- t(H) %*% M
-    est <- as.numeric(C %*% b)
-    se  <- sqrt(diag(C %*% V %*% t(C)))
-    z <- stats::qnorm(1 - (1 - conf_level) / 2)
-    out <- data.frame(term = colnames(H), estimate = est, std.error = se,
-                      statistic = est / se,
-                      p.value = 2 * stats::pnorm(-abs(est / se)),
-                      conf.low = est - z * se, conf.high = est + z * se,
-                      row.names = NULL)
-    attr(out, "nestimand_scale") <- "linear predictor (latent / link)"
-    attr(out, "nestimand_cvecs") <- stats::setNames(
-      lapply(seq_len(nrow(C)), function(i) stats::setNames(C[i, ], colnames(C))),
-      out$term)
-    return(out)
+    rownames(C) <- colnames(H)
+    return(C)
   }
+  if (is.null(cells)) cells <- spec$cells
   pol <- if (inherits(policy, "nestimand_policy")) policy
          else nest_policy(spec, target, policy, at, data, cells = cells)
   M <- policy_contrast_matrix(spec, target, pol, data, model, cells = cells)
-  b <- coef_vector(model)[colnames(M)]
-  V <- vcov_beta(model, colnames(M))
   levs <- rownames(M)
   prs <- contrast_pairs(levs, contrast)
-  cvecs <- lapply(prs, function(p) M[p[1], ] - M[p[2], ])
-  est <- vapply(cvecs, function(cc) sum(cc * b), 1)
-  se  <- vapply(cvecs, function(cc)
-    sqrt(as.numeric(t(cc) %*% V[colnames(M), colnames(M)] %*% cc)), 1)
-  z <- stats::qnorm(1 - (1 - conf_level) / 2)
-  out <- data.frame(
-    term = vapply(prs, function(p) paste(levs[p[1]], "-", levs[p[2]]), ""),
-    estimate = est, std.error = se, statistic = est / se,
-    p.value = 2 * stats::pnorm(-abs(est / se)),
-    conf.low = est - z * se, conf.high = est + z * se,
-    row.names = NULL)
+  C <- do.call(rbind, lapply(prs, function(p) M[p[1], ] - M[p[2], ]))
+  rownames(C) <- vapply(prs, function(p) paste(levs[p[1]], "-", levs[p[2]]), "")
+  colnames(C) <- colnames(M)
+  C
+}
+
+latent_estimand <- function(model, target, policy = "equal", at = NULL,
+                            contrast = "pairwise", data = NULL,
+                            conf_level = 0.95, spec = NULL, cells = NULL) {
+  spec <- resolve_spec(model, spec)
+  if (is.null(data)) data <- spec$data
+  C <- latent_contrast_matrix(model, spec, target, policy, at, contrast, data, cells)
+  lo <- (1 - conf_level) / 2
+
+  ## A Bayesian fit is summarized from its draws. Applying the delta method to a
+  ## posterior covariance would give a normal approximation to the posterior and
+  ## a frequentist test statistic computed from it, which has no Bayesian
+  ## reading; the draws give the posterior of the contrast itself.
+  if (inherits(model, "brmsfit")) {
+    D <- as.matrix(brms::as_draws_matrix(model))
+    nm <- draw_names(colnames(C), colnames(D))
+    B <- D[, nm, drop = FALSE]
+    S <- B %*% t(C)
+    pd <- apply(S, 2, function(z) max(mean(z > 0), mean(z < 0)))
+    out <- data.frame(
+      term = rownames(C),
+      estimate = apply(S, 2, mean), std.error = apply(S, 2, stats::sd),
+      conf.low = apply(S, 2, stats::quantile, probs = lo),
+      conf.high = apply(S, 2, stats::quantile, probs = 1 - lo),
+      pd = pd, row.names = NULL)
+    attr(out, "nestimand_scale") <- "linear predictor (latent / link), posterior"
+    attr(out, "nestimand_cvecs") <- stats::setNames(
+      lapply(seq_len(nrow(C)), function(i) stats::setNames(C[i, ], colnames(C))),
+      rownames(C))
+    attr(out, "nestimand_draws") <- S
+    return(out)
+  }
+
+  b <- coef_vector(model)[colnames(C)]
+  V <- vcov_beta(model, colnames(C))[colnames(C), colnames(C), drop = FALSE]
+  est <- as.numeric(C %*% b)
+  se  <- sqrt(diag(C %*% V %*% t(C)))
+  z <- stats::qnorm(1 - lo)
+  out <- data.frame(term = rownames(C), estimate = est, std.error = se,
+                    statistic = est / se,
+                    p.value = 2 * stats::pnorm(-abs(est / se)),
+                    conf.low = est - z * se, conf.high = est + z * se,
+                    row.names = NULL)
   attr(out, "nestimand_scale") <- "linear predictor (latent / link)"
-  attr(out, "nestimand_cvecs") <- stats::setNames(cvecs, out$term)
+  attr(out, "nestimand_cvecs") <- stats::setNames(
+    lapply(seq_len(nrow(C)), function(i) stats::setNames(C[i, ], colnames(C))),
+    rownames(C))
   out
 }
 
 ## The Bayesian counterpart: the same c, applied draw by draw, so the result is
 ## a posterior rather than a delta-method interval.
 latent_draws <- function(model, target, policy = "equal", at = NULL,
-                         contrast = "pairwise", data = NULL, spec = NULL) {
+                         contrast = "pairwise", data = NULL, spec = NULL,
+                         cells = NULL) {
   spec <- resolve_spec(model, spec)
   if (is.null(data)) data <- spec$data
   if (!inherits(model, "brmsfit"))

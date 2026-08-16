@@ -566,10 +566,10 @@ print.nestimand_estimand <- function(x, digits = 4, ...) {
   meta <- attr(x, "nestimand")
   d <- as.data.frame(x)
   keep <- intersect(c("stratum", "term", "estimate", "std.error", "conf.low",
-                      "conf.high", "statistic", "p.value"), names(d))
+                      "conf.high", "statistic", "p.value", "pd"), names(d))
   d <- d[, keep, drop = FALSE]
   for (k in intersect(c("estimate", "std.error", "conf.low", "conf.high",
-                        "statistic"), names(d)))
+                        "statistic", "pd"), names(d)))
     d[[k]] <- round(d[[k]], digits)
   if ("p.value" %in% names(d))
     d$p.value <- format.pval(d$p.value, digits = max(2, digits - 1), eps = 10^-digits)

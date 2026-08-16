@@ -15,7 +15,7 @@ latent_estimand(model, target, policy = "equal", at = NULL, contrast = "pairwise
                 data = NULL, conf_level = 0.95, spec = NULL, cells = NULL)
 
 latent_draws(model, target, policy = "equal", at = NULL, contrast = "pairwise", 
-             data = NULL, spec = NULL)
+             data = NULL, spec = NULL, cells = NULL)
 
 policy_contrast_matrix(spec, target, policy, data = spec$data, model = NULL, 
                        cells = spec$cells)
@@ -37,8 +37,20 @@ expansion that ordinal fits provoke and to the guard rails that follow from it. 
 contrast vectors it returns are also what the heterogeneity of an effect requires:
 c'Sigma c over the random-effects covariance.
 }
+\section{Frequentist and Bayesian summaries}{
+The contrast is the same object either way - \code{C b}, with \code{C} one row
+per comparison - and only the summary differs. For a frequentist fit the
+coefficients and their covariance give a point estimate, a delta-method interval,
+a test statistic and a p-value. For a \pkg{brms} fit the same \code{C} is
+applied draw by draw, and the summary is the posterior of the contrast: its mean,
+its standard deviation, a quantile interval, and \code{pd}, the probability of
+direction - the larger of the posterior probabilities that the contrast is
+positive and that it is negative, so at least a half. No test statistic or
+p-value is reported there, a Wald test computed from a posterior covariance
+having no Bayesian reading.
+}
 \value{
-\code{latent_estimand} a data frame of contrasts with delta-method intervals, the
+\code{latent_estimand} a data frame of contrasts: with delta-method intervals, the
 contrast vectors in its \code{nestimand_cvecs} attribute; \code{latent_draws} a data
 frame of posterior draws, one column per contrast; \code{policy_contrast_matrix} the
 weighted design-matrix rows, one per stratum.
