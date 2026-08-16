@@ -1249,4 +1249,28 @@ chk("interaction: a single target is refused",
     grepl("needs at least two targets",
           err_of(estimand(mf, chord_type, contrast = "interaction"))))
 
+## ---- the bounds follow the route they were asked for -----------------------
+## They are the same estimand under other policies, so computing them on a
+## different grid from the estimand itself is both inconsistent and, on the
+## g-computation grid, far slower than the route requested.
+bc <- attr(estimand(mf, inversion, route = "cells", self_check = FALSE),
+           "nestimand")$bounds
+bg <- attr(estimand(mf, inversion, self_check = FALSE), "nestimand")$bounds
+chk("bounds: the same whichever route computes them, on balanced data",
+    isTRUE(all.equal(bc$policy_low, bg$policy_low, tolerance = 1e-8)) &&
+    isTRUE(all.equal(bc$policy_high, bg$policy_high, tolerance = 1e-8)))
+chk("bounds: the route is carried into the emitted call",
+    any(grepl('route = "cells"',
+        attr(estimand(mf, inversion, route = "cells", self_check = FALSE),
+             "nestimand")$code, fixed = TRUE)) &&
+    !any(grepl("route =",
+        attr(estimand(mf, inversion, self_check = FALSE),
+             "nestimand")$code, fixed = TRUE)))
+chk("bounds: the emitted code re-runs on the cells route",
+    { e <- estimand(mf, inversion, route = "cells", self_check = FALSE)
+      env <- new.env(); assign("mf", mf, env); assign("sp", sp, env)
+      r <- eval(parse(text = paste(attr(e, "nestimand")$code, collapse = "\n")),
+                envir = env)
+      isTRUE(all.equal(as.data.frame(r)$estimate, as.data.frame(e)$estimate)) })
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

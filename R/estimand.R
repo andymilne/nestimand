@@ -339,17 +339,21 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
       "## partial-identification bounds: every mixture estimand is a convex",
       "## combination of the single-version contrasts, so their range is the",
       "## region over all admissible policies (Manski 1990)",
-      sprintf('est  <- add_bounds(est, %s, %s, "%s", "%s"%s%s)',
+      sprintf('est  <- add_bounds(est, %s, %s, "%s", "%s"%s%s%s)',
               model_name, spec_name, target, contrast,
-              if (is.null(deg)) "" else ", cells = cells", dots_txt))
+              if (is.null(deg)) "" else ", cells = cells",
+              if (identical(route, "g_computation")) "" else
+                sprintf(', route = "%s"', route), dots_txt))
   c(body, "est")
 }
 
 ## --- the bounds companion --------------------------------------------------
 
 add_bounds <- function(est, model, spec, target, contrast = "pairwise",
-                       scale = c("response", "latent"), cells = spec$cells, ...) {
+                       scale = c("response", "latent"), cells = spec$cells,
+                       route = c("g_computation", "cells"), data = spec$data, ...) {
   scale <- match.arg(scale)
+  route <- match.arg(route)
   vs <- versions_of(spec, target, cells)
   vert <- expand.grid(lapply(vs, seq_along), KEEP.OUT.ATTRS = FALSE)
   if (nrow(vert) > 64) {
@@ -366,7 +370,14 @@ add_bounds <- function(est, model, spec, target, contrast = "pairwise",
         names(vs)), at = NULL), class = "nestimand_policy")
     if (identical(scale, "latent"))
       return(latent_estimand(model, target, p, contrast = contrast, spec = spec)$estimate)
-    g <- counterfactual_grid(spec, spec$data, p, cells = cells)
+    ## the bounds are the same estimand under other policies, so they are
+    ## computed the same way: on whichever grid the estimand itself used
+    g <- if (identical(route, "cells")) {
+      d <- cell_grid(spec, data)
+      d <- d[as.character(d[[spec$cell_name]]) %in%
+             as.character(cells[[spec$cell_name]]), , drop = FALSE]
+      d$.w <- policy_weights(spec, d, p); d
+    } else counterfactual_grid(spec, data, p, cells = cells)
     e <- marginaleffects::avg_predictions(model, newdata = g, by = target,
            wts = g$.w, hypothesis = mfx_hypothesis(contrast), ...)
     mfx_canonical(as.data.frame(e), levels(factor(spec$data[[target]])))$estimate
