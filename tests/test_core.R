@@ -818,12 +818,12 @@ chk("nest_summary: refuses a model with no cell coefficients",
           err_of(nest_summary(m_chain, spec = sp))))
 
 ## ---- update() keeps the declaration ---------------------------------------
-chk("nest_fit: the fit gains a class, ahead of the engine's own",
-    identical(class(mf)[1], "nestimand_fit") && inherits(mf, "lm"))
+chk("nest_fit: the fit gains a class, behind the engine's own",
+    identical(class(mf)[1], "lm") && inherits(mf, "nestimand_fit"))
 mu <- update(mf, . ~ . - training)
 chk("update: the declaration survives the refit",
     inherits(attr(mu, "nestimand_spec"), "nesting_spec") &&
-    identical(class(mu)[1], "nestimand_fit") && length(coef(mu)) == 10)
+    inherits(mu, "nestimand_fit") && length(coef(mu)) == 10)
 chk("update: the estimand works from the updated fit, without `spec`",
     abs(as.data.frame(estimand(mu, chord_type, bounds = FALSE,
                                self_check = FALSE))$estimate[3] - 0.6779) < 1e-4)
@@ -1552,10 +1552,11 @@ chk("scale: a linear fit still defaults to the response scale",
 chk("scale: the ordinal default gives one number per contrast",
     nrow(as.data.frame(estimand(mo, chord_type, bounds = FALSE,
                                 self_check = FALSE))) == 6)
-chk("scale: asking for the response scale explicitly still routes there",
-    { e <- err_of(estimand(mo, chord_type, scale = "response", bounds = FALSE,
-                           self_check = FALSE))
-      identical(e, "") || grepl("no response scale", e) })
+chk("scale: the response scale supplies the engine's own type name",
+    { cd <- suppressMessages(estimand(mo, chord_type, scale = "response",
+              bounds = FALSE, self_check = FALSE, dry_run = TRUE))
+      grepl('type = "prob"', cd, fixed = TRUE) ||
+      grepl('type = "response"', cd, fixed = TRUE) })
 
 ## ---- the default scale follows the family -----------------------------------
 chk("scale: an ordinal fit defaults to the latent scale",
@@ -1567,5 +1568,9 @@ chk("scale: everything else defaults to the response scale",
 chk("scale: an explicit choice is honoured either way",
     identical(attr(estimand(mf, chord_type, scale = "latent", bounds = FALSE,
                             self_check = FALSE), "nestimand")$scale, "latent"))
+
+chk("class: the engine's own class comes first, so dispatch is undisturbed",
+    identical(class(mf)[1], "lm") &&
+    identical(class(nest_fit(sp))[1], "lm"))
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

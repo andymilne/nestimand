@@ -310,9 +310,11 @@ nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "
   attr(m, "nestimand_spec") <- spec
   attr(m, "nestimand_spec_name") <- spec_name
   ## An extra class, so that update() can carry the declaration across a refit.
-  ## S4 fits - brmsfit among them - are left alone: their class is part of the
-  ## object's formal definition, and the attributes travel on their own.
-  if (!isS4(m)) class(m) <- unique(c("nestimand_fit", class(m)))
+  ## It goes *after* the engine's own classes, not before: packages that
+  ## dispatch or validate on class(model)[1] - marginaleffects among them -
+  ## would otherwise see a class they do not know and warn about arguments that
+  ## are perfectly valid for the underlying fit.
+  if (!isS4(m)) class(m) <- unique(c(class(m), "nestimand_fit"))
   m
 }
 
@@ -331,7 +333,7 @@ update.nestimand_fit <- function(object, ...) {
     else c(sprintf("## nestimand %s -- fit, updated from the original call",
                    nestimand_build),
            paste("m <-", cl))
-  if (!isS4(out)) class(out) <- unique(c("nestimand_fit", class(out)))
+  if (!isS4(out)) class(out) <- unique(c(class(out), "nestimand_fit"))
   out
 }
 
