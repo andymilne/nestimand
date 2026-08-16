@@ -4,6 +4,7 @@
 \alias{counterfactual_grid}
 \alias{policy_weights}
 \alias{policy_vertices}
+\alias{interaction_matrix}
 \alias{boundary_vars}
 \title{Weighting policies for across-boundary contrasts}
 \description{
@@ -24,6 +25,8 @@ policy_weights(spec, grid, policy)
 
 policy_vertices(spec, target) 
 
+interaction_matrix(d, vars) 
+
 boundary_vars(spec) 
 }
 \arguments{
@@ -33,6 +36,8 @@ boundary_vars(spec)
   \item{at}{for \code{policy = "nominated"}, a named vector giving the version, e.g. \code{c(inversion = "0")}.}
   \item{data}{the data over which empirical version frequencies are taken.}
   \item{grid}{a grid carrying the original factors.}
+  \item{d}{a table of cell means as the engine returned it, for \code{interaction_matrix}, whose rows fix the order of the contrast matrix.}
+  \item{vars}{the two variables whose interaction is wanted.}
   \item{cells}{the realized cells to work over, when they have been restricted: a marginal contrast of a nested variable is pooled only over the strata in which it varies.}
   \item{x}{an object to print.}
 }

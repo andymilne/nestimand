@@ -156,7 +156,7 @@ print.nestimand_summary <- function(x, digits = 4, ...) {
   d <- as.data.frame(x)
   d$estimate <- round(d$estimate, digits)
   d$std.error <- round(d$std.error, digits)
-  d$p.value <- format.pval(d$p.value, digits = 3, eps = 1e-4)
+  d$p.value <- format.pval(d$p.value, digits = max(2, digits - 1), eps = 10^-digits)
   cols <- c("term", "estimate", "std.error", "p.value")
   if (identical(space, "effects")) cols <- c(cols, "meaning")
   print(d[, cols], row.names = FALSE, right = FALSE)

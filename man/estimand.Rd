@@ -14,7 +14,7 @@ so \code{show_code} returns the code that ran rather than a reconstruction of it
 }
 \usage{
 estimand(model, target, policy = "equal", at = NULL, contrast = c("pairwise", 
-         "reference", "sequential", "within"), route = c("g_computation",
+         "reference", "sequential", "within", "interaction"), route = c("g_computation",
          "cells"), weights = NULL, scale = c("response", "latent"),
          data = NULL, bounds = TRUE, self_check = TRUE, dry_run = FALSE,
          ..., spec = NULL, .env = parent.frame())
@@ -27,12 +27,12 @@ show_code(x, ...)
 \arguments{
   \item{model}{a fitted model, ideally from \code{\link{nest_fit}}.}
   \item{spec}{a \code{nesting_spec} object, needed only for a model fitted by calling the engine directly: a fit from \code{\link{nest_fit}} carries its own.}
-  \item{target}{name of the variable whose levels are contrasted, quoted or bare.}
+  \item{target}{the variable whose levels are contrasted, quoted or bare. Several may be named at once, and the formula operators carry their usual meaning: \code{c(chord_type, inversion)} computes each in turn, \code{chord_type:inversion} gives the interaction alone, and \code{chord_type * inversion} gives both variables and their interaction, as in a model formula.}
   \item{policy}{a distribution over the versions of a compound condition: one of \code{"equal"}, \code{"proportional"}, \code{"hierarchical"}, \code{"nominated"}, or a named numeric vector of masses.}
   \item{at}{for \code{policy = "nominated"}, a named vector giving the version, e.g. \code{c(inversion = "0")}.}
   \item{route}{over which rows the model is evaluated. \code{"g_computation"} crosses every observed row with every realized cell, so each condition is averaged over the same covariate distribution, giving the population-averaged effect. \code{"cells"} uses one row per realized cell with covariates at their means: the conditional effect at an average covariate value.}
   \item{weights}{unit weights, as a column name or a numeric vector of one weight per row. Where the policy weights the versions of a condition, these weight the rows, standardizing the estimand to a population other than the sample: survey weights, or post-stratification to a target distribution of the covariates. Not available on the \code{"cells"} route, which evaluates one row per condition and so has no units to weight.}
-  \item{contrast}{which comparisons to form. \code{"within"} gives per-stratum contrasts of a nested variable, which cross no boundary and take no policy.}
+  \item{contrast}{which comparisons to form. \code{"within"} gives per-stratum contrasts of a nested variable, and \code{"interaction"} a difference of differences over two or more targets; neither crosses a structural boundary, so neither takes a policy.}
   \item{scale}{\code{"response"} goes through the prediction machinery; \code{"latent"} computes the contrast as a linear functional of the coefficients, which is exact on a linear scale and necessary for ordinal fits.}
   \item{data}{data over which the estimand is averaged.}
   \item{bounds}{attach the partial-identification region.}
@@ -43,6 +43,7 @@ show_code(x, ...)
   \item{est}{an estimand table, for \code{add_bounds}.}
   \item{cells}{the realized cells the bounds are computed over, matching any restriction applied to the estimand itself.}
   \item{x}{an object carrying code, for \code{show_code}.}
+  \item{digits}{decimal places for the printed table. The object keeps full precision; only the display is rounded.}
 }
 \section{Mixed models}{
 An estimand here is population-level: it describes a typical group rather than
@@ -93,6 +94,11 @@ exactly: the covariate adjustment cancels, because each condition's average
 restores its own covariate mean. It summarizes the data rather than estimating
 anything from the model, and \code{data =} with a subset covers the cases where
 a summary of particular rows is wanted.
+
+An interaction contrast is a different kind of quantity: every cell it uses
+exists, so no boundary is crossed, no policy applies, and there are no bounds to
+report. It is computed only over the strata in which every target varies, so the
+degenerate stratum drops out by construction.
 
 \code{weights} is a third and independent choice: it weights the rows rather
 than the versions, standardizing the estimand to a population other than the

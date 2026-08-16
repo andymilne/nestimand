@@ -225,3 +225,35 @@ policy_vertices <- function(spec, target) {
 ## restores its own covariate mean. It is a summary of the data rather than an
 ## estimate from the model, and `data =` with a subset covers the cases where a
 ## summary of particular rows is wanted.
+
+## --- interaction contrasts --------------------------------------------------
+## A contrast of contrasts: (a1 b1 - a1 b2) - (a2 b1 - a2 b2). It crosses no
+## structural boundary, since every cell it uses exists, and so takes no policy.
+## The matrix is built from the table the engine returns, so its rows are in
+## whatever order that engine used.
+interaction_matrix <- function(d, vars) {
+  d <- as.data.frame(d)
+  key <- do.call(paste, c(unname(lapply(vars, function(v) as.character(d[[v]]))),
+                          sep = "\r"))
+  lv <- lapply(vars, function(v) unique(as.character(d[[v]])))
+  names(lv) <- vars
+  a <- lv[[1]]; b <- lv[[2]]
+  cols <- list(); nm <- character(0)
+  for (i in seq_along(a)) for (ii in seq_along(a)) if (ii > i)
+    for (j in seq_along(b)) for (jj in seq_along(b)) if (jj > j) {
+      k <- c(paste(a[i], b[j], sep = "\r"), paste(a[i], b[jj], sep = "\r"),
+             paste(a[ii], b[j], sep = "\r"), paste(a[ii], b[jj], sep = "\r"))
+      if (!all(k %in% key)) next          # a combination that does not exist
+      v <- numeric(nrow(d))
+      v[match(k[1], key)] <-  1; v[match(k[2], key)] <- -1
+      v[match(k[3], key)] <- -1; v[match(k[4], key)] <-  1
+      cols[[length(cols) + 1]] <- v
+      nm <- c(nm, sprintf("(%s - %s) x (%s - %s)", a[i], a[ii], b[j], b[jj]))
+    }
+  if (!length(cols))
+    stop("no interaction contrast is available: no two levels of `", vars[1],
+         "` share two levels of `", vars[2], "`.")
+  M <- do.call(cbind, cols)
+  colnames(M) <- nm
+  M
+}

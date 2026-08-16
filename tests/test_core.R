@@ -1188,4 +1188,65 @@ chk("emitted code: every nestimand function it calls is exported",
 chk("routes: a route that averages over each condition's own rows is refused",
     grepl("should be one of", err_of(estimand(mf, chord_type, route = "observed"))))
 
+## ---- printing and multiple targets -----------------------------------------
+chk("print: four decimal places by default, more on request",
+    { p4 <- capture.output(print(estimand(mf, chord_type, bounds = FALSE,
+                                          self_check = FALSE)))
+      p8 <- capture.output(print(estimand(mf, chord_type, bounds = FALSE,
+                                          self_check = FALSE), digits = 8))
+      any(grepl("-0.6779", p4, fixed = TRUE)) &&
+      any(grepl("-0.67788574", p8, fixed = TRUE)) })
+chk("print: the object keeps full precision whatever is shown",
+    abs(as.data.frame(estimand(mf, chord_type, bounds = FALSE,
+                               self_check = FALSE))$estimate[3] +
+        0.677885742) < 1e-8)
+chk("print: nest_summary takes digits too",
+    any(grepl("4.08435", capture.output(print(nest_summary(mf), digits = 6)),
+              fixed = TRUE)))
+em <- estimand(mf, c(chord_type, inversion), bounds = FALSE, self_check = FALSE)
+chk("targets: several at once, bare or quoted",
+    inherits(em, "nestimand_estimands") &&
+    identical(names(em), c("chord_type", "inversion")) &&
+    identical(names(estimand(mf, c("chord_type", "inversion"), bounds = FALSE,
+                             self_check = FALSE)), names(em)))
+chk("targets: each element is an ordinary estimand table",
+    inherits(em[["chord_type"]], "nestimand_estimand") &&
+    nrow(as.data.frame(em[["inversion"]])) == 3)
+chk("targets: the nested one is still restricted to the strata it varies in",
+    !any(grepl("none", as.data.frame(em[["inversion"]])$term)))
+chk("targets: show_code covers every one of them",
+    { cd <- capture.output(show_code(em))
+      any(grepl("--- chord_type ---", cd)) && any(grepl("--- inversion ---", cd)) })
+
+## ---- interaction contrasts, and the formula forms --------------------------
+ei <- estimand(mf, chord_type:inversion, self_check = FALSE)
+di <- as.data.frame(ei)
+cm <- tapply(dat$response, paste(dat$chord_type, dat$inversion, sep = "."), mean)
+chk("interaction: a difference of differences, matching the raw cell means",
+    abs(di$estimate[di$term == "(dim - min) x (0 - 1)"] -
+        ((cm[["dim.0"]] - cm[["dim.1"]]) - (cm[["min.0"]] - cm[["min.1"]]))) < 1e-4)
+chk("interaction: 9 contrasts, none touching the sentinel stratum",
+    nrow(di) == 9 && !any(grepl("aug|none", di$term)))
+chk("interaction: no policy applies, and one is refused",
+    grepl("crosses no structural boundary",
+          err_of(estimand(mf, chord_type:inversion, policy = "proportional"))))
+chk("interaction: no bounds, since there is no policy to vary",
+    is.null(attr(ei, "nestimand")$bounds))
+est_star <- estimand(mf, chord_type * inversion, bounds = FALSE, self_check = FALSE)
+chk("targets: `a * b` gives a, b, and their interaction",
+    identical(names(est_star),
+              c("chord_type", "inversion", "chord_type:inversion")) &&
+    identical(vapply(est_star, function(z) nrow(as.data.frame(z)), 1L),
+              c(chord_type = 6L, inversion = 3L, `chord_type:inversion` = 9L)))
+chk("targets: `a:b` gives the interaction alone",
+    inherits(ei, "nestimand_estimand") && nrow(di) == 9)
+chk("interaction: the emitted code re-runs",
+    { env <- new.env(); assign("mf", mf, env); assign("sp", sp, env)
+      r <- eval(parse(text = paste(attr(ei, "nestimand")$code, collapse = "\n")),
+                envir = env)
+      isTRUE(all.equal(as.data.frame(r)$estimate, di$estimate)) })
+chk("interaction: a single target is refused",
+    grepl("needs at least two targets",
+          err_of(estimand(mf, chord_type, contrast = "interaction"))))
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

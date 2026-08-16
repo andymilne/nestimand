@@ -6,7 +6,8 @@
 ## marginaleffects, emmeans - unaltered, and appear in the saved code.
 
 estimand <- function(model, target, policy = "equal", at = NULL,
-                     contrast = c("pairwise", "reference", "sequential", "within"),
+                     contrast = c("pairwise", "reference", "sequential", "within",
+                                  "interaction"),
                      route = c("g_computation", "cells"),
                      weights = NULL,
                      scale = c("response", "latent"),
@@ -18,7 +19,8 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   recovered <- is.null(spec)
   spec <- resolve_spec(model, spec)
   check_model_spec(model, spec)
-  contrast <- match.arg(contrast)
+  contrast <- if (identical(contrast, "interaction")) "interaction"
+              else match.arg(contrast)
   route <- match.arg(route)
   wq <- substitute(weights)
   scale <- match.arg(scale)
@@ -27,10 +29,39 @@ estimand <- function(model, target, policy = "equal", at = NULL,
          "has no linear-map form here; use scale = \"response\".")
   if (!inherits(spec, "nesting_spec"))
     stop("`spec` must be a nesting_spec object, as returned by nesting_spec().")
-  ## A bare name is read as the variable itself - estimand(m, chord_type) - but
-  ## a name that holds the target as a string is read for its value, so that
-  ## the target can be supplied programmatically.
+  ## Several targets may be named at once, bare or quoted: each is computed in
+  ## turn and returned together, so one call covers a table of estimands.
   tg <- substitute(target)
+  multi <- NULL
+  ## `a * b` expands as it does in a formula - a, b, and their interaction -
+  ## and `a:b` names the interaction alone.
+  if (is.call(tg) && as.character(tg[[1]]) %in% c("*", ":")) {
+    vs <- vapply(as.list(tg)[-1], function(z) paste(deparse(z), collapse = ""), "")
+    if (identical(as.character(tg[[1]]), ":")) {
+      target <- vs
+      contrast <- "interaction"
+      tg <- NULL
+    } else {
+      cl <- match.call()
+      out <- c(lapply(vs, function(k) { c2 <- cl; c2$target <- k; eval(c2, .env) }),
+               list({ c2 <- cl; c2$target <- vs; c2$contrast <- "interaction"
+                      eval(c2, .env) }))
+      names(out) <- c(vs, paste(vs, collapse = ":"))
+      return(structure(out, class = "nestimand_estimands"))
+    }
+  }
+  if (!is.null(tg) && is.call(tg) && identical(tg[[1]], as.name("c")))
+    multi <- vapply(as.list(tg)[-1], function(z)
+      if (is.character(z)) z else deparse(z), "")
+  else if (tryCatch(is.character(target) && length(target) > 1L &&
+                    !identical(contrast, "interaction"), error = function(e) FALSE))
+    multi <- target
+  if (!is.null(multi)) {
+    cl <- match.call()
+    out <- lapply(multi, function(k) { cl$target <- k; eval(cl, .env) })
+    names(out) <- multi
+    return(structure(out, class = "nestimand_estimands"))
+  }
   if (is.name(tg)) {
     lit <- deparse(tg)
     target <- if (lit %in% spec$cell_vars) lit else
@@ -38,8 +69,9 @@ estimand <- function(model, target, policy = "equal", at = NULL,
                  if (is.character(v) && length(v) == 1L) v else lit },
                error = function(e) lit)
   }
-  if (!target %in% spec$cell_vars)
-    stop("`", target, "` is not one of the declared categorical nesting ",
+  if (!all(target %in% spec$cell_vars))
+    stop("`", paste(target, collapse = "`, `"),
+         "` is not among the declared categorical nesting ",
          "variables (", paste(spec$cell_vars, collapse = ", "), "). Contrasts ",
          "of a covariate do not cross the structural boundary and need no ",
          "policy; compute them directly.")
@@ -49,7 +81,10 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   ## comparison against that level leaves the variable's own levels and compares
   ## strata instead - augmented chords against root-position triads, say, under
   ## an inversion label.
-  deg <- if (!identical(contrast, "within")) degenerate_strata(spec, target)
+  ## the restriction follows the deepest of the targets: an interaction exists
+  ## only where every one of them varies
+  deg <- if (!identical(contrast, "within"))
+    degenerate_strata(spec, target[length(target)])
   restricted <- !is.null(deg) && length(deg$drop)
   if (!restricted) deg <- NULL
 
@@ -132,6 +167,16 @@ estimand <- function(model, target, policy = "equal", at = NULL,
       if (nzchar(nm)) paste0(nm, " = ", v) else v
     }, names(dots), dots), collapse = ", ")) else ""
 
+  if (identical(contrast, "interaction")) {
+    if (length(target) < 2)
+      stop("an interaction contrast needs at least two targets, e.g. ",
+           "estimand(model, chord_type:inversion).")
+    if (!identical(policy, "equal"))
+      stop("an interaction contrast crosses no structural boundary - every cell ",
+           "it uses exists - so it takes no policy. Drop `policy`, or ask for a ",
+           "marginal contrast of one variable instead.")
+    bounds <- FALSE
+  }
   code <- estimand_code(spec, target, policy, at, contrast, dots_txt,
                         model_name, spec_name, data_name, bounds, scale,
                         deg, route, weights_txt, re_note)
@@ -237,6 +282,25 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
             paste(deg$keep, collapse = ", ")),
     "## would leave its own levels and compare strata instead.",
     sprintf("cells <- %s", cells_txt))
+  if (identical(contrast, "interaction")) {
+    tv <- paste(sprintf('"%s"', target), collapse = ", ")
+    return(c(hdr, restrict_note,
+      "## an interaction contrast: a difference of differences. Every cell it",
+      "## uses exists, so no boundary is crossed and no policy applies.",
+      sprintf('pol  <- nest_policy(%s, "%s", "equal"%s)', spec_name,
+              target[length(target)],
+              if (is.null(deg)) "" else ", cells = cells"),
+      sprintf('grid <- counterfactual_grid(%s, %s, pol%s)', spec_name, data_name,
+              if (is.null(deg)) "" else ", cells = cells"),
+      "## the cell means first, to learn the order the engine returns them in",
+      sprintf('g0   <- avg_predictions(%s, newdata = grid, by = c(%s), wts = grid$.w%s)',
+              model_name, tv, dots_txt),
+      sprintf('H    <- interaction_matrix(g0, c(%s))', tv),
+      sprintf('est  <- avg_predictions(%s, newdata = grid, by = c(%s), wts = grid$.w,',
+              model_name, tv),
+      sprintf('                        hypothesis = H%s)', dots_txt),
+      "est"))
+  }
   body <- c(hdr, restrict_note,
     sprintf("## the policy: a distribution over the versions of each compound condition"),
     sprintf('pol  <- nest_policy(%s, "%s", %s%s%s)', spec_name, target, pol_txt,
@@ -442,12 +506,18 @@ show_code.nestimand_estimand <- function(x, ...) {
   invisible(structure(paste(code, collapse = "\n"), class = "nestimand_code"))
 }
 
-print.nestimand_estimand <- function(x, ...) {
+print.nestimand_estimand <- function(x, digits = 4, ...) {
   meta <- attr(x, "nestimand")
-  y <- x
-  attr(y, "nestimand") <- NULL
-  class(y) <- setdiff(class(y), "nestimand_estimand")
-  print(y, ...)
+  d <- as.data.frame(x)
+  keep <- intersect(c("stratum", "term", "estimate", "std.error", "conf.low",
+                      "conf.high", "statistic", "p.value"), names(d))
+  d <- d[, keep, drop = FALSE]
+  for (k in intersect(c("estimate", "std.error", "conf.low", "conf.high",
+                        "statistic"), names(d)))
+    d[[k]] <- round(d[[k]], digits)
+  if ("p.value" %in% names(d))
+    d$p.value <- format.pval(d$p.value, digits = max(2, digits - 1), eps = 10^-digits)
+  print(d, row.names = FALSE, right = FALSE, ...)
   pol <- if (is.character(meta$policy)) meta$policy else "supplied"
   cat("\nPolicy: ", pol, "   route: ", meta$route, "   contrast: ", meta$contrast,
       if (identical(meta$scale, "latent")) "   scale: latent" else "", sep = "")
@@ -457,11 +527,29 @@ print.nestimand_estimand <- function(x, ...) {
   if (!is.null(meta$bounds)) {
     cat("Bounds over all admissible policies:\n")
     b <- meta$bounds
-    for (i in seq_len(nrow(b)))
-      cat(sprintf("  %-14s %8.4f   [%8.4f, %8.4f]\n", b$term[i], b$estimate[i],
-                  b$policy_low[i], b$policy_high[i]))
+    bt <- data.frame(term = b$term, estimate = round(b$estimate, digits),
+                     low = round(b$policy_low, digits),
+                     high = round(b$policy_high, digits))
+    print(bt, row.names = FALSE, right = FALSE)
   }
   cat("Code: show_code() prints the ", length(meta$code),
       " lines that produced this.\n", sep = "")
   invisible(x)
+}
+
+
+print.nestimand_estimands <- function(x, digits = 4, ...) {
+  for (k in names(x)) {
+    cat("== ", k, " ==\n", sep = "")
+    print(x[[k]], digits = digits, ...)
+    cat("\n")
+  }
+  invisible(x)
+}
+
+show_code.nestimand_estimands <- function(x, ...) {
+  code <- unlist(lapply(names(x), function(k)
+    c(sprintf("## --- %s ---", k), attr(x[[k]], "nestimand")$code, "")))
+  cat(paste(code, collapse = "\n"), "\n", sep = "")
+  invisible(structure(paste(code, collapse = "\n"), class = "nestimand_code"))
 }
