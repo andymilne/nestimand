@@ -2093,4 +2093,23 @@ chk("emitted code: the latent branch writes the restriction it uses",
       grepl("cells <- subset(", cd, fixed = TRUE) &&
       grepl("cells = cells", cd, fixed = TRUE) })
 
+## ---- a random term with nothing to translate just prints -------------------
+if (requireNamespace("lme4", quietly = TRUE)) {
+  sp_sl <- nesting_spec(d6, response ~ chord_type * inversion +
+                        (chord_type | participant), "inversion %in% chord_type",
+                        fit = "lmer")
+  m_sl <- suppressWarnings(nest_fit(sp_sl))
+  out_sl <- capture.output(print(random_covariance(m_sl, space = "effects")))
+  chk("random: a term that is not a cell covariance prints without commentary",
+      !any(grepl("no effect-space counterpart|shown as fitted|translation",
+                 out_sl)))
+  chk("random: its header claims no parameterization it does not have",
+      grepl("^Group `participant`  \\(4 dimensions\\)$", out_sl[1]))
+  chk("random: a cell covariance says which parameterization it is in",
+      { out2 <- capture.output(print(random_covariance(mm2, space = "effects")))
+        grepl("effects parameterization", out2[1]) })
+  chk("random: the fact is still recorded for code that needs it",
+      identical(attr(random_covariance(m_sl)[[1]], "translated"), FALSE))
+}
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

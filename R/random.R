@@ -41,9 +41,11 @@ random_covariance <- function(model, spec = NULL,
     dimnames(S) <- list(plain, plain)
     if (identical(space, "effects")) {
       if (!is_cells) {
-        out[[g]] <- structure(S, translated = FALSE,
-          note = paste("this term is not a covariance over the realized cells,",
-                       "so it has no effect-space counterpart; shown as fitted"))
+        ## A term that is not a covariance over the realized conditions - a
+        ## grouping-factor variance, a slope on a fully crossed variable - has
+        ## nothing to translate, and printing it is the whole answer. The
+        ## `translated` flag records the fact for code that needs it.
+        out[[g]] <- structure(S, translated = FALSE)
         next
       }
       A <- effect_basis(spec)
@@ -88,9 +90,9 @@ print.nestimand_random <- function(x, digits = 3, ...) {
   sp <- attr(x, "space")
   for (g in names(x)) {
     S <- x[[g]]
-    cat("Group `", g, "`  (", sp, " parameterization, ", nrow(S),
-        " dimensions)\n", sep = "")
-    if (!is.null(attr(S, "note"))) cat("  ", attr(S, "note"), "\n", sep = "")
+    cat("Group `", g, "`  (", nrow(S), " dimensions",
+        if (isTRUE(attr(S, "translated"))) paste0(", ", sp, " parameterization"),
+        ")\n", sep = "")
     sd <- sqrt(diag(S))
     cr <- stats::cov2cor(S)
     tab <- cbind(`Std.Dev.` = round(sd, digits), round(cr, digits))

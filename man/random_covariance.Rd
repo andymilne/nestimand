@@ -40,8 +40,9 @@ contrast reported. \code{random_heterogeneity} builds c from the same policy the
 estimand uses, so the two cannot disagree.
 
 A random term that is not a covariance over the realized conditions - a
-grouping-factor variance, or a slope on a fully crossed variable - has no
-effect-space counterpart and is shown as fitted.
+grouping-factor variance, or a slope on the nesting variable - has nothing to
+translate, and is printed as it stands. The \code{translated} attribute of each
+matrix records which case it was, for code that needs to know.
 }
 \value{
 \code{random_covariance} a list of covariance matrices, one per grouping factor,
