@@ -188,9 +188,12 @@ estimand <- function(model, target, policy = "equal", at = NULL,
     if (!is.na(nd) && draws < nd) {
       dots$ndraws <- draws
       message("using ", draws, " of ", format(nd, big.mark = ","),
-              " posterior draws. The summaries are the same quantities, with ",
-              "Monte Carlo error: 500 draws put about ", signif(1/sqrt(500), 2),
-              " of a posterior standard deviation on a mean.")
+              " posterior draws. The summaries are the same quantities, ",
+              "estimated from fewer draws: the Monte Carlo error on a ",
+              "posterior mean is about 1/sqrt(", draws, ") = ",
+              signif(1 / sqrt(draws), 2), " posterior standard deviations. ",
+              "The posterior itself is unchanged; only how precisely it is ",
+              "summarized.")
     }
   }
   ## A mixed fit predicts for a particular group unless told otherwise, and the
@@ -236,8 +239,11 @@ estimand <- function(model, target, policy = "equal", at = NULL,
       nrow(data) * nrow(if (is.null(deg)) spec$cells else
         spec$cells[as.character(spec$cells[[deg$vars[1]]]) %in% deg$keep, ,
                    drop = FALSE]) else nrow(spec$cells)
-    ndraw <- if (inherits(model, "brmsfit"))
-      tryCatch(brms::ndraws(model), error = function(e) NA_integer_) else NA_integer_
+    ## the draws actually used, not the draws the model holds
+    ndraw <- if (!is.null(dots$ndraws)) dots$ndraws
+             else if (inherits(model, "brmsfit"))
+               tryCatch(brms::ndraws(model), error = function(e) NA_integer_)
+             else NA_integer_
     ncat0 <- tryCatch(nlevels(data[[spec$outcome]]), error = function(e) NA_integer_)
     work <- nrows * (if (is.na(ndraw)) 1 else ndraw) * (if (is.na(ncat0)) 1 else ncat0)
     if (is.finite(work) && work > 5e6)
@@ -248,10 +254,17 @@ estimand <- function(model, target, policy = "equal", at = NULL,
               if (!is.na(ncat0)) paste0(" and each of ", ncat0, " outcome categories")
               else "", ". The averaging cannot be done first here, as it can on ",
               "the link scale, because the link stands between the model and ",
-              "the mean. `subsample = 500` averages over a random 500 units ",
-              "instead, which estimates the same quantity; route = \"cells\" ",
-              "answers a different one - the effect at average covariates - ",
-              "which on a nonlinear scale is not the population average.")
+              "the mean.",
+              if (is.null(subsample))
+                paste0(" `subsample = 500` averages over a random 500 units",
+                       " instead, which estimates the same quantity;")
+              else "",
+              if (is.null(draws) && !is.na(ndraw))
+                paste0(" `draws = 500` uses fewer posterior draws, likewise;")
+              else "",
+              " route = \"cells\" answers a different question - the effect at ",
+              "average covariates - which on a nonlinear scale is not the ",
+              "population average.")
 
     ## One note, and only where it can still change what the user does. With a
     ## hypothesis of their own the comparison set is already theirs.

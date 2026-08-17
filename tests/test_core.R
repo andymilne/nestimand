@@ -1945,4 +1945,15 @@ chk("arguments: every combination of the levers runs",
         }
       ok })
 
+chk("draws: the note quotes the number asked for, not a fixed one",
+    { body <- paste(deparse(estimand), collapse = " ")
+      grepl('1/sqrt\\(", draws', body) && !grepl("sqrt\\(500\\)", body) })
+chk("draws: the size note counts the draws in use",
+    { body <- paste(deparse(estimand), collapse = " ")
+      grepl("dots\\$ndraws", body) })
+chk("messages: advice already taken is not repeated",
+    { body <- paste(deparse(estimand), collapse = " ")
+      grepl("if \\(is.null\\(subsample\\)", body) &&
+      grepl("if \\(is.null\\(draws\\)", body) })
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
