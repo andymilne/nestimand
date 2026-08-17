@@ -209,6 +209,12 @@ chk("the probability of direction is the larger tail, so at least a half",
     all(le$pd >= 0.5) && all(le$pd <= 1) &&
     abs(le$pd[le$term == "maj - aug"] -
         max(mean(dr[["maj - aug"]] > 0), mean(dr[["maj - aug"]] < 0))) < 1e-8)
+chk("the prediction route is summarized from the posterior as well",
+    { pr <- suppressMessages(estimand(mb, chord_type, route = "cells",
+              type = "response", bounds = FALSE, self_check = FALSE))
+      d <- as.data.frame(pr)
+      "pd" %in% names(d) && !any(c("statistic", "p.value") %in% names(d)) &&
+      all(d$pd >= 0.5) && all(d$pd <= 1) })
 chk("interactions are summarized the same way",
     { li <- latent_estimand(mb, c("chord_type", "inversion"),
                             contrast = "interaction")

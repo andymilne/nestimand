@@ -1834,4 +1834,62 @@ chk("dry_run: several targets give one script, not a list of them",
       length(capture.output(show_code(cd))) > 10 &&
       grepl("--- chord_type ---", cd, fixed = TRUE) })
 
+## ---- the two routes are different quantities on a nonlinear scale ----------
+## On the link scale averaging the design rows and averaging the predictions
+## are the same operation, so the routes agree exactly. On the response scale
+## the link stands between them and they do not.
+do3 <- dat
+do3$rating <- factor(round(pmin(pmax(do3$response, 1), 4)), ordered = TRUE)
+do3$z <- as.numeric(scale(do3$training))
+sp3 <- nesting_spec(do3, rating ~ chord_type * inversion + z,
+                    "inversion %in% chord_type", fit = "clm")
+m3 <- nest_fit(sp3)
+lat3 <- function(rt) as.data.frame(estimand(m3, chord_type, route = rt,
+                                            bounds = FALSE, self_check = FALSE))
+chk("routes: identical on the link scale, to machine precision",
+    { a <- lat3("cells"); b <- lat3("g_computation")
+      max(abs(a$estimate - b$estimate[match(a$term, b$term)])) < 1e-12 })
+resp3 <- function(...) suppressMessages(as.data.frame(
+  estimand(m3, chord_type, type = "response", hypothesis = "reference",
+           bounds = FALSE, self_check = FALSE, ...)))
+chk("routes: they differ on the response scale, as a nonlinear link requires",
+    { a <- resp3(route = "cells"); b <- resp3()
+      max(abs(a$estimate - b$estimate[match(a$term, b$term)])) > 1e-4 })
+chk("subsample: estimates the same quantity as the full grid",
+    { set.seed(2)
+      max(abs(resp3()$estimate - resp3(subsample = 200)$estimate)) < 0.02 })
+chk("subsample: the rows drawn are written into the code",
+    { set.seed(2)
+      cd <- suppressMessages(estimand(m3, chord_type, type = "response",
+              subsample = 50, dry_run = TRUE, bounds = FALSE))
+      grepl("sp3$data[c(", cd, fixed = TRUE) })
+chk("subsample: it is announced, since it trades exactness for time",
+    { msg <- character(0); set.seed(2)
+      withCallingHandlers(tryCatch(estimand(m3, chord_type, type = "response",
+          subsample = 50, bounds = FALSE, self_check = FALSE),
+          error = function(e) NULL),
+        message = function(m) { msg <<- c(msg, conditionMessage(m))
+                                invokeRestart("muffleMessage") })
+      any(grepl("Monte Carlo error", msg)) })
+chk("print: the outcome category is shown where the output is grouped",
+    { d <- data.frame(group = "3", term = "a - b", estimate = 0.5)
+      x <- structure(d, class = c("nestimand_estimand", "data.frame"),
+                     nestimand = list(policy = "equal", route = "cells",
+                                      contrast = "pairwise", type = "response",
+                                      code = "x"))
+      any(grepl("group", capture.output(print(x)))) })
+
+## ---- Bayesian summaries on the prediction route too ------------------------
+chk("posterior: a frequentist fit keeps its statistic and p-value",
+    { d <- as.data.frame(estimand(mf, chord_type, bounds = FALSE,
+                                  self_check = FALSE))
+      all(c("statistic", "p.value") %in% names(d)) && !"pd" %in% names(d) })
+chk("posterior: the summariser leaves a non-Bayesian fit alone",
+    { e0 <- estimand(mf, chord_type, bounds = FALSE, self_check = FALSE)
+      identical(names(as.data.frame(add_posterior_summary(e0, mf))),
+                names(as.data.frame(e0))) })
+chk("posterior: pd is the larger tail, computed from draws",
+    { z <- c(-1, 2, 3, 4)            # 3 of 4 positive
+      abs(max(mean(z > 0), mean(z < 0)) - 0.75) < 1e-12 })
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

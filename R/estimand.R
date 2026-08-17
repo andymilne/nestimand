@@ -9,7 +9,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
                      contrast = c("pairwise", "reference", "sequential", "within",
                                   "interaction"),
                      route = c("g_computation", "cells"),
-                     weights = NULL, type = NULL,
+                     weights = NULL, type = NULL, subsample = NULL,
                      data = NULL, bounds = TRUE, self_check = TRUE,
                      dry_run = FALSE, ..., spec = NULL, .env = parent.frame()) {
   ## The declaration travels with a fit from nest_fit(); `spec` is needed only
@@ -131,6 +131,23 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   data_name <- if (missing(data)) paste0(spec_name, "$data")
                else paste(deparse(substitute(data)), collapse = " ")
   if (is.null(data)) { data <- spec$data; data_name <- paste0(spec_name, "$data") }
+  ## G-computation averages over the units in the data. Where that is too many
+  ## to evaluate - a nonlinear scale multiplies the rows by the draws and the
+  ## outcome categories - a random sample of them estimates the same average,
+  ## with Monte Carlo error in place of exactness. The rows are drawn once and
+  ## written into the code, so the result can be reproduced.
+  subsample_txt <- NULL
+  if (!is.null(subsample) && identical(route, "g_computation")) {
+    if (subsample < nrow(data)) {
+      idx <- sort(sample.int(nrow(data), subsample))
+      data <- data[idx, , drop = FALSE]
+      subsample_txt <- sprintf("c(%s)", paste(idx, collapse = ", "))
+      message("averaging over a random ", subsample, " of ",
+              format(nrow(spec$data), big.mark = ","), " units rather than all ",
+              "of them: the same population average, with Monte Carlo error. ",
+              "The rows drawn are written into the code.")
+    }
+  }
 
   ## Unit weights standardize to a population other than the sample: survey
   ## weights, or post-stratification to a target distribution of the covariates.
@@ -213,8 +230,12 @@ estimand <- function(model, target, policy = "equal", at = NULL,
               if (!is.na(ndraw)) paste0(" for each of ", format(ndraw, big.mark = ","),
                                         " posterior draws") else "",
               if (!is.na(ncat0)) paste0(" and each of ", ncat0, " outcome categories")
-              else "", ". route = \"cells\" asks the same question of one row ",
-              "per condition, with the covariates at their means.")
+              else "", ". The averaging cannot be done first here, as it can on ",
+              "the link scale, because the link stands between the model and ",
+              "the mean. `subsample = 500` averages over a random 500 units ",
+              "instead, which estimates the same quantity; route = \"cells\" ",
+              "answers a different one - the effect at average covariates - ",
+              "which on a nonlinear scale is not the population average.")
 
     ## One note, and only where it can still change what the user does. With a
     ## hypothesis of their own the comparison set is already theirs.
@@ -278,6 +299,9 @@ estimand <- function(model, target, policy = "equal", at = NULL,
             "subtraction goes are all as marginaleffects returns them.")
   }
   if (!exists("policy_dropped", inherits = FALSE)) policy_dropped <- FALSE
+  if (!is.null(subsample_txt)) {
+    data_name <- sprintf("%s[%s, ]", data_name, subsample_txt)
+  }
   code <- estimand_code(spec, target, policy, at, contrast, dots_txt,
                         model_name, spec_name, data_name, bounds, scale,
                         deg, route, weights_txt, re_note, user_hyp)
@@ -319,6 +343,11 @@ estimand <- function(model, target, policy = "equal", at = NULL,
              "categories.\n  The engine said: ", m, call. = FALSE)
       stop(err)
     })
+
+  ## A Bayesian fit is summarized from its posterior on this route too: the
+  ## engine returns draws, so the probability of direction is available, and a
+  ## Wald statistic computed from a posterior covariance is not meaningful.
+  out <- add_posterior_summary(out, model)
 
   check <- if (isTRUE(self_check))
     reorder_check(model, spec, target, policy, at, contrast, dots_txt, data, scale,
@@ -731,8 +760,11 @@ print_aligned <- function(d, ...) {
 print.nestimand_estimand <- function(x, digits = 4, ...) {
   meta <- attr(x, "nestimand")
   d <- as.data.frame(x)
-  keep <- intersect(c("stratum", "term", "estimate", "std.error", "conf.low",
-                      "conf.high", "statistic", "p.value", "pd"), names(d))
+  ## `group` carries the outcome category on a grouped fit: without it the
+  ## rows cannot be told apart
+  keep <- intersect(c("stratum", "group", "term", "estimate", "std.error",
+                      "conf.low", "conf.high", "statistic", "p.value", "pd"),
+                    names(d))
   d <- d[, keep, drop = FALSE]
   for (k in intersect(c("estimate", "std.error", "conf.low", "conf.high",
                         "statistic", "pd"), names(d)))
@@ -796,4 +828,26 @@ collect_estimands <- function(out) {
                      nestimand_code = code))
   }
   structure(out, class = "nestimand_estimands")
+}
+
+
+## Replace a frequentist summary with a posterior one where the draws exist.
+add_posterior_summary <- function(out, model) {
+  if (!inherits(model, "brmsfit")) return(out)
+  d <- tryCatch(as.data.frame(out), error = function(e) NULL)
+  if (is.null(d) || "pd" %in% names(d)) return(out)
+  drw <- tryCatch(marginaleffects::posterior_draws(out), error = function(e) NULL)
+  if (is.null(drw) || !all(c("drawid", "draw") %in% names(drw))) return(out)
+  key <- if ("term" %in% names(drw)) "term" else NULL
+  grp <- intersect(c("group", "by"), names(drw))
+  idx <- do.call(paste, c(unname(drw[c(key, grp)]), sep = "\r"))
+  pd <- tapply(drw$draw, idx, function(z) max(mean(z > 0), mean(z < 0)))
+  own <- do.call(paste, c(unname(d[intersect(c(key, grp), names(d))]), sep = "\r"))
+  d$pd <- as.numeric(pd[match(own, names(pd))])
+  d$statistic <- NULL
+  d$p.value <- NULL
+  for (a in names(attributes(out)))
+    if (!a %in% c("names", "row.names", "class")) attr(d, a) <- attr(out, a)
+  class(d) <- unique(c(setdiff(class(out), "data.frame"), class(d)))
+  d
 }

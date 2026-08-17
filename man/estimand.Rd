@@ -15,8 +15,9 @@ so \code{show_code} returns the code that ran rather than a reconstruction of it
 \usage{
 estimand(model, target, policy = "equal", at = NULL, contrast = c("pairwise", 
          "reference", "sequential", "within", "interaction"), route = c("g_computation",
-         "cells"), weights = NULL, type = NULL, data = NULL, bounds = TRUE,
-         self_check = TRUE, dry_run = FALSE, ..., spec = NULL, .env = parent.frame())
+         "cells"), weights = NULL, type = NULL, subsample = NULL,
+         data = NULL, bounds = TRUE, self_check = TRUE, dry_run = FALSE,
+         ..., spec = NULL, .env = parent.frame())
 
 add_bounds(est, model, spec, target, contrast = "pairwise", scale = c("response", 
            "latent"), cells = spec$cells, route = c("g_computation",
@@ -31,6 +32,7 @@ show_code(x, ...)
   \item{policy}{a distribution over the versions of a compound condition: one of \code{"equal"}, \code{"proportional"}, \code{"hierarchical"}, \code{"nominated"}, or a named numeric vector of masses.}
   \item{at}{for \code{policy = "nominated"}, a named vector giving the version, e.g. \code{c(inversion = "0")}.}
   \item{data}{data over which the bounds are computed, for \code{add_bounds}.}
+  \item{subsample}{average over a random sample of this many units rather than all of them, on the \code{"g_computation"} route. It estimates the same quantity, with Monte Carlo error in place of exactness, and is the way to keep a population-averaged estimand affordable on a nonlinear scale, where the averaging cannot be done before the model is evaluated. The rows drawn are written into the emitted code.}
   \item{route}{over which rows the model is evaluated. \code{"g_computation"} crosses every observed row with every realized cell, so each condition is averaged over the same covariate distribution, giving the population-averaged effect. \code{"cells"} uses one row per realized cell with covariates at their means: the conditional effect at an average covariate value.}
   \item{weights}{unit weights, as a column name or a numeric vector of one weight per row. Where the policy weights the versions of a condition, these weight the rows, standardizing the estimand to a population other than the sample: survey weights, or post-stratification to a target distribution of the covariates. Not available on the \code{"cells"} route, which evaluates one row per condition and so has no units to weight.}
   \item{contrast}{which comparisons to form. \code{"within"} gives per-stratum contrasts of a nested variable, and \code{"interaction"} a difference of differences over two or more targets; neither crosses a structural boundary, so neither takes a policy.}
@@ -84,7 +86,7 @@ weighting but a question of which population the estimand describes.
   \code{"cells"} \tab one row per realized cell, covariates at their means \cr
 }
 
-In a linear model the two agree. They separate in any nonlinear model, where
+In a linear model the two agree, and on the linear predictor they agree exactly whatever the family, since averaging the design rows and averaging the predictions are then the same operation. They separate in any nonlinear model, where
 averaging predictions over a covariate distribution is not the same as
 evaluating at its mean: \code{"g_computation"} gives the population-averaged
 effect, \code{"cells"} the conditional effect at an average covariate value.
