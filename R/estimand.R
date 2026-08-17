@@ -29,9 +29,23 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   ## the prediction function. An ordinal family defaults to the linear
   ## predictor, giving one number per contrast rather than one per outcome
   ## category; elsewhere the two coincide.
-  linear_types <- c("link", "latent", "linear.predictor", "linpred")
-  if (is.null(type)) type <- if (has_thresholds(spec)) "link" else "response"
+  ## `eta` is nestimand's own name for the linear predictor - the mean
+  ## structure, thresholds and link excluded - computed from the coefficients as
+  ## c'b. It is deliberately not a name marginaleffects uses for anything:
+  ## "link", "latent", "linpred", "linear.predictor", "lp" and "xb" all appear
+  ## in its dictionary for one class or another, so any of them would be a
+  ## claim on its vocabulary. Every other value is passed through untouched.
+  linear_types <- "eta"
+  ## A type the user typed is theirs: if the engine does not accept it for this
+  ## model, it is passed through and the engine says so, rather than the package
+  ## quietly recognising a name marginaleffects would reject. A type the package
+  ## chooses for itself needs no such check - and must not have one, since some
+  ## classes the engine cannot predict from at all.
+  type_passthrough <- FALSE
+  type_supplied <- !is.null(type)
+  if (is.null(type)) type <- if (has_thresholds(spec)) "eta" else "response"
   scale <- if (type %in% linear_types) "latent" else "response"
+
   if (identical(scale, "latent") && identical(contrast, "within"))
     stop("contrast = \"within\" is computed through the prediction route and ",
          "has no linear-map form here; use scale = \"response\".")
@@ -147,7 +161,10 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   ## Any argument meant for the prediction function is a request to go through
   ## it, so the shortcut stands aside rather than refusing them.
   dot_names <- names(as.list(substitute(list(...)))[-1])
-  linear_shortcut <- identical(scale, "response") && identity_link &&
+  ## The shortcut applies to the quantity the package itself asked for. A type
+  ## the user named is theirs: it goes to the engine, which accepts it or does
+  ## not.
+  linear_shortcut <- identical(type, "response") && identity_link &&
     all(dot_names %in% c("conf_level", "ndraws")) &&
     !identical(contrast, "within") && linear_map_available(model, spec, data)
   if (linear_shortcut) scale <- "latent"
@@ -289,7 +306,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
               "Averaging them treats the rating scale as an interval one, ",
               "which is the assumption the ordinal family was chosen to avoid. ",
               "type = \"response\" gives the probability of each category, and ",
-              "type = \"link\" the latent scale.")
+              "type = \"eta\" the linear predictor.")
     ## The response scale evaluates the model at every grid row, for every
     ## posterior draw, for every outcome category. On the G-computation grid
     ## that is the whole data set times the cells, and the work can run to
@@ -324,6 +341,18 @@ estimand <- function(model, target, policy = "equal", at = NULL,
               " route = \"cells\" answers a different question - the effect at ",
               "average covariates - which on a nonlinear scale is not the ",
               "population average.")
+
+    ## Where the engine's own quantity is the linear predictor, `eta` gives the
+    ## same numbers from the coefficients, without a prediction per row - and
+    ## per draw, on a posterior. Worth saying once; the choice stays the user's.
+    same_as_eta <- identical(type, "link") &&
+      (identity_link || (has_thresholds(spec) && inherits(model, "brmsfit")))
+    if (isTRUE(same_as_eta))
+      message("type = \"eta\" gives these same numbers from the coefficients, ",
+              "without evaluating the model at every grid row",
+              if (inherits(model, "brmsfit")) " for every draw" else "",
+              ". The linear predictor here is the mean structure, which is what ",
+              "eta computes directly.")
 
     ## One note, and only where it can still change what the user does. With a
     ## hypothesis of their own the comparison set is already theirs.
@@ -513,11 +542,11 @@ ordinal_response_type <- function(model, spec, data) {
     stop("marginaleffects does not support models of class ",
          paste(class(model), collapse = "/"), ", so no quantity computed by ",
          "prediction is available for this fit - the response scale included. ",
-         "type = \"link\" works: the contrast is taken from the coefficients ",
+         "type = \"eta\" works: the contrast is taken from the coefficients ",
          "and their covariance, which this model does provide. It is also the ",
          "default for an ordinal family.")
   stop("no response scale of this model was accepted by marginaleffects: ",
-       paste(cand, collapse = " or "), " were tried. Use type = \"link\", ",
+       paste(cand, collapse = " or "), " were tried. Use type = \"eta\", ",
        "which does not go through the prediction machinery, or pass a `type` ",
        "this version accepts.")
 }
@@ -533,6 +562,16 @@ linear_map_available <- function(model, spec, data) {
     X <- stats::model.matrix(stats::as.formula(paste("~", rhs)), g)
     need <- setdiff(colnames(X), "(Intercept)")
     all(need %in% names(coef_vector(model)))
+  }, error = function(e) FALSE)
+}
+
+## Does the engine accept this `type` for this model? Probed on two rows,
+## because the accepted set differs between model classes and between releases.
+engine_accepts <- function(model, spec, type, data = spec$data) {
+  tryCatch({
+    marginaleffects::predictions(model, newdata = utils::head(data, 2),
+                                 type = type)
+    TRUE
   }, error = function(e) FALSE)
 }
 
