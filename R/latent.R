@@ -161,6 +161,15 @@ latent_estimand <- function(model, target, policy = "equal", at = NULL,
   if (is.null(data)) data <- spec$data
   C <- latent_contrast_matrix(model, spec, target, policy, at, contrast, data,
                               cells, weights)
+  ## One row per reported contrast. Anything else means the contrast matrix has
+  ## been built over grid rows rather than over conditions, and the result would
+  ## be meaningless as well as enormous.
+  if (nrow(C) > 10000)
+    stop("the contrast matrix has ", format(nrow(C), big.mark = ","),
+         " rows, where one per comparison was expected. This is a bug in ",
+         "nestimand rather than in the model: please report the model class (",
+         paste(class(model), collapse = "/"), "), the number of realized cells (",
+         nrow(spec$cells), ") and the contrast (", contrast, ").")
   lo <- (1 - conf_level) / 2
 
   ## A Bayesian fit is summarized from its draws. Applying the delta method to a
@@ -191,8 +200,15 @@ latent_estimand <- function(model, target, policy = "equal", at = NULL,
 
   b <- coef_vector(model)[colnames(C)]
   V <- vcov_beta(model, colnames(C))[colnames(C), colnames(C), drop = FALSE]
+  ## C should have one row per contrast and one column per coefficient. If it
+  ## does not, the product below would allocate a matrix the size of the grid
+  ## squared, and R would report a long-vector error from deep inside it.
+  check_contrast_shape(C, V, b)
   est <- as.numeric(C %*% b)
-  se  <- sqrt(diag(C %*% V %*% t(C)))
+  ## diag(C V C') row by row: forming the full product would allocate one
+  ## square per contrast pair, which on a large contrast set exceeds what R
+  ## can address, and every off-diagonal entry is discarded anyway.
+  se  <- sqrt(rowSums((C %*% V) * C))
   z <- stats::qnorm(1 - lo)
   out <- data.frame(term = rownames(C), estimate = est, std.error = se,
                     statistic = est / se,
@@ -248,4 +264,24 @@ draw_names <- function(cols, draw_cols) {
          paste(utils::head(grep("^b_", draw_cols, value = TRUE), 6), collapse = ", "),
          "\n  Report these names: the matching rule needs updating.")
   draw_cols[hit]
+}
+
+
+## A shape check with a legible failure: the alternative is an allocation error
+## from inside a matrix product, which says nothing about what went wrong.
+check_contrast_shape <- function(C, V, b) {
+  if (nrow(C) > 1000)
+    stop("the contrast matrix has ", format(nrow(C), big.mark = ","), " rows, ",
+         "which is not a set of contrasts: it has the shape of the grid ",
+         "itself. Something upstream has failed to aggregate. Report this with ",
+         "dim(C) = ", paste(dim(C), collapse = " x "), " and ",
+         length(b), " coefficients.", call. = FALSE)
+  if (ncol(C) != length(b) || ncol(C) != ncol(V))
+    stop("the contrast matrix has ", ncol(C), " columns, against ", length(b),
+         " coefficients and a ", paste(dim(V), collapse = " x "),
+         " covariance: they cannot be multiplied. This usually means the fit ",
+         "does not carry the cell design's coefficients - a model fitted by ",
+         "hand in crossed or chain form - in which case ask for a quantity ",
+         "computed by prediction instead.", call. = FALSE)
+  invisible(TRUE)
 }
