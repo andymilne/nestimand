@@ -1688,7 +1688,7 @@ chk("hypothesis: the substitution is reported, with what it costs",
                                    bounds = FALSE, self_check = FALSE),
         message = function(m) { msg <<- conditionMessage(m)
                                 invokeRestart("muffleMessage") })
-      grepl("replaces the pairwise", msg) && grepl("direction", msg) })
+      grepl("instead of contrast", msg) && grepl("subtraction", msg) })
 chk("hypothesis: it is refused alongside an interaction, which defines its own",
     grepl("both define which comparisons",
           err_of(estimand(mf, chord_type:inversion, hypothesis = "reference"))))
@@ -1746,5 +1746,22 @@ chk("messages: the default scale is silent",
 chk("self-check: runs on one row per condition, so its cost does not grow",
     { r <- attr(estimand(mo, chord_type, bounds = FALSE), "nestimand")$self_check
       identical(r$status, "passed") })
+
+chk("messages: the substitution note says what changes, in plain terms",
+    { msg <- NULL
+      withCallingHandlers(estimand(mf, chord_type, hypothesis = "reference",
+                                   bounds = FALSE, self_check = FALSE),
+        message = function(m) { msg <<- conditionMessage(m)
+                                invokeRestart("muffleMessage") })
+      grepl("using your `hypothesis`", msg) &&
+      grepl("which way round each subtraction goes", msg) })
+chk("messages: a small job draws no size warning",
+    { msg <- character(0)
+      withCallingHandlers(tryCatch(estimand(mo, chord_type, type = "response",
+          route = "cells", hypothesis = "reference", bounds = FALSE,
+          self_check = FALSE), error = function(e) NULL),
+        message = function(m) { msg <<- c(msg, conditionMessage(m))
+                                invokeRestart("muffleMessage") })
+      !any(grepl("take a while", msg)) })
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

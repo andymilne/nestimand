@@ -175,6 +175,27 @@ estimand <- function(model, target, policy = "equal", at = NULL,
               "which is the assumption the ordinal family was chosen to avoid. ",
               "type = \"response\" gives the probability of each category, and ",
               "type = \"link\" the latent scale.")
+    ## The response scale evaluates the model at every grid row, for every
+    ## posterior draw, for every outcome category. On the G-computation grid
+    ## that is the whole data set times the cells, and the work can run to
+    ## hours; the cells route asks the same question of one row per condition.
+    nrows <- if (identical(route, "g_computation"))
+      nrow(data) * nrow(if (is.null(deg)) spec$cells else
+        spec$cells[as.character(spec$cells[[deg$vars[1]]]) %in% deg$keep, ,
+                   drop = FALSE]) else nrow(spec$cells)
+    ndraw <- if (inherits(model, "brmsfit"))
+      tryCatch(brms::ndraws(model), error = function(e) NA_integer_) else NA_integer_
+    ncat0 <- tryCatch(nlevels(data[[spec$outcome]]), error = function(e) NA_integer_)
+    work <- nrows * (if (is.na(ndraw)) 1 else ndraw) * (if (is.na(ncat0)) 1 else ncat0)
+    if (is.finite(work) && work > 5e6)
+      message("this will take a while: the response scale evaluates the model ",
+              "at ", format(nrows, big.mark = ","), " grid rows",
+              if (!is.na(ndraw)) paste0(" for each of ", format(ndraw, big.mark = ","),
+                                        " posterior draws") else "",
+              if (!is.na(ncat0)) paste0(" and each of ", ncat0, " outcome categories")
+              else "", ". route = \"cells\" asks the same question of one row ",
+              "per condition, with the covariates at their means.")
+
     ## One note, and only where it can still change what the user does. With a
     ## hypothesis of their own the comparison set is already theirs.
     if (identical(type, "response") && !"hypothesis" %in% names(dots) &&
@@ -231,9 +252,9 @@ estimand <- function(model, target, policy = "equal", at = NULL,
            "comparisons are formed. The interaction is built as a matrix of ",
            "differences of differences; supply your own hypothesis instead, or ",
            "drop it and let the interaction stand.")
-    message("`hypothesis` replaces the ", contrast, " comparison, so the ",
-            "labels and their direction are the engine's rather than the ",
-            "declared level order.")
+    message("using your `hypothesis` instead of contrast = \"", contrast,
+            "\". The comparisons, their names, and which way round each ",
+            "subtraction goes are all as marginaleffects returns them.")
   }
   if (!exists("policy_dropped", inherits = FALSE)) policy_dropped <- FALSE
   code <- estimand_code(spec, target, policy, at, contrast, dots_txt,
