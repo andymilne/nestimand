@@ -48,7 +48,10 @@ condition has no free coefficient, its latent mean being absorbed into the
 thresholds; that row reads as exactly zero and is flagged.
 }
 \value{
-A data frame of class \code{nestimand_summary} with one row per coefficient,
+A data frame of class \code{nestimand_summary}, printed with a header naming
+the parameterization, the fitting function, and the formula that was fitted -
+since the same table can come from any of the engines, and which one matters for
+reading it. The engine is also in the \code{nestimand_fit} attribute with one row per coefficient,
 giving the estimate, standard error, test statistic, p-value, interval, and the
 combination of conditions the coefficient equals. The transformation matrix is
 in the \code{nestimand_map} attribute.

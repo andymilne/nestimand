@@ -121,6 +121,14 @@ nest_summary <- function(model, space = c("effects", "cells"),
       tryCatch(random_covariance(model, spec, space),
                error = function(e) structure(list(), note = conditionMessage(e)))
   attr(out, "nestimand_space") <- space
+  ## which engine produced the coefficients being translated: the same table
+  ## can come from any of them, and the reader should not have to remember
+  attr(out, "nestimand_fit") <- spec$fit
+  attr(out, "nestimand_call") <- tryCatch(
+    paste(deparse(stats::formula(if (inherits(stats::formula(model), "bform"))
+                                   stats::formula(stats::formula(model))
+                                 else stats::formula(model))), collapse = " "),
+    error = function(e) NULL)
   attr(out, "nestimand_map") <- Tm
   class(out) <- c("nestimand_summary", class(out))
   out
@@ -152,7 +160,12 @@ block_meaning <- function(spec, label, cells, A, space, rownames_M) {
 
 print.nestimand_summary <- function(x, digits = 4, ...) {
   space <- attr(x, "nestimand_space")
-  cat("nestimand summary: ", space, " parameterization\n", sep = "")
+  engine <- attr(x, "nestimand_fit")
+  cat("nestimand summary: ", space, " parameterization",
+      if (!is.null(engine)) paste0(", fitted with ", engine_call(engine)), "\n",
+      sep = "")
+  if (!is.null(attr(x, "nestimand_call")))
+    cat("  ", attr(x, "nestimand_call"), "\n", sep = "")
   d <- as.data.frame(x)
   d$estimate <- round(d$estimate, digits)
   d$std.error <- round(d$std.error, digits)
@@ -166,4 +179,12 @@ print.nestimand_summary <- function(x, digits = 4, ...) {
     if (!length(rc)) cat("  ", attr(rc, "note"), "\n", sep = "") else print(rc)
   }
   invisible(x)
+}
+
+
+## The function the engine name stands for, as it appears in a call.
+engine_call <- function(fit) {
+  switch(fit, lm = "lm()", glm = "glm()", lmer = "lme4::lmer()",
+         glmer = "lme4::glmer()", clm = "ordinal::clm()",
+         clmm = "ordinal::clmm()", brms = "brms::brm()", paste0(fit, "()"))
 }

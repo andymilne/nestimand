@@ -1540,7 +1540,7 @@ chk("print: numeric headers sit over their columns, right-aligned",
       grepl(" estimate", hdr, fixed = TRUE) })
 chk("print: the label column stays left-aligned, header included",
     { ln <- capture.output(print(nest_summary(mf, "cells")))
-      grepl("^ term ", ln[2]) })
+      any(grepl("^ term ", ln)) })
 chk("print: alignment does not disturb the values",
     { d <- as.data.frame(estimand(mf, chord_type, bounds = FALSE,
                                   self_check = FALSE))
@@ -2111,5 +2111,24 @@ if (requireNamespace("lme4", quietly = TRUE)) {
   chk("random: the fact is still recorded for code that needs it",
       identical(attr(random_covariance(m_sl)[[1]], "translated"), FALSE))
 }
+
+## ---- the summary says which engine produced it -----------------------------
+chk("nest_summary: the header names the fitting function",
+    { ln <- capture.output(print(nest_summary(mf)))[1]
+      grepl("fitted with lm\\(\\)", ln) })
+chk("nest_summary: and the formula it was fitted with",
+    { ln <- capture.output(print(nest_summary(mf)))[2]
+      grepl("response ~", ln) && grepl("cell", ln) })
+chk("nest_summary: the engine is recorded, not only printed",
+    identical(attr(nest_summary(mf), "nestimand_fit"), "lm"))
+if (requireNamespace("ordinal", quietly = TRUE)) {
+  chk("nest_summary: an ordinal fit names its own engine",
+      grepl("ordinal::clm\\(\\)",
+            capture.output(print(nest_summary(mo)))[1]))
+}
+chk("nest_summary: the engine names map to real functions",
+    identical(engine_call("brms"), "brms::brm()") &&
+    identical(engine_call("glmer"), "lme4::glmer()") &&
+    identical(engine_call("something"), "something()"))
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
