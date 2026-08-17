@@ -571,13 +571,15 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
       "est"))
   }
   if (identical(scale, "latent")) {
-    body <- c(hdr[1],
+    body <- c(hdr[1], restrict_note,
       "## latent-scale estimand: on a linear scale the policy contrast is c'b,",
       "## with c a weighted difference of design-matrix rows. Exact, one matrix",
       "## product, and free of the per-category expansion of ordinal fits.",
-      sprintf('pol  <- nest_policy(%s, "%s", %s%s)', spec_name, target, pol_txt, at_txt),
-      sprintf('est  <- latent_estimand(%s, "%s", pol, contrast = "%s", spec = %s%s%s)',
-              model_name, target, contrast, spec_name, dots_txt, draws_txt))
+      sprintf('pol  <- nest_policy(%s, "%s", %s%s%s)', spec_name, target, pol_txt,
+              at_txt, if (is.null(deg)) "" else ", cells = cells"),
+      sprintf('est  <- latent_estimand(%s, "%s", pol, contrast = "%s", spec = %s%s%s%s)',
+              model_name, target, contrast, spec_name,
+              if (is.null(deg)) "" else ", cells = cells", dots_txt, draws_txt))
     if (isTRUE(bounds))
       body <- c(body,
         "## partial-identification bounds over all admissible policies",

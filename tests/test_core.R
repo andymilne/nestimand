@@ -2067,4 +2067,30 @@ chk("subsample: the check works from the declaration's own data",
     { body <- paste(deparse(reorder_check), collapse = " ")
       grepl("d2 <- spec\\$data", body) })
 
+## ---- every emitted script must run, on every route and scale ---------------
+## The latent branch referred to `cells` without emitting the line that makes
+## it: the restriction was applied internally but not written down.
+chk("emitted code: runs for every target, scale and bounds setting",
+    { ok <- TRUE
+      for (tgt in c("chord_type", "inversion"))
+        for (ty in c("link", "response"))
+          for (bd in c(TRUE, FALSE)) {
+            cl <- bquote(estimand(mf, .(tgt), type = .(ty), bounds = .(bd),
+                                  self_check = FALSE))
+            e <- tryCatch(suppressMessages(eval(cl)), error = function(x) NULL)
+            if (is.null(e)) next
+            env <- new.env(parent = globalenv())
+            assign("mf", mf, env); assign("sp", sp, env)
+            r <- tryCatch(eval(parse(text = paste(attr(e, "nestimand")$code,
+                                                  collapse = "\n")), envir = env),
+                          error = function(x) NULL)
+            if (is.null(r)) ok <- FALSE
+          }
+      ok })
+chk("emitted code: the latent branch writes the restriction it uses",
+    { cd <- estimand(mf, inversion, type = "link", bounds = TRUE,
+                     dry_run = TRUE)
+      grepl("cells <- subset(", cd, fixed = TRUE) &&
+      grepl("cells = cells", cd, fixed = TRUE) })
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
