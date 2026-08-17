@@ -15,9 +15,8 @@ so \code{show_code} returns the code that ran rather than a reconstruction of it
 \usage{
 estimand(model, target, policy = "equal", at = NULL, contrast = c("pairwise", 
          "reference", "sequential", "within", "interaction"), route = c("g_computation",
-         "cells"), weights = NULL, scale = c("response", "latent"),
-         data = NULL, bounds = TRUE, self_check = TRUE, dry_run = FALSE,
-         ..., spec = NULL, .env = parent.frame())
+         "cells"), weights = NULL, type = NULL, data = NULL, bounds = TRUE,
+         self_check = TRUE, dry_run = FALSE, ..., spec = NULL, .env = parent.frame())
 
 add_bounds(est, model, spec, target, contrast = "pairwise", scale = c("response", 
            "latent"), cells = spec$cells, route = c("g_computation",
@@ -35,19 +34,18 @@ show_code(x, ...)
   \item{route}{over which rows the model is evaluated. \code{"g_computation"} crosses every observed row with every realized cell, so each condition is averaged over the same covariate distribution, giving the population-averaged effect. \code{"cells"} uses one row per realized cell with covariates at their means: the conditional effect at an average covariate value.}
   \item{weights}{unit weights, as a column name or a numeric vector of one weight per row. Where the policy weights the versions of a condition, these weight the rows, standardizing the estimand to a population other than the sample: survey weights, or post-stratification to a target distribution of the covariates. Not available on the \code{"cells"} route, which evaluates one row per condition and so has no units to weight.}
   \item{contrast}{which comparisons to form. \code{"within"} gives per-stratum contrasts of a nested variable, and \code{"interaction"} a difference of differences over two or more targets; neither crosses a structural boundary, so neither takes a policy.}
-  \item{scale}{\code{"response"} goes through the prediction machinery; \code{"latent"} computes the contrast as a linear functional of the coefficients, and uses no prediction at all. For an ordinal family the two differ in kind - the latent scale gives one number per contrast, the response scale one per outcome category - so the latent scale is the default there, and the response scale elsewhere. Where the response scale is used, the engine's own name for it is supplied automatically, since it differs between model classes and between releases.
-
-Note that the latent scale is not the engine's \code{type = "link"}. For a cumulative model the linear predictor is one value per threshold, so \code{"link"} returns per-category output whose contrasts still carry the thresholds; the latent scale is the difference in the mean structure alone, thresholds cancelled.}
+  \item{type}{the quantity to contrast, in the engines' own vocabulary. \code{"link"} - equivalently \code{"latent"} or \code{"linear.predictor"} - is the linear predictor, computed from the coefficients as c'b: exact, one number per contrast, and independent of an engine's ordinal support. Anything else is passed to \code{marginaleffects::avg_predictions}: \code{"response"} for the expected outcome, \code{"prediction"} for the posterior predictive - which on an ordinal family draws category codes, so that contrasting them treats the rating scale as an interval one, and is noted when asked for - \code{"mean.class"} and the rest where a model offers them. The default is \code{"response"}, or \code{"link"} for an ordinal family, where the response scale gives one number per outcome category rather than one per contrast. For \code{"response"} on an ordinal fit the engine's own spelling is resolved against the model, since it differs between classes and releases.}
   \item{data}{data over which the estimand is averaged.}
   \item{bounds}{attach the partial-identification region. It is computed on the same route as the estimand, one evaluation per single-version policy, so its cost grows with the number of versions: on a design admitting many, \code{bounds = FALSE} is the way to skip it.}
   \item{self_check}{re-run the estimand with nested factor levels permuted, and warn if it moves. For a mixed or Bayesian fit the check runs on the fixed-effects shadow model - the same cell formula without the random terms - because order instability is a fixed-effects phenomenon, and refitting a large random structure is both expensive and liable to settle on a different optimum, which would report a failure having nothing to do with level order.}
   \item{dry_run}{return the code without computing anything. \code{show_code()} prints the code of a result that has already been computed, since the inner call is evaluated first; this is the way to see the code beforehand.}
-  \item{...}{passed to \code{marginaleffects::avg_predictions}, which computes the estimand, and written into the saved code: \code{conf_level}, \code{p_adjust}, \code{vcov}, \code{type}, \code{df} and the rest are supplied this way. See \code{?marginaleffects::avg_predictions} for what it accepts. On \code{scale = "latent"} the estimand is computed from the coefficients instead, and \code{conf_level} is the only one of these that applies.}
+  \item{...}{passed to \code{marginaleffects::avg_predictions}, which computes the estimand, and written into the saved code: \code{conf_level}, \code{p_adjust}, \code{vcov}, \code{type}, \code{df} and the rest are supplied this way. See \code{?marginaleffects::avg_predictions} for what it accepts. When \code{type} names the linear predictor the estimand is computed from the coefficients instead, and \code{conf_level} is the only one of these that applies.}
   \item{.env}{environment in which the assembled code is evaluated.}
   \item{est}{an estimand table, for \code{add_bounds}.}
   \item{cells}{the realized cells the bounds are computed over, matching any restriction applied to the estimand itself.}
   \item{x}{an object carrying code, for \code{show_code}.}
   \item{digits}{decimal places for the printed table. The object keeps full precision; only the display is rounded.}
+  \item{scale}{internal, for \code{add_bounds}: whether the bounds are computed from the coefficients or through the prediction function. \code{\link{estimand}} sets it from \code{type}.}
 }
 \section{Mixed models}{
 An estimand here is population-level: it describes a typical group rather than

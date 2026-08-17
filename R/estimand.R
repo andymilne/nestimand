@@ -9,8 +9,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
                      contrast = c("pairwise", "reference", "sequential", "within",
                                   "interaction"),
                      route = c("g_computation", "cells"),
-                     weights = NULL,
-                     scale = c("response", "latent"),
+                     weights = NULL, type = NULL,
                      data = NULL, bounds = TRUE, self_check = TRUE,
                      dry_run = FALSE, ..., spec = NULL, .env = parent.frame()) {
   ## The declaration travels with a fit from nest_fit(); `spec` is needed only
@@ -23,14 +22,16 @@ estimand <- function(model, target, policy = "equal", at = NULL,
               else match.arg(contrast)
   route <- match.arg(route)
   wq <- substitute(weights)
-  ## For an ordinal family the latent scale is the sensible default: one number
-  ## per contrast, with the thresholds cancelling, where the response scale
-  ## gives one per outcome category. It is computed as c'b rather than through
-  ## the engine - brms would give the same thing under type = "link", since its
-  ## ordinal linear predictor excludes the thresholds, but clm's linear
-  ## predictor does not, and the linear map is exact and engine-independent.
-  ## Elsewhere the response scale is what people report, and stays the default.
-  scale <- if (missing(scale) && has_thresholds(spec)) "latent" else match.arg(scale)
+  ## One argument names the quantity, in the engines' own vocabulary; which
+  ## machinery computes it is the package's business. On the linear predictor
+  ## the contrast is c'b and is taken from the coefficients: exact, and it works
+  ## where an engine's ordinal support does not. Every other quantity goes to
+  ## the prediction function. An ordinal family defaults to the linear
+  ## predictor, giving one number per contrast rather than one per outcome
+  ## category; elsewhere the two coincide.
+  linear_types <- c("link", "latent", "linear.predictor", "linpred")
+  if (is.null(type)) type <- if (has_thresholds(spec)) "link" else "response"
+  scale <- if (type %in% linear_types) "latent" else "response"
   if (identical(scale, "latent") && identical(contrast, "within"))
     stop("contrast = \"within\" is computed through the prediction route and ",
          "has no linear-map form here; use scale = \"response\".")
@@ -157,14 +158,32 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   ## An ordinal family has no single response scale, so `scale` chooses it and
   ## the engine's own spelling is supplied here: the user should not have to
   ## know that clm calls it "prob" and brms calls it "response".
-  if (has_thresholds(spec) && identical(scale, "response") &&
-      !"type" %in% names(dots)) {
-    ord_type <- ordinal_response_type(model, spec, data)
-    dots$type <- ord_type
-    message("ordinal fit: scale = \"response\" contrasts the outcome ",
-            "probabilities, giving one number per category (type = \"",
-            ord_type, "\"). scale = \"latent\" gives one number per contrast, ",
-            "on the scale the model is linear in.")
+  if (identical(scale, "response")) {
+    ## the engines spell the expected-outcome scale differently, and the
+    ## accepted set has changed between releases, so "response" is resolved
+    ## against this fit rather than assumed
+    dots$type <- if (identical(type, "response") && has_thresholds(spec))
+      ordinal_response_type(model, spec, data) else type
+    ## `prediction` draws from the posterior predictive. On an ordinal family
+    ## those draws are category codes, so averaging them treats the rating
+    ## scale as an interval one - a modelling assumption the ordinal family was
+    ## chosen to avoid.
+    if (has_thresholds(spec) && identical(type, "prediction"))
+      message("ordinal fit: type = \"prediction\" draws from the posterior ",
+              "predictive, and on this family those draws are category codes. ",
+              "Averaging them treats the rating scale as an interval one, ",
+              "which is the assumption the ordinal family was chosen to avoid. ",
+              "type = \"response\" gives the probability of each category, and ",
+              "type = \"link\" the latent scale.")
+    if (has_thresholds(spec) && identical(type, "response"))
+      message("ordinal fit: type = \"", dots$type, "\" contrasts the outcome ",
+              "probabilities, so each comparison becomes one number per ",
+              "category rather than one effect - and those numbers need not ",
+              "share a sign, since a condition that raises the probability of ",
+              "the high categories lowers it for the low ones. There is no ",
+              "single \"the effect\" to report on that scale. type = \"link\" ",
+              "gives one number per contrast, on the scale the model is ",
+              "linear in.")
   }
 
   dots_txt <- if (length(dots))
@@ -219,7 +238,22 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   assign(spec_name,  spec,  envir = env)
   if (!exists(data_name, envir = env, inherits = TRUE))
     assign(data_name, data, envir = env)
-  out <- eval(parse(text = paste(run_code, collapse = "\n")), envir = env)
+  out <- tryCatch(eval(parse(text = paste(run_code, collapse = "\n")), envir = env),
+    error = function(err) {
+      m <- conditionMessage(err)
+      ## the engine's refusal here is opaque, and the cause is the per-category
+      ## output rather than anything about the contrast that was asked for
+      if (has_thresholds(spec) && identical(scale, "response") &&
+          grepl("pairwise|reference|sequential", m))
+        stop("this version of marginaleffects will not form a `", contrast,
+             "` comparison of per-category probabilities: on an ordinal fit ",
+             "type = \"", dots$type, "\" returns one value per outcome ",
+             "category, and the comparison is defined over a single value per ",
+             "condition. Use type = \"link\" for one number per contrast, or ",
+             "add `by` and a hypothesis of your own to compare particular ",
+             "categories.\n  The engine said: ", m, call. = FALSE)
+      stop(err)
+    })
 
   check <- if (isTRUE(self_check))
     reorder_check(model, spec, target, policy, at, contrast, dots_txt, data, scale,
@@ -229,7 +263,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   structure(out,
             nestimand = list(build = nestimand_build, target = target,
                              policy = policy, at = at, contrast = contrast,
-                             scale = scale, route = route,
+                             scale = scale, type = type, route = route,
                              policy_dropped = policy_dropped,
                              bounds = attr(out, "nestimand_bounds"),
                              self_check = check,
@@ -406,14 +440,13 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
 add_bounds <- function(est, model, spec, target, contrast = "pairwise",
                        scale = c("response", "latent"), cells = spec$cells,
                        route = c("g_computation", "cells"), data = spec$data, ...) {
-  ## For an ordinal family the latent scale is the sensible default: one number
-  ## per contrast, with the thresholds cancelling, where the response scale
-  ## gives one per outcome category. It is computed as c'b rather than through
-  ## the engine - brms would give the same thing under type = "link", since its
-  ## ordinal linear predictor excludes the thresholds, but clm's linear
-  ## predictor does not, and the linear map is exact and engine-independent.
-  ## Elsewhere the response scale is what people report, and stays the default.
-  scale <- if (missing(scale) && has_thresholds(spec)) "latent" else match.arg(scale)
+  ## The latent route computes from the coefficients, so arguments meant for
+  ## the prediction function have nowhere to go. Said plainly, rather than
+  ## surfacing as "unused argument" from a function the user did not call.
+  engine_only <- c("type", "vcov", "p_adjust", "transform", "df", "byfun",
+                   "equivalence", "numderiv", "re.form", "re_formula",
+                   "variables", "newdata")
+  scale <- match.arg(scale)
   route <- match.arg(route)
   vs <- versions_of(spec, target, cells)
   vert <- expand.grid(lapply(vs, seq_along), KEEP.OUT.ATTRS = FALSE)
@@ -628,7 +661,7 @@ print.nestimand_estimand <- function(x, digits = 4, ...) {
   pol <- if (identical(meta$contrast, "interaction")) "not applicable"
          else if (is.character(meta$policy)) meta$policy else "supplied"
   cat("\nPolicy: ", pol, "   route: ", meta$route, "   contrast: ", meta$contrast,
-      if (identical(meta$scale, "latent")) "   scale: latent" else "", sep = "")
+      "   type: ", meta$type, sep = "")
   if (!is.null(meta$self_check))
     cat("   reorder check: ", meta$self_check$status, sep = "")
   cat("\n")

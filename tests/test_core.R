@@ -362,7 +362,7 @@ chk("latent: a supplied policy is the convex combination of the vertices",
 chk("latent: reference and sequential contrasts available",
     nrow(latent_estimand(m, "chord_type", "equal", contrast = "reference", spec = sp)) == 3 &&
     nrow(latent_estimand(m, "chord_type", "equal", contrast = "sequential", spec = sp)) == 3)
-lo <- estimand(mo, chord_type, spec = spo, policy = "equal", scale = "latent")
+lo <- estimand(mo, chord_type, spec = spo, policy = "equal", type = "link")
 chk("latent: ordinal fit returns one number per contrast, where predictions fail",
     nrow(as.data.frame(lo)) == 6 && is.finite(as.data.frame(lo)$estimate[3]))
 chk("latent: ordinal estimand passes the reorder check",
@@ -375,7 +375,7 @@ chk("latent: the code view names the linear-map route",
     any(grepl("latent_estimand", attr(lo, "nestimand")$code)))
 chk("latent: within contrasts have no linear-map form, and say so",
     grepl("no linear-map form",
-          err_of(estimand(m, inversion, spec = sp, contrast = "within", scale = "latent"))))
+          err_of(estimand(m, inversion, spec = sp, contrast = "within", type = "link"))))
 chk("latent: draw-wise translation refuses a frequentist fit",
     grepl("needs a posterior", err_of(latent_draws(m, "chord_type", spec = sp))))
 chk("latent: a model not fitted from this spec is refused",
@@ -1081,7 +1081,7 @@ chk("reorder: a plain fit is still checked on the model itself",
     { r <- attr(estimand(mf, chord_type, bounds = FALSE), "nestimand")$self_check
       identical(r$status, "passed") && !grepl("shadow", r$note) })
 chk("reorder: an ordinal fit uses an ordinal shadow",
-    { r <- attr(estimand(mo, chord_type, scale = "latent", bounds = FALSE),
+    { r <- attr(estimand(mo, chord_type, type = "link", bounds = FALSE),
                 "nestimand")$self_check
       identical(r$status, "passed") })
 
@@ -1472,7 +1472,7 @@ if (requireNamespace("lme4", quietly = TRUE)) {
 }
 
 ## ---- the latent route covers what the prediction route covers --------------
-lat <- function(...) as.data.frame(estimand(mf, ..., scale = "latent",
+lat <- function(...) as.data.frame(estimand(mf, ..., type = "link",
                                             bounds = FALSE, self_check = FALSE))
 res <- function(...) as.data.frame(estimand(mf, ..., bounds = FALSE,
                                             self_check = FALSE))
@@ -1484,16 +1484,16 @@ chk("latent: a nested target is restricted here too",
       identical(a$term, b$term) && nrow(b) == 3 &&
       max(abs(a$estimate - b$estimate)) < 1e-8 })
 chk("latent: the interaction passes its reorder check",
-    identical(attr(estimand(mf, chord_type:inversion, scale = "latent",
+    identical(attr(estimand(mf, chord_type:inversion, type = "link",
                             bounds = FALSE), "nestimand")$self_check$status,
               "passed"))
 chk("latent: the emitted code names the interaction route",
     any(grepl('contrast = "interaction"',
-        attr(estimand(mf, chord_type:inversion, scale = "latent", bounds = FALSE,
+        attr(estimand(mf, chord_type:inversion, type = "link", bounds = FALSE,
                       self_check = FALSE), "nestimand")$code, fixed = TRUE)))
 chk("latent: an ordinal star form gives all three, correctly sized",
     { eo2 <- suppressMessages(estimand(mo, chord_type * inversion,
-               policy = "proportional", scale = "latent", bounds = FALSE,
+               policy = "proportional", type = "link", bounds = FALSE,
                self_check = FALSE))
       identical(unname(vapply(eo2, function(z) nrow(as.data.frame(z)), 1L)),
                 c(6L, 3L, 9L)) })
@@ -1547,7 +1547,7 @@ chk("print: alignment does not disturb the values",
       abs(d$estimate[3] - 0.677885742) < 1e-8 })
 
 chk("ordinal: the latent scale needs no engine support at all",
-    nrow(as.data.frame(estimand(mo, chord_type, scale = "latent",
+    nrow(as.data.frame(estimand(mo, chord_type, type = "link",
                                 bounds = FALSE, self_check = FALSE))) == 6)
 chk("ordinal: the probe reports which names it tried",
     { e <- err_of(ordinal_response_type(mo, spo, spo$data))
@@ -1563,8 +1563,8 @@ chk("scale: a linear fit still defaults to the response scale",
 chk("scale: the ordinal default gives one number per contrast",
     nrow(as.data.frame(estimand(mo, chord_type, bounds = FALSE,
                                 self_check = FALSE))) == 6)
-chk("scale: the response scale supplies the engine's own type name",
-    { cd <- suppressMessages(estimand(mo, chord_type, scale = "response",
+chk("type: response resolves to the name this engine accepts",
+    { cd <- suppressMessages(estimand(mo, chord_type, type = "response",
               bounds = FALSE, self_check = FALSE, dry_run = TRUE))
       grepl('type = "prob"', cd, fixed = TRUE) ||
       grepl('type = "response"', cd, fixed = TRUE) })
@@ -1577,11 +1577,85 @@ chk("scale: everything else defaults to the response scale",
     identical(attr(estimand(mf, chord_type, bounds = FALSE, self_check = FALSE),
                    "nestimand")$scale, "response"))
 chk("scale: an explicit choice is honoured either way",
-    identical(attr(estimand(mf, chord_type, scale = "latent", bounds = FALSE,
+    identical(attr(estimand(mf, chord_type, type = "link", bounds = FALSE,
                             self_check = FALSE), "nestimand")$scale, "latent"))
 
 chk("class: the engine's own class comes first, so dispatch is undisturbed",
     identical(class(mf)[1], "lm") &&
     identical(class(nest_fit(sp))[1], "lm"))
+
+## ---- engine arguments on the latent route ----------------------------------
+## The latent route never calls the prediction function, so its arguments have
+## nowhere to go; an ordinal fit defaults to that route, which makes this easy
+## to hit by accident.
+chk("latent: conf_level does apply, and widens the interval",
+    { a <- as.data.frame(estimand(mf, chord_type, type = "link",
+             conf_level = 0.99, bounds = FALSE, self_check = FALSE))
+      b <- as.data.frame(estimand(mf, chord_type, type = "link",
+             conf_level = 0.90, bounds = FALSE, self_check = FALSE))
+      all(a$conf.low < b$conf.low) && all(a$conf.high > b$conf.high) })
+chk("latent: the response route still takes them",
+    nrow(as.data.frame(estimand(mf, chord_type, p_adjust = "holm",
+                                bounds = FALSE, self_check = FALSE))) == 6)
+
+## ---- one argument names the quantity ---------------------------------------
+meta_of <- function(...) attr(estimand(mf, chord_type, bounds = FALSE,
+                                       self_check = FALSE, ...), "nestimand")
+chk("type: a linear predictor is computed from the coefficients",
+    identical(meta_of(type = "link")$scale, "latent") &&
+    identical(meta_of(type = "latent")$scale, "latent") &&
+    identical(meta_of(type = "linear.predictor")$scale, "latent"))
+chk("type: anything else goes to the prediction function",
+    identical(meta_of(type = "response")$scale, "response"))
+chk("type: the default is the response scale, and the linear one for ordinal",
+    identical(meta_of()$type, "response") &&
+    identical(attr(estimand(mo, chord_type, bounds = FALSE, self_check = FALSE),
+                   "nestimand")$type, "link"))
+chk("type: the two agree in a linear model, whichever machinery is used",
+    { a <- as.data.frame(estimand(mf, chord_type, type = "link", bounds = FALSE,
+                                  self_check = FALSE))
+      b <- as.data.frame(estimand(mf, chord_type, type = "response",
+                                  bounds = FALSE, self_check = FALSE))
+      max(abs(a$estimate - b$estimate[match(a$term, b$term)])) < 1e-8 })
+chk("type: it is recorded and printed",
+    any(grepl("type: link",
+        capture.output(print(estimand(mf, chord_type, type = "link",
+                                      bounds = FALSE, self_check = FALSE))))))
+
+## ---- the response scale on an ordinal fit is worth a word ------------------
+chk("ordinal: the response scale says what it gives, and that signs may differ",
+    { msg <- NULL
+      withCallingHandlers(
+        tryCatch(estimand(mo, chord_type, type = "response", bounds = FALSE,
+                          self_check = FALSE), error = function(e) NULL),
+        message = function(m) { msg <<- conditionMessage(m)
+                                invokeRestart("muffleMessage") })
+      grepl("one number per", msg) && grepl("share a sign", msg) &&
+      grepl('type = "link"', msg) })
+chk("ordinal: an engine refusal on that scale is explained, not passed on raw",
+    { e <- err_of(suppressMessages(estimand(mo, chord_type, type = "response",
+                    bounds = FALSE, self_check = FALSE)))
+      identical(e, "") || (grepl("one value per outcome category", e) &&
+                           grepl("The engine said", e)) })
+chk("ordinal: the default route is unaffected by any of this",
+    nrow(as.data.frame(estimand(mo, chord_type, bounds = FALSE,
+                                self_check = FALSE))) == 6)
+
+chk("ordinal: the predictive type warns that codes are being averaged",
+    { msg <- NULL
+      withCallingHandlers(
+        tryCatch(estimand(mo, chord_type, type = "prediction", bounds = FALSE,
+                          self_check = FALSE), error = function(e) NULL),
+        message = function(m) { msg <<- conditionMessage(m)
+                                invokeRestart("muffleMessage") })
+      grepl("category codes", msg) && grepl("interval one", msg) })
+chk("prediction: a non-ordinal fit draws no such note",
+    { msg <- NULL
+      withCallingHandlers(
+        tryCatch(estimand(mf, chord_type, type = "prediction", bounds = FALSE,
+                          self_check = FALSE), error = function(e) NULL),
+        message = function(m) { msg <<- conditionMessage(m)
+                                invokeRestart("muffleMessage") })
+      is.null(msg) })
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
