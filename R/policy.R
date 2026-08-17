@@ -231,8 +231,27 @@ policy_vertices <- function(spec, target) {
 ## structural boundary, since every cell it uses exists, and so takes no policy.
 ## The matrix is built from the table the engine returns, so its rows are in
 ## whatever order that engine used.
-interaction_matrix <- function(d, vars) {
+## When the engine returns grouped output - the outcome categories of an
+## ordinal fit, or any other `group` column - a difference of differences is
+## only interpretable within a group. The matrix is then block-diagonal: the
+## same columns, once per group, labelled with it.
+interaction_matrix <- function(d, vars, group = NULL) {
   d <- as.data.frame(d)
+  if (is.null(group) && "group" %in% names(d) &&
+      length(unique(as.character(d$group))) > 1)
+    group <- "group"
+  if (!is.null(group) && !is.na(group)) {
+    g <- as.character(d[[group]])
+    blocks <- lapply(unique(g), function(k) {
+      idx <- which(g == k)
+      Hk <- interaction_matrix(d[idx, , drop = FALSE], vars, group = NA_character_)
+      M <- matrix(0, nrow(d), ncol(Hk),
+                  dimnames = list(NULL, paste0(colnames(Hk), " | ", k)))
+      M[idx, ] <- Hk
+      M
+    })
+    return(do.call(cbind, blocks))
+  }
   key <- do.call(paste, c(unname(lapply(vars, function(v) as.character(d[[v]]))),
                           sep = "\r"))
   lv <- lapply(vars, function(v) unique(as.character(d[[v]])))

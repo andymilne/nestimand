@@ -51,9 +51,29 @@ estimand <- function(model, target, policy = "equal", at = NULL,
       tg <- NULL
     } else {
       cl <- match.call()
-      out <- c(lapply(vs, function(k) { c2 <- cl; c2$target <- k; eval(c2, .env) }),
-               list({ c2 <- cl; c2$target <- vs; c2$contrast <- "interaction"
-                      eval(c2, .env) }))
+      has_hyp <- "hypothesis" %in% names(as.list(substitute(list(...)))[-1])
+      ## Each part is a separate call and would repeat the same notes, so they
+      ## are collected and said once.
+      seen <- character(0)
+      once <- function(expr) withCallingHandlers(expr, message = function(m) {
+        txt <- conditionMessage(m)
+        if (txt %in% seen) invokeRestart("muffleMessage")
+        seen[[length(seen) + 1L]] <<- txt
+      })
+      out <- lapply(vs, function(k) { c2 <- cl; c2$target <- k; once(eval(c2, .env)) })
+      names(out) <- vs
+      ## The interaction is defined by its own comparison matrix, so a
+      ## `hypothesis` meant for the marginal contrasts does not apply to it -
+      ## but it need not be dropped either: on grouped output the interaction
+      ## is formed within each group, which is the same restriction the
+      ## hypothesis was asking for.
+      if (has_hyp)
+        message("your `hypothesis` governs the two marginal contrasts. The ",
+                "interaction is built from its own comparison matrix, formed ",
+                "within each group where the output is grouped.")
+      out <- c(out, list(once({ c2 <- cl; c2$target <- vs
+                                c2$contrast <- "interaction"
+                                c2$hypothesis <- NULL; eval(c2, .env) })))
       names(out) <- c(vs, paste(vs, collapse = ":"))
       return(structure(out, class = "nestimand_estimands"))
     }
@@ -198,7 +218,8 @@ estimand <- function(model, target, policy = "equal", at = NULL,
 
     ## One note, and only where it can still change what the user does. With a
     ## hypothesis of their own the comparison set is already theirs.
-    if (identical(type, "response") && !"hypothesis" %in% names(dots) &&
+    if (has_thresholds(spec) && identical(type, "response") &&
+        !"hypothesis" %in% names(dots) &&
         contrast %in% c("pairwise", "interaction")) {
       ncat <- tryCatch(nlevels(data[[spec$outcome]]), error = function(e) NA_integer_)
       nlev <- if (identical(contrast, "interaction")) nrow(spec$cells)

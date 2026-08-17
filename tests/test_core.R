@@ -1764,4 +1764,52 @@ chk("messages: a small job draws no size warning",
                                 invokeRestart("muffleMessage") })
       !any(grepl("take a while", msg)) })
 
+## ---- the star form with a hypothesis of the user's own ---------------------
+chk("targets: a * b with a hypothesis returns all three, and says how they divide",
+    { z <- character(0)
+      r <- withCallingHandlers(estimand(mf, chord_type * inversion,
+             hypothesis = "reference", bounds = FALSE, self_check = FALSE),
+           message = function(m) { z <<- c(z, conditionMessage(m))
+                                   invokeRestart("muffleMessage") })
+      identical(names(r), c("chord_type", "inversion", "chord_type:inversion")) &&
+      any(grepl("governs the two marginal contrasts", z)) })
+chk("targets: without a hypothesis all three parts come back",
+    { r <- estimand(mf, chord_type * inversion, bounds = FALSE,
+                    self_check = FALSE)
+      length(r) == 3 })
+chk("messages: a note is said once, not once per part",
+    { z <- character(0)
+      withCallingHandlers(estimand(mf, chord_type * inversion,
+        hypothesis = "reference", bounds = FALSE, self_check = FALSE),
+        message = function(m) { z <<- c(z, conditionMessage(m))
+                                invokeRestart("muffleMessage") })
+      sum(grepl("using your `hypothesis`", z)) == 1 })
+chk("messages: the ordinal note does not fire on a gaussian fit",
+    { z <- character(0)
+      withCallingHandlers(estimand(mf, chord_type, type = "response",
+        bounds = FALSE, self_check = FALSE),
+        message = function(m) { z <<- c(z, conditionMessage(m))
+                                invokeRestart("muffleMessage") })
+      !any(grepl("outcome category", z)) })
+
+## ---- interactions within a grouped output ----------------------------------
+## Where the engine returns one row per condition per group - the categories of
+## an ordinal fit - a difference of differences is only interpretable within a
+## group, so the matrix is block-diagonal: the same columns, once per group.
+dg <- data.frame(chord_type = rep(c("dim", "min", "maj"), each = 4),
+                 inversion  = rep(c("0", "1"), times = 6),
+                 group      = rep(c("1", "1", "2", "2"), times = 3))
+Hg <- interaction_matrix(dg, c("chord_type", "inversion"))
+chk("interaction: one block of contrasts per group",
+    ncol(Hg) == 6 && nrow(Hg) == 12)
+chk("interaction: every contrast stays inside one group",
+    all(apply(Hg, 2, function(col) length(unique(dg$group[col != 0])) == 1)))
+chk("interaction: the group is named in the label",
+    all(grepl(" \\| [12]$", colnames(Hg))))
+chk("interaction: each is still a difference of differences",
+    all(abs(colSums(Hg)) < 1e-12) && all(colSums(abs(Hg)) == 4))
+chk("interaction: ungrouped output is unchanged",
+    ncol(interaction_matrix(dg[dg$group == "1", c("chord_type", "inversion")],
+                            c("chord_type", "inversion"))) == 3)
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

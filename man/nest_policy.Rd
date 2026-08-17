@@ -25,7 +25,7 @@ policy_weights(spec, grid, policy)
 
 policy_vertices(spec, target) 
 
-interaction_matrix(d, vars) 
+interaction_matrix(d, vars, group = NULL) 
 
 boundary_vars(spec) 
 }
@@ -38,6 +38,7 @@ boundary_vars(spec)
   \item{grid}{a grid carrying the original factors.}
   \item{d}{a table of cell means as the engine returned it, for \code{interaction_matrix}, whose rows fix the order of the contrast matrix.}
   \item{vars}{the two variables whose interaction is wanted.}
+  \item{group}{the column marking grouped output - the outcome categories of an ordinal fit, say. Detected from a \code{group} column when present. A difference of differences is only interpretable within a group, so the matrix is then block-diagonal: the same contrasts, once per group, each labelled with it.}
   \item{cells}{the realized cells to work over, when they have been restricted: a marginal contrast of a nested variable is pooled only over the strata in which it varies.}
   \item{x}{an object to print.}
 }
