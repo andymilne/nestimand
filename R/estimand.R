@@ -175,37 +175,24 @@ estimand <- function(model, target, policy = "equal", at = NULL,
               "which is the assumption the ordinal family was chosen to avoid. ",
               "type = \"response\" gives the probability of each category, and ",
               "type = \"link\" the latent scale.")
-    ## The response scale multiplies the rows by the number of categories, and
-    ## a pairwise comparison then grows as the square of that. The cost is
-    ## rarely what the user expected, so it is stated before the work starts.
-    if (has_thresholds(spec) && contrast %in% c("pairwise", "interaction")) {
-      ncat <- tryCatch(nlevels(stats::model.frame(spec$formula_in,
-                                                  data)[[spec$outcome]]),
-                       error = function(e) NA_integer_)
-      if (is.na(ncat))
-        ncat <- tryCatch(nlevels(data[[spec$outcome]]), error = function(e) NA_integer_)
+    ## One note, and only where it can still change what the user does. With a
+    ## hypothesis of their own the comparison set is already theirs.
+    if (identical(type, "response") && !"hypothesis" %in% names(dots) &&
+        contrast %in% c("pairwise", "interaction")) {
+      ncat <- tryCatch(nlevels(data[[spec$outcome]]), error = function(e) NA_integer_)
       nlev <- if (identical(contrast, "interaction")) nrow(spec$cells)
               else length(unique(as.character(data[[target[1]]])))
-      if (!is.na(ncat) && ncat > 1) {
-        n1 <- choose(nlev, 2); n2 <- choose(nlev * ncat, 2)
-        message("ordinal fit on the response scale: each condition becomes ",
-                ncat, " numbers, one per outcome category, so this ",
-                contrast, " comparison is over ", nlev * ncat, " values rather ",
-                "than ", nlev, " - ", n2, " contrasts where the linear ",
-                "predictor gives ", n1, ", each computed over every draw. ",
-                "type = \"link\" gives the ", n1, "; to compare conditions ",
-                "within each category instead, pass a hypothesis of your own.")
-      }
+      message("ordinal fit on the response scale: every condition becomes ",
+              if (is.na(ncat)) "one number per outcome category"
+              else paste(ncat, "numbers, one per outcome category"),
+              ", so comparing them all gives ",
+              if (is.na(ncat)) "many more contrasts than expected"
+              else paste0(choose(nlev * ncat, 2), " contrasts rather than ",
+                          choose(nlev, 2)),
+              ", most of them across categories rather than within one. For ",
+              "comparisons within each category, hypothesis = ~ pairwise | ",
+              "group; for one number per contrast, type = \"link\".")
     }
-    if (has_thresholds(spec) && identical(type, "response"))
-      message("ordinal fit: type = \"", dots$type, "\" contrasts the outcome ",
-              "probabilities, so each comparison becomes one number per ",
-              "category rather than one effect - and those numbers need not ",
-              "share a sign, since a condition that raises the probability of ",
-              "the high categories lowers it for the low ones. There is no ",
-              "single \"the effect\" to report on that scale. type = \"link\" ",
-              "gives one number per contrast, on the scale the model is ",
-              "linear in.")
   }
 
   dots_txt <- if (length(dots))
@@ -244,10 +231,9 @@ estimand <- function(model, target, policy = "equal", at = NULL,
            "comparisons are formed. The interaction is built as a matrix of ",
            "differences of differences; supply your own hypothesis instead, or ",
            "drop it and let the interaction stand.")
-    message("`hypothesis` was supplied, so it replaces the ", contrast,
-            " comparison the package would have formed. Contrast direction is ",
-            "then the engine's, not the declared level order, and the reported ",
-            "labels are whatever it returns.")
+    message("`hypothesis` replaces the ", contrast, " comparison, so the ",
+            "labels and their direction are the engine's rather than the ",
+            "declared level order.")
   }
   if (!exists("policy_dropped", inherits = FALSE)) policy_dropped <- FALSE
   code <- estimand_code(spec, target, policy, at, contrast, dots_txt,

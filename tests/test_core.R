@@ -1623,15 +1623,15 @@ chk("type: it is recorded and printed",
                                       bounds = FALSE, self_check = FALSE))))))
 
 ## ---- the response scale on an ordinal fit is worth a word ------------------
-chk("ordinal: the response scale says what it gives, and that signs may differ",
+chk("ordinal: the response scale says what it gives and what to do instead",
     { msg <- NULL
       withCallingHandlers(
         tryCatch(estimand(mo, chord_type, type = "response", bounds = FALSE,
                           self_check = FALSE), error = function(e) NULL),
         message = function(m) { msg <<- conditionMessage(m)
                                 invokeRestart("muffleMessage") })
-      grepl("one number per", msg) && grepl("share a sign", msg) &&
-      grepl('type = "link"', msg) })
+      grepl("one per outcome category", msg) &&
+      grepl("pairwise \\| group", msg) && grepl('type = "link"', msg) })
 chk("ordinal: an engine refusal on that scale is explained, not passed on raw",
     { e <- err_of(suppressMessages(estimand(mo, chord_type, type = "response",
                     bounds = FALSE, self_check = FALSE)))
@@ -1665,7 +1665,7 @@ chk("ordinal: the size of the comparison set is stated before the work starts",
                           self_check = FALSE), error = function(e) NULL),
         message = function(m) { msgs <<- c(msgs, conditionMessage(m))
                                 invokeRestart("muffleMessage") })
-      any(grepl("378 contrasts where the linear predictor gives 6", msgs)) })
+      any(grepl("378 contrasts rather than 6", msgs)) })
 chk("ordinal: the linear predictor draws no such warning",
     { msgs <- character(0)
       withCallingHandlers(
@@ -1700,5 +1700,51 @@ chk("hypothesis: the emitted code runs",
                                             collapse = "\n")), envir = env),
                     error = function(x) NULL)
       !is.null(r) })
+
+chk("messages: one note on the response scale, and none once a hypothesis is given",
+    { m1 <- character(0); m2 <- character(0)
+      withCallingHandlers(tryCatch(estimand(mo, chord_type, type = "response",
+          bounds = FALSE, self_check = FALSE), error = function(e) NULL),
+        message = function(x) { m1 <<- c(m1, conditionMessage(x))
+                                invokeRestart("muffleMessage") })
+      withCallingHandlers(tryCatch(estimand(mo, chord_type, type = "response",
+          hypothesis = "reference", bounds = FALSE, self_check = FALSE),
+          error = function(e) NULL),
+        message = function(x) { m2 <<- c(m2, conditionMessage(x))
+                                invokeRestart("muffleMessage") })
+      length(m1) == 1 && !any(grepl("comparing them all", m2)) })
+chk("messages: the default scale is silent",
+    { m <- character(0)
+      withCallingHandlers(estimand(mo, chord_type, bounds = FALSE,
+                                   self_check = FALSE),
+        message = function(x) { m <<- c(m, conditionMessage(x))
+                                invokeRestart("muffleMessage") })
+      length(m) == 0 })
+chk("self-check: runs on one row per condition, so its cost does not grow",
+    { r <- attr(estimand(mo, chord_type, bounds = FALSE), "nestimand")$self_check
+      identical(r$status, "passed") })
+
+chk("messages: one note on the response scale, and none once a hypothesis is given",
+    { m1 <- character(0); m2 <- character(0)
+      withCallingHandlers(tryCatch(estimand(mo, chord_type, type = "response",
+          bounds = FALSE, self_check = FALSE), error = function(e) NULL),
+        message = function(x) { m1 <<- c(m1, conditionMessage(x))
+                                invokeRestart("muffleMessage") })
+      withCallingHandlers(tryCatch(estimand(mo, chord_type, type = "response",
+          hypothesis = "reference", bounds = FALSE, self_check = FALSE),
+          error = function(e) NULL),
+        message = function(x) { m2 <<- c(m2, conditionMessage(x))
+                                invokeRestart("muffleMessage") })
+      length(m1) == 1 && !any(grepl("comparing them all", m2)) })
+chk("messages: the default scale is silent",
+    { m <- character(0)
+      withCallingHandlers(estimand(mo, chord_type, bounds = FALSE,
+                                   self_check = FALSE),
+        message = function(x) { m <<- c(m, conditionMessage(x))
+                                invokeRestart("muffleMessage") })
+      length(m) == 0 })
+chk("self-check: runs on one row per condition, so its cost does not grow",
+    { r <- attr(estimand(mo, chord_type, bounds = FALSE), "nestimand")$self_check
+      identical(r$status, "passed") })
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
