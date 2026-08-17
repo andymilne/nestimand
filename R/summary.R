@@ -105,7 +105,7 @@ nest_summary <- function(model, space = c("effects", "cells"),
   Tm <- do.call(rbind, lapply(rows, `[[`, "M"))
 
   est <- as.numeric(Tm %*% b)
-  se  <- sqrt(rowSums((Tm %*% V) * Tm))   # diag(T V T') without forming it
+  se  <- sqrt(quad_form_diag(Tm, V))      # diag(T V T') without forming it
   z   <- stats::qnorm(1 - (1 - conf_level) / 2)
   out <- data.frame(term = rownames(Tm), estimate = est, std.error = se,
                     statistic = est / se,

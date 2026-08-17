@@ -2283,4 +2283,28 @@ chk("type: the equivalence is offered where the engine will produce it",
                                 invokeRestart("muffleMessage") })
       any(grepl('type = "eta" gives these same numbers', z)) })
 
+## ---- engines that return a Matrix rather than a matrix ---------------------
+## lme4 returns a dpoMatrix, and arithmetic on it dispatches to methods whose
+## result is not always a base array. Coercing once keeps everything downstream
+## ordinary; the failure it caused was in the standard errors, not the estimates.
+if (requireNamespace("lme4", quietly = TRUE)) {
+  chk("vcov: a Matrix is coerced to a base matrix",
+      { V <- vcov_beta(mm2, names(coef_vector(mm2)))
+        is.matrix(V) && !isS4(V) })
+  chk("vcov: standard errors come through finite on a mixed fit",
+      { d <- as.data.frame(estimand(mm2, chord_type, bounds = FALSE,
+                                    self_check = FALSE))
+        all(is.finite(d$std.error)) && all(d$std.error > 0) })
+  chk("vcov: the bounds path works on one too",
+      { b <- attr(estimand(mm2, chord_type, bounds = TRUE, self_check = FALSE),
+                  "nestimand")$bounds
+        nrow(b) == 6 && all(is.finite(b$policy_low)) })
+}
+chk("quad_form_diag: the row-wise form equals the diagonal of the product",
+    { set.seed(2); C <- matrix(rnorm(12), 3, 4); V <- crossprod(matrix(rnorm(16), 4))
+      max(abs(quad_form_diag(C, V) - diag(C %*% V %*% t(C)))) < 1e-12 })
+chk("vcov: a covariance whose names do not match is refused, not multiplied",
+    grepl("appear in the model's covariance",
+          err_of(vcov_beta(mf, c("nope", "also_nope")))))
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

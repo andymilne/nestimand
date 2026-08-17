@@ -76,14 +76,25 @@ coef_vector <- function(model) {
 }
 
 vcov_beta <- function(model, nm) {
-  V <- stats::vcov(model)
+  ## Several engines return a Matrix rather than a base matrix - lme4 among
+  ## them - and the arithmetic then dispatches to methods whose result is not
+  ## always a base array. Coercing once here keeps everything downstream
+  ## ordinary, and costs nothing at these sizes.
+  V <- tryCatch(as.matrix(stats::vcov(model)),
+                error = function(e) stats::vcov(model))
   if (inherits(model, "brmsfit")) {
     dn <- colnames(V)
     V <- V[dn %in% nm, dn %in% nm, drop = FALSE]
     return(V)
   }
   keep <- intersect(nm, colnames(V))
-  V[keep, keep, drop = FALSE]
+  if (!length(keep))
+    stop("none of the ", length(nm), " coefficients the contrast needs appear ",
+         "in the model's covariance matrix, which has ",
+         if (is.null(colnames(V))) "no column names" else
+           paste(ncol(V), "columns"), ". Report the model class (",
+         paste(class(model), collapse = "/"), ").")
+  as.matrix(V[keep, keep, drop = FALSE])
 }
 
 ## Pairwise, reference, or sequential differences of the stratum rows. Each runs
@@ -208,7 +219,7 @@ latent_estimand <- function(model, target, policy = "equal", at = NULL,
   ## diag(C V C') row by row: forming the full product would allocate one
   ## square per contrast pair, which on a large contrast set exceeds what R
   ## can address, and every off-diagonal entry is discarded anyway.
-  se  <- sqrt(rowSums((C %*% V) * C))
+  se  <- sqrt(quad_form_diag(C, V))
   z <- stats::qnorm(1 - lo)
   out <- data.frame(term = rownames(C), estimate = est, std.error = se,
                     statistic = est / se,
@@ -284,4 +295,14 @@ check_contrast_shape <- function(C, V, b) {
          "hand in crossed or chain form - in which case ask for a quantity ",
          "computed by prediction instead.", call. = FALSE)
   invisible(TRUE)
+}
+
+
+## The diagonal of C V C', computed row by row. Forming the full product would
+## allocate one entry per pair of contrasts and discard all but the diagonal;
+## on a large contrast set that exceeds what R can address.
+quad_form_diag <- function(C, V) {
+  C <- as.matrix(C)
+  V <- as.matrix(V)
+  as.numeric(rowSums((C %*% V) * C))
 }
