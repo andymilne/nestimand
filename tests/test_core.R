@@ -2307,4 +2307,24 @@ chk("vcov: a covariance whose names do not match is refused, not multiplied",
     grepl("appear in the model's covariance",
           err_of(vcov_beta(mf, c("nope", "also_nope")))))
 
+## ---- what each engine accepts, read from the installed version -------------
+et <- engine_types()
+chk("engine_types: reports a row per class, with eta first",
+    identical(as.data.frame(et)$class[1], "any") &&
+    grepl("eta", as.data.frame(et)$types[1]) &&
+    all(c("lm", "glm", "clm") %in% as.data.frame(et)$class))
+chk("engine_types: matches what the engine actually does",
+    { row_lm <- as.data.frame(et)$types[as.data.frame(et)$class == "lm"]
+      grepl("response", row_lm) && !grepl("\\blink\\b", row_lm) &&
+      engine_accepts(mf, sp, "response") && !engine_accepts(mf, sp, "link") })
+chk("engine_types: a single fit narrows it to that class",
+    { e1 <- as.data.frame(engine_types(mf))
+      nrow(e1) == 2 && identical(e1$class[2], "lm") })
+chk("engine_types: an unsupported class says so rather than showing nothing",
+    { e2 <- as.data.frame(engine_types(structure(list(), class = "nosuchclass")))
+      grepl("no entry", e2$types[nrow(e2)]) })
+chk("engine_types: it names the version it read",
+    grepl(as.character(utils::packageVersion("marginaleffects")),
+          capture.output(print(et))[1], fixed = TRUE))
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

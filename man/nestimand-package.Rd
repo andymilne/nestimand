@@ -25,6 +25,7 @@ Five functions cover an ordinary analysis.
   \code{\link{nest_fit}} \tab fit it, keeping the call that was run \cr
   \code{\link{estimand}} \tab contrasts in the original variable names, with bounds \cr
   \code{\link{show_code}} \tab the code that produced a result, for saving and adapting \cr
+  \code{\link{engine_types}} \tab which \code{type} values the installed engine accepts \cr
   \code{\link{nest_summary}} \tab the coefficient table, in the original parameterization \cr
   \code{\link{apply_sentinel}} \tab convert structurally undefined \code{NA} to a sentinel \cr
 }

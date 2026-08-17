@@ -1112,3 +1112,36 @@ add_posterior_summary <- function(out, model) {
   class(d) <- unique(c(setdiff(class(out), "data.frame"), class(d)))
   d
 }
+
+## --- what the engine will accept -------------------------------------------
+## The type vocabulary belongs to marginaleffects and differs by model class -
+## and between its releases - so it is read from the installed version rather
+## than written down here. `eta` is nestimand's own and is always available.
+engine_types <- function(model = NULL) {
+  d <- tryCatch(marginaleffects:::type_dictionary, error = function(e) NULL)
+  if (is.null(d))
+    stop("the type dictionary of the installed marginaleffects cannot be read; ",
+         "see ?marginaleffects::avg_predictions for what it accepts.")
+  cls <- if (is.null(model)) c("lm", "glm", "lmerMod", "glmerMod", "clm", "clmm",
+                               "brmsfit")
+         else class(model)
+  out <- do.call(rbind, lapply(cls, function(k) {
+    ty <- d$type[d$class == k]
+    if (!length(ty)) return(NULL)
+    data.frame(class = k, types = paste(ty, collapse = ", "), row.names = NULL)
+  }))
+  if (is.null(out) || !nrow(out))
+    out <- data.frame(class = paste(cls, collapse = "/"),
+                      types = "none: this class has no entry, so no quantity computed by prediction is available",
+                      row.names = NULL)
+  out <- rbind(data.frame(class = "any", types = "eta (nestimand's own: the linear predictor, from the coefficients)"),
+               out)
+  structure(out, class = c("nestimand_types", "data.frame"))
+}
+
+print.nestimand_types <- function(x, ...) {
+  cat("types accepted by marginaleffects ",
+      as.character(utils::packageVersion("marginaleffects")), "\n", sep = "")
+  print_aligned(as.data.frame(x))
+  invisible(x)
+}

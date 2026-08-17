@@ -5,6 +5,8 @@
 \alias{show_code}
 \alias{show_code.default}
 \alias{show_code.nestimand_estimand}
+\alias{engine_types}
+\alias{print.nestimand_types}
 \title{Estimands in the original variable space}
 \description{
 \code{estimand} returns a labelled contrast table in the original variable names, under
@@ -24,6 +26,8 @@ add_bounds(est, model, spec, target, contrast = "pairwise", scale = c("response"
            "cells"), data = spec$data, ...)
 
 show_code(x, ...) 
+
+engine_types(model = NULL) 
 }
 \arguments{
   \item{model}{a fitted model, ideally from \code{\link{nest_fit}}.}
@@ -77,6 +81,28 @@ the engine expects - \code{re.form = NA} for the frequentist engines,
 Supplying either yourself overrides it. Section 6.6 of the companion document
 sets out the alternatives, which average over the sampled groups or integrate
 over the fitted distribution instead.
+}
+\section{What each engine accepts}{
+The \code{type} vocabulary is \pkg{marginaleffects}', and differs by model class
+and between its releases. \code{\link{engine_types}} reports it for the version
+installed; at the time of writing it was:
+
+\tabular{ll}{
+  any \tab \code{eta} - nestimand's own: the linear predictor, from the coefficients \cr
+  \code{lm} \tab \code{response} \cr
+  \code{glm} \tab \code{response}, \code{link}, \code{invlink(link)} \cr
+  \code{lmerMod} \tab \code{response} \cr
+  \code{glmerMod} \tab \code{response}, \code{link} \cr
+  \code{clm} \tab \code{prob}, \code{cum.prob}, \code{linear.predictor} \cr
+  \code{clmm} \tab none: the class is unsupported, so no quantity computed by prediction is available \cr
+  \code{brmsfit} \tab \code{response}, \code{link}, \code{prediction}, \code{average} \cr
+}
+
+Three things follow that are easy to trip over. \code{link} is not accepted for
+an \code{lm}, since its linear predictor is the response scale;
+\code{linear.predictor} on a \code{clm} is per outcome category, and is not the
+contrast \code{eta} computes; and a \code{clmm} admits no type at all, so
+\code{eta} is the only quantity available there.
 }
 \section{Policy and route}{
 Two separate choices determine what an across-boundary contrast means, and both
