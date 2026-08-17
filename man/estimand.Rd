@@ -98,11 +98,9 @@ installed; at the time of writing it was:
   \code{brmsfit} \tab \code{response}, \code{link}, \code{prediction}, \code{average} \cr
 }
 
-Three things follow that are easy to trip over. \code{link} is not accepted for
-an \code{lm}, since its linear predictor is the response scale;
-\code{linear.predictor} on a \code{clm} is per outcome category, and is not the
-contrast \code{eta} computes; and a \code{clmm} admits no type at all, so
-\code{eta} is the only quantity available there.
+Note that \code{linear.predictor} on a \code{clm} is one value per outcome
+category, and is not the contrast \code{eta} computes; and that a \code{clmm}
+admits no type at all, so \code{eta} is the only quantity available there.
 }
 \section{Policy and route}{
 Two separate choices determine what an across-boundary contrast means, and both
