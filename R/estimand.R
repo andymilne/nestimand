@@ -137,6 +137,20 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   data_name <- if (missing(data)) paste0(spec_name, "$data")
                else paste(deparse(substitute(data)), collapse = " ")
   if (is.null(data)) { data <- spec$data; data_name <- paste0(spec_name, "$data") }
+  ## Under an identity link the response scale and the linear predictor are the
+  ## same quantity, so the contrast can be taken from the coefficients: the
+  ## averaging may be done on the design matrix rather than on one prediction
+  ## per row per draw. Same answer, far less work. Gated on the link rather
+  ## than the family - gaussian(link = "log") is not identity - and set aside
+  ## when a hypothesis of the user's own needs the engine's own output.
+  identity_link <- identical(model_link(model, spec), "identity")
+  ## Any argument meant for the prediction function is a request to go through
+  ## it, so the shortcut stands aside rather than refusing them.
+  dot_names <- names(as.list(substitute(list(...)))[-1])
+  linear_shortcut <- identical(scale, "response") && identity_link &&
+    all(dot_names %in% c("conf_level", "ndraws")) &&
+    !identical(contrast, "within") && linear_map_available(model, spec, data)
+  if (linear_shortcut) scale <- "latent"
   ## G-computation averages over the units in the data. Where that is too many
   ## to evaluate - a nonlinear scale multiplies the rows by the draws and the
   ## outcome categories - a random sample of them estimates the same average,
@@ -408,7 +422,8 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   }
   code <- estimand_code(spec, target, policy, at, contrast, dots_txt,
                         model_name, spec_name, data_name, bounds, scale,
-                        deg, route, weights_txt, re_note, user_hyp, draws_txt)
+                        deg, route, weights_txt, re_note, user_hyp, draws_txt,
+                        linear_shortcut)
   if (!is.null(sub_code)) {
     i <- grep("^library\\(", code)
     at_line <- if (length(i)) max(i) else 1L
@@ -507,13 +522,44 @@ ordinal_response_type <- function(model, spec, data) {
        "this version accepts.")
 }
 
+## Can the contrast be formed from the coefficients at all? Only if the fit
+## carries the cell design's columns - a model fitted from this declaration.
+## One written by hand in crossed or chain form has different coefficients, and
+## must go through the prediction function.
+linear_map_available <- function(model, spec, data) {
+  tryCatch({
+    g <- cell_grid(spec, data)
+    rhs <- paste(deparse(cell_formula(spec)[[3]]), collapse = " ")
+    X <- stats::model.matrix(stats::as.formula(paste("~", rhs)), g)
+    need <- setdiff(colnames(X), "(Intercept)")
+    all(need %in% names(coef_vector(model)))
+  }, error = function(e) FALSE)
+}
+
+## The link function of a fit, where it has one. A model with no family - lm,
+## lmer - is fitted on the scale of the outcome, which is the identity link.
+model_link <- function(model, spec = NULL) {
+  ## An ordinal fit has a link of its own and no family() method, so asking
+  ## family() would fail and the default would be wrong in the one place it
+  ## matters most.
+  if (!is.null(spec) && has_thresholds(spec))
+    return(tryCatch(model$link, error = function(e) "probit") %||% "probit")
+  if (inherits(model, "clm") || inherits(model, "clmm"))
+    return(tryCatch(model$link, error = function(e) "probit") %||% "probit")
+  f <- tryCatch(stats::family(model), error = function(e) NULL)
+  if (is.null(f)) return("identity")
+  lk <- tryCatch(f$link, error = function(e) NULL)
+  if (is.null(lk) || !nzchar(lk)) "identity" else lk
+}
+
 ## --- code assembly ---------------------------------------------------------
 
 estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
                           model_name, spec_name, data_name, bounds,
                           scale = "response", deg = NULL,
                           route = "g_computation", weights_txt = NULL,
-                          re_note = NULL, user_hyp = FALSE, draws_txt = "") {
+                          re_note = NULL, user_hyp = FALSE, draws_txt = "",
+                          shortcut = FALSE) {
   cn <- spec$cell_name
   pol_txt <- if (is.character(policy) && length(policy) == 1L)
     sprintf('"%s"', policy)
@@ -566,20 +612,31 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
       "## interaction on the latent scale: a difference of differences among",
       "## cells, computed as c'b. Exact, and free of the per-category expansion",
       "## that ordinal fits provoke.",
-      sprintf('est  <- latent_estimand(%s, c(%s), contrast = "interaction", spec = %s%s%s)',
-              model_name, tv, spec_name, dots_txt, draws_txt),
+      sprintf('est  <- latent_estimand(%s, c(%s), contrast = "interaction", spec = %s, data = %s%s%s)',
+              model_name, tv, spec_name, data_name, dots_txt, draws_txt),
       "est"))
   }
   if (identical(scale, "latent")) {
     body <- c(hdr[1], restrict_note,
+      if (!is.null(weights_txt))
+        c("## unit weights: the estimand is standardized to the population those",
+          "## weights describe. They multiply the row weights, so the contrast is",
+          "## a weighted average of design rows as before."),
+      if (isTRUE(shortcut))
+        c("## the link is the identity, so the response scale and the linear",
+          "## predictor are the same quantity: the contrast is taken from the",
+          "## coefficients, which averages the design matrix instead of one",
+          "## prediction per row. avg_predictions() gives the same answer."),
       "## latent-scale estimand: on a linear scale the policy contrast is c'b,",
       "## with c a weighted difference of design-matrix rows. Exact, one matrix",
       "## product, and free of the per-category expansion of ordinal fits.",
       sprintf('pol  <- nest_policy(%s, "%s", %s%s%s)', spec_name, target, pol_txt,
               at_txt, if (is.null(deg)) "" else ", cells = cells"),
-      sprintf('est  <- latent_estimand(%s, "%s", pol, contrast = "%s", spec = %s%s%s%s)',
-              model_name, target, contrast, spec_name,
-              if (is.null(deg)) "" else ", cells = cells", dots_txt, draws_txt))
+      sprintf('est  <- latent_estimand(%s, "%s", pol, contrast = "%s", spec = %s, data = %s%s%s%s%s)',
+              model_name, target, contrast, spec_name, data_name,
+              if (is.null(deg)) "" else ", cells = cells",
+              if (is.null(weights_txt)) "" else sprintf(", weights = %s", weights_txt),
+              dots_txt, draws_txt))
     if (isTRUE(bounds))
       body <- c(body,
         "## partial-identification bounds over all admissible policies",

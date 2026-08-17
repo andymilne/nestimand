@@ -438,8 +438,8 @@ chk("mfx: the emitted code matches the installed version",
 chk("mfx: the emitted estimand code uses the accepted spelling",
     any(grepl(paste0("hypothesis = ", mfx_hypothesis_txt("pairwise")),
               attr(estimand(m, chord_type, spec = sp, bounds = FALSE,
-                            self_check = FALSE), "nestimand")$code,
-              fixed = TRUE)))
+                            self_check = FALSE, p_adjust = "none"),
+                   "nestimand")$code, fixed = TRUE)))
 
 ## ---- engine label conventions --------------------------------------------
 ## marginaleffects 0.18.x returns `term` = "maj - aug" = -0.6779; 0.32.0 returns
@@ -477,7 +477,8 @@ chk("labels: estimand() reports contrasts in declared level order",
 chk("show_code: the normalization is part of the saved code, not applied after",
     any(grepl("mfx_canonical",
               attr(estimand(m, chord_type, spec = sp, bounds = FALSE,
-                            self_check = FALSE), "nestimand")$code)))
+                            self_check = FALSE, p_adjust = "none"),
+                   "nestimand")$code)))
 chk("show_code: within-contrast code re-runs and reproduces its estimand",
     { ew2 <- estimand(m, inversion, spec = sp, contrast = "within", bounds = FALSE,
                       self_check = FALSE)
@@ -983,11 +984,12 @@ chk("routes: the route is recorded and printed",
                             self_check = FALSE), "nestimand")$route, "cells"))
 chk("routes: the emitted code says which rows the model was evaluated over",
     any(grepl("crossed with every realized",
-        attr(estimand(mf, chord_type, bounds = FALSE,
-                      self_check = FALSE), "nestimand")$code)) &&
+        attr(estimand(mf, chord_type, bounds = FALSE, self_check = FALSE,
+                      p_adjust = "none"), "nestimand")$code)) &&
     any(grepl("covariates at their means",
         attr(estimand(mf, chord_type, route = "cells", bounds = FALSE,
-                      self_check = FALSE), "nestimand")$code)))
+                      self_check = FALSE, p_adjust = "none"),
+             "nestimand")$code)))
 chk("routes: the reorder check follows the route it was asked for",
     identical(attr(estimand(mf, chord_type, route = "cells", bounds = FALSE),
                    "nestimand")$self_check$status, "passed"))
@@ -1163,7 +1165,7 @@ if (requireNamespace("lme4", quietly = TRUE)) {
   chk("mixed: grouping_vars reads them from the declared bars",
       identical(grouping_vars(spm2), "participant"))
   cd <- attr(estimand(mm2, chord_type, route = "cells", bounds = FALSE,
-                      self_check = FALSE), "nestimand")$code
+                      self_check = FALSE, p_adjust = "none"), "nestimand")$code
   chk("mixed: the random effects are excluded, in the engine's own spelling",
       any(grepl("re.form = NA", cd, fixed = TRUE)) &&
       any(grepl("population-level", cd)))
@@ -1180,7 +1182,8 @@ if (requireNamespace("lme4", quietly = TRUE)) {
 }
 chk("mixed: a fit with no random terms is left alone",
     !any(grepl("re.form", attr(estimand(mf, chord_type, bounds = FALSE,
-                                        self_check = FALSE), "nestimand")$code)))
+                                        self_check = FALSE, p_adjust = "none"),
+                               "nestimand")$code)))
 
 ## ---- everything the emitted code calls must be reachable -------------------
 ## The code runs in the user's environment, so a function that is not exported
@@ -1298,10 +1301,10 @@ chk("bounds: the same whichever route computes them, on balanced data",
     isTRUE(all.equal(bc$policy_high, bg$policy_high, tolerance = 1e-8)))
 chk("bounds: the route is carried into the emitted call",
     any(grepl('route = "cells"',
-        attr(estimand(mf, inversion, route = "cells", self_check = FALSE),
-             "nestimand")$code, fixed = TRUE)) &&
+        attr(estimand(mf, inversion, route = "cells", self_check = FALSE,
+                      p_adjust = "none"), "nestimand")$code, fixed = TRUE)) &&
     !any(grepl("route =",
-        attr(estimand(mf, inversion, self_check = FALSE),
+        attr(estimand(mf, inversion, self_check = FALSE, p_adjust = "none"),
              "nestimand")$code, fixed = TRUE)))
 chk("bounds: the emitted code re-runs on the cells route",
     { e <- estimand(mf, inversion, route = "cells", self_check = FALSE)
@@ -1557,9 +1560,9 @@ chk("ordinal: the probe reports which names it tried",
 chk("scale: an ordinal fit defaults to the latent scale",
     identical(attr(estimand(mo, chord_type, bounds = FALSE, self_check = FALSE),
                    "nestimand")$scale, "latent"))
-chk("scale: a linear fit still defaults to the response scale",
+chk("scale: a linear fit still asks for the response scale by default",
     identical(attr(estimand(mf, chord_type, bounds = FALSE, self_check = FALSE),
-                   "nestimand")$scale, "response"))
+                   "nestimand")$type, "response"))
 chk("scale: the ordinal default gives one number per contrast",
     nrow(as.data.frame(estimand(mo, chord_type, bounds = FALSE,
                                 self_check = FALSE))) == 6)
@@ -1575,7 +1578,7 @@ chk("scale: an ordinal fit defaults to the latent scale",
                    "nestimand")$scale, "latent"))
 chk("scale: everything else defaults to the response scale",
     identical(attr(estimand(mf, chord_type, bounds = FALSE, self_check = FALSE),
-                   "nestimand")$scale, "response"))
+                   "nestimand")$type, "response"))
 chk("scale: an explicit choice is honoured either way",
     identical(attr(estimand(mf, chord_type, type = "link", bounds = FALSE,
                             self_check = FALSE), "nestimand")$scale, "latent"))
@@ -1605,8 +1608,8 @@ chk("type: a linear predictor is computed from the coefficients",
     identical(meta_of(type = "link")$scale, "latent") &&
     identical(meta_of(type = "latent")$scale, "latent") &&
     identical(meta_of(type = "linear.predictor")$scale, "latent"))
-chk("type: anything else goes to the prediction function",
-    identical(meta_of(type = "response")$scale, "response"))
+chk("type: anything but the linear predictor goes to the prediction function",
+    identical(meta_of(type = "response", p_adjust = "none")$scale, "response"))
 chk("type: the default is the response scale, and the linear one for ordinal",
     identical(meta_of()$type, "response") &&
     identical(attr(estimand(mo, chord_type, bounds = FALSE, self_check = FALSE),
@@ -1819,7 +1822,7 @@ chk("interaction: ungrouped output is unchanged",
 ## quietly built the whole G-computation grid.
 chk("route: the interaction honours it too",
     { cd <- suppressMessages(estimand(mf, chord_type:inversion, route = "cells",
-              dry_run = TRUE, bounds = FALSE))
+              dry_run = TRUE, bounds = FALSE, p_adjust = "none"))
       grepl("cell_grid(sp)", cd, fixed = TRUE) &&
       !grepl("counterfactual_grid", cd, fixed = TRUE) })
 chk("route: and gives the same answer either way in a linear model",
@@ -2130,5 +2133,91 @@ chk("nest_summary: the engine names map to real functions",
     identical(engine_call("brms"), "brms::brm()") &&
     identical(engine_call("glmer"), "lme4::glmer()") &&
     identical(engine_call("something"), "something()"))
+
+## ---- an identity link makes the two scales one quantity --------------------
+## The contrast can then be taken from the coefficients, which averages the
+## design matrix rather than one prediction per row. Gated on the link, not the
+## family: gaussian(link = "log") is not identity.
+chk("shortcut: an identity link routes the response scale through the coefficients",
+    identical(attr(estimand(mf, chord_type, type = "response", bounds = FALSE,
+                            self_check = FALSE), "nestimand")$scale, "latent"))
+chk("shortcut: the type asked for is still what is reported",
+    identical(attr(estimand(mf, chord_type, type = "response", bounds = FALSE,
+                            self_check = FALSE), "nestimand")$type, "response"))
+chk("shortcut: it gives the same numbers as the prediction route",
+    { a <- as.data.frame(estimand(mf, chord_type, type = "response",
+                                  bounds = FALSE, self_check = FALSE))
+      b <- as.data.frame(estimand(mf, chord_type, type = "link", bounds = FALSE,
+                                  self_check = FALSE))
+      max(abs(a$estimate - b$estimate[match(a$term, b$term)])) < 1e-10 })
+chk("shortcut: the emitted code says why it was taken",
+    any(grepl("the link is the identity",
+              attr(estimand(mf, chord_type, type = "response", bounds = FALSE,
+                            self_check = FALSE), "nestimand")$code)))
+chk("shortcut: a non-identity link does not take it",
+    { d3 <- dat; d3$y <- exp(dat$response / 3)
+      sp3b <- nesting_spec(d3, y ~ chord_type * inversion,
+                           "inversion %in% chord_type", fit = "glm",
+                           family = gaussian(link = "log"))
+      m3b <- nest_fit(sp3b)
+      identical(attr(estimand(m3b, chord_type, type = "response", bounds = FALSE,
+                              self_check = FALSE), "nestimand")$scale,
+                "response") })
+chk("shortcut: it stands aside for a hypothesis of the user's own",
+    identical(attr(suppressMessages(estimand(mf, chord_type, type = "response",
+                     hypothesis = "reference", bounds = FALSE,
+                     self_check = FALSE)), "nestimand")$scale, "response"))
+chk("model_link: reads the link, defaulting to identity where there is none",
+    identical(model_link(mf), "identity"))
+
+chk("shortcut: unit weights are folded into the design-row average",
+    identical(attr(estimand(mw, chord_type, weights = "wt_hi", bounds = FALSE,
+                            self_check = FALSE), "nestimand")$scale, "latent"))
+chk("weights: the two routes agree once they are",
+    { a <- as.data.frame(estimand(mw, chord_type, weights = "wt_hi",
+             bounds = FALSE, self_check = FALSE))
+      b <- as.data.frame(estimand(mw, chord_type, weights = "wt_hi",
+             bounds = FALSE, self_check = FALSE, p_adjust = "none"))
+      max(abs(a$estimate - b$estimate[match(a$term, b$term)])) < 1e-8 })
+chk("weights: a wrong length is refused on this route too",
+    grepl("one weight per row",
+          err_of(latent_estimand(mw, "chord_type", spec = spw,
+                                 weights = c(1, 2)))))
+chk("shortcut: an ordinal fit is not mistaken for an identity link",
+    !identical(model_link(mo, spo), "identity"))
+chk("shortcut: a self-fitted model without cell coefficients cannot take it",
+    !linear_map_available(lm(response ~ chord_type * inversion, data = sp$data),
+                          sp, sp$data))
+chk("latent: `data` reaches the contrast, so a subset restricts it",
+    { a <- as.data.frame(estimand(mw, chord_type, weights = "wt_hi",
+             bounds = FALSE, self_check = FALSE))$estimate
+      b <- as.data.frame(estimand(mw, chord_type,
+             data = subset(mw_data_hi <- spw$data, training > 7),
+             bounds = FALSE, self_check = FALSE))$estimate
+      max(abs(a - b)) < 1e-8 })
+
+## ---- the equality does not depend on balance -------------------------------
+set.seed(7)
+cells_u <- data.frame(chord_type = c(rep(c("dim", "min", "maj"), each = 3), "aug"),
+                      inversion = c(rep(c("0", "1", "2"), 3), "none"))
+n_u <- c(120, 40, 25, 90, 30, 15, 200, 60, 35, 50)
+du <- cells_u[rep(seq_len(10), n_u), ]
+du$chord_type <- factor(du$chord_type, levels = c("aug", "dim", "min", "maj"))
+du$inversion  <- factor(du$inversion,  levels = c("none", "0", "1", "2"))
+du$x <- rnorm(nrow(du), ifelse(du$chord_type == "aug", 6, 3), 2)
+du$y <- rnorm(nrow(du), 4 + 0.5 * (du$chord_type == "maj") + 0.3 * du$x, 1)
+spu2 <- nesting_spec(du, y ~ chord_type * inversion * x, "inversion %in% chord_type")
+mu3 <- nest_fit(spu2)
+chk("shortcut: agrees with the prediction route on badly unbalanced data",
+    { ok <- TRUE
+      for (pol in c("equal", "proportional")) {
+        a <- as.data.frame(estimand(mu3, chord_type, policy = pol, bounds = FALSE,
+                                    self_check = FALSE, p_adjust = "none"))
+        b <- as.data.frame(estimand(mu3, chord_type, policy = pol, bounds = FALSE,
+                                    self_check = FALSE))
+        if (max(abs(a$estimate - b$estimate[match(a$term, b$term)])) > 1e-10)
+          ok <- FALSE
+      }
+      ok })
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

@@ -15,8 +15,21 @@
 ## scale, averaging predictions over that grid and averaging its design-matrix
 ## rows are the same operation, so this is G-computation, not an approximation.
 policy_contrast_matrix <- function(spec, target, policy, data = spec$data,
-                                   model = NULL, cells = spec$cells) {
+                                   model = NULL, cells = spec$cells,
+                                   weights = NULL) {
   g <- counterfactual_grid(spec, data, policy, cells = cells)
+  ## Unit weights standardize to another population. They multiply the row
+  ## weights, exactly as they do on the prediction route: the contrast is a
+  ## weighted average of design rows either way, and which weights are used is
+  ## the only difference.
+  if (!is.null(weights)) {
+    wv <- if (is.character(weights) && length(weights) == 1L) data[[weights]]
+          else weights
+    if (length(wv) != nrow(data))
+      stop("`weights` has ", length(wv), " values but the data has ",
+           nrow(data), " rows: one weight per row is needed.")
+    g$.w <- g$.w * wv[g$.row]
+  }
   rhs <- paste(deparse(cell_formula(spec)[[3]]), collapse = " ")
   X <- stats::model.matrix(stats::as.formula(paste("~", rhs)), g)
   if (colnames(X)[1] == "(Intercept)") X <- X[, -1, drop = FALSE]
@@ -110,7 +123,8 @@ cell_design_rows <- function(spec, data, cells, model) {
 ## coefficients or draw by draw.
 latent_contrast_matrix <- function(model, spec, target, policy = "equal",
                                    at = NULL, contrast = "pairwise",
-                                   data = spec$data, cells = NULL) {
+                                   data = spec$data, cells = NULL,
+                                   weights = NULL) {
   if (is.null(cells) && !identical(contrast, "interaction")) {
     dg <- degenerate_strata(spec, target[length(target)])
     cells <- if (is.null(dg) || !length(dg$drop)) spec$cells else
@@ -129,7 +143,8 @@ latent_contrast_matrix <- function(model, spec, target, policy = "equal",
   if (is.null(cells)) cells <- spec$cells
   pol <- if (inherits(policy, "nestimand_policy")) policy
          else nest_policy(spec, target, policy, at, spec$data, cells = cells)
-  M <- policy_contrast_matrix(spec, target, pol, data, model, cells = cells)
+  M <- policy_contrast_matrix(spec, target, pol, data, model, cells = cells,
+                              weights = weights)
   levs <- rownames(M)
   prs <- contrast_pairs(levs, contrast)
   C <- do.call(rbind, lapply(prs, function(p) M[p[1], ] - M[p[2], ]))
@@ -141,10 +156,11 @@ latent_contrast_matrix <- function(model, spec, target, policy = "equal",
 latent_estimand <- function(model, target, policy = "equal", at = NULL,
                             contrast = "pairwise", data = NULL,
                             conf_level = 0.95, spec = NULL, cells = NULL,
-                            ndraws = NULL) {
+                            ndraws = NULL, weights = NULL) {
   spec <- resolve_spec(model, spec)
   if (is.null(data)) data <- spec$data
-  C <- latent_contrast_matrix(model, spec, target, policy, at, contrast, data, cells)
+  C <- latent_contrast_matrix(model, spec, target, policy, at, contrast, data,
+                              cells, weights)
   lo <- (1 - conf_level) / 2
 
   ## A Bayesian fit is summarized from its draws. Applying the delta method to a
@@ -202,7 +218,8 @@ latent_draws <- function(model, target, policy = "equal", at = NULL,
          "Use latent_estimand() for the delta-method interval.")
   pol <- if (inherits(policy, "nestimand_policy")) policy
          else nest_policy(spec, target, policy, at, spec$data, cells = cells)
-  M <- policy_contrast_matrix(spec, target, pol, data, model, cells = cells)
+  M <- policy_contrast_matrix(spec, target, pol, data, model, cells = cells,
+                              weights = weights)
   D <- as.matrix(brms::as_draws_matrix(model))
   nm <- draw_names(colnames(M), colnames(D))
   B <- D[, nm, drop = FALSE]
