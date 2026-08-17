@@ -749,7 +749,11 @@ reorder_check <- function(model, spec, target, policy, at, contrast, dots_txt, d
                        family = eval(parse(text = spx$family %||% "gaussian"))),
       clm = ordinal::clm(f, data = dta))
   }
-  d2 <- data
+  ## The check permutes factor levels and asks whether the estimand moves, so
+  ## it works from the declaration's own data: a subsample taken for the
+  ## estimand may not contain every cell, and rebuilding a spec from it would
+  ## compare a smaller design against the full one.
+  d2 <- spec$data
   d2[[spec$cell_name]] <- NULL   # rebuilt from the permuted factors below
   for (v in spec$cell_vars) {
     lv <- levels(factor(d2[[v]]))
@@ -828,7 +832,7 @@ estimand_values <- function(model, spec, target, policy, at, contrast, data,
     deg <- degenerate_strata(spec, target[length(target)])
     cells <- if (is.null(deg) || !length(deg$drop)) spec$cells else
       spec$cells[as.character(spec$cells[[deg$vars[1]]]) %in% deg$keep, , drop = FALSE]
-    pol <- nest_policy(spec, target[length(target)], "equal", NULL, data,
+    pol <- nest_policy(spec, target[length(target)], "equal", NULL, spec$data,
                        cells = cells)
     g <- if (identical(route, "cells")) {
       d <- cell_grid(spec, data)
@@ -856,7 +860,11 @@ estimand_values <- function(model, spec, target, policy, at, contrast, data,
   deg <- if (!identical(contrast, "within")) degenerate_strata(spec, target)
   cells <- if (is.null(deg) || !length(deg$drop)) spec$cells else
     spec$cells[as.character(spec$cells[[deg$vars[1]]]) %in% deg$keep, , drop = FALSE]
-  pol <- nest_policy(spec, target, policy, at, data, cells = cells)
+  ## The policy describes the design - how often each version is realized -
+  ## and is a property of the whole data, not of whichever rows were sampled to
+  ## average over. Computing it from a subsample would make the weights noisy,
+  ## or undefined where a version is missing.
+  pol <- nest_policy(spec, target, policy, at, spec$data, cells = cells)
   if (identical(scale, "latent"))
     return(latent_estimand(model, target, pol, contrast = contrast,
                            data = data, spec = spec)$estimate)

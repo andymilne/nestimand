@@ -2023,4 +2023,48 @@ chk("messages: the star flag is cleared afterwards",
                                 invokeRestart("muffleMessage") })
       length(z) == 1 })
 
+## ---- the reorder check does not inherit the estimand's subsample -----------
+## A subsample is taken to make the estimand affordable. The check asks a
+## different question - does the estimand move when levels are permuted - and
+## must work from the full declaration: a small sample may not contain every
+## cell, and a spec rebuilt from it would have fewer of them.
+chk("reorder: a subsample does not make the check fail",
+    all(vapply(c(20, 50, 200), function(n)
+      identical(attr(suppressMessages(estimand(mo, chord_type, subsample = n,
+                       bounds = FALSE)), "nestimand")$self_check$status,
+                "passed"), TRUE)))
+chk("reorder: nor in a star call",
+    { r <- suppressMessages(estimand(mo, chord_type * inversion, subsample = 50,
+             bounds = FALSE))
+      all(vapply(r, function(z)
+        identical(attr(z, "nestimand")$self_check$status, "passed"), TRUE)) })
+chk("reorder: the check works from the declaration's data, not the estimand's",
+    { body <- paste(deparse(reorder_check), collapse = " ")
+      grepl("d2 <- spec\\$data", body) })
+
+## ---- what a subsample does and does not touch ------------------------------
+## The grid crosses every sampled row with every cell, so cell coverage in the
+## sample is irrelevant. The policy is another matter: it counts how often each
+## version is realized, and must be taken from the whole data.
+chk("subsample: cell coverage in the sample does not matter",
+    { few <- sp$data[sp$data$chord_type == "aug", ][1:5, ]
+      g <- counterfactual_grid(sp, few, nest_policy(sp, "chord_type", "equal"))
+      length(unique(as.character(g$cell))) == nrow(sp$cells) })
+chk("subsample: a proportional policy is taken from the whole data",
+    { set.seed(4)
+      a <- as.data.frame(estimand(mf, chord_type, policy = "proportional",
+             bounds = FALSE, self_check = FALSE))
+      b <- suppressMessages(as.data.frame(estimand(mf, chord_type,
+             policy = "proportional", subsample = 40, bounds = FALSE,
+             self_check = FALSE)))
+      !anyNA(b$estimate) &&
+      max(abs(a$estimate - b$estimate[match(a$term, b$term)])) < 1e-10 })
+chk("subsample: the reorder check is unaffected by it",
+    { r <- attr(suppressMessages(estimand(mf, chord_type, subsample = 20,
+                  bounds = FALSE)), "nestimand")$self_check
+      identical(r$status, "passed") })
+chk("subsample: the check works from the declaration's own data",
+    { body <- paste(deparse(reorder_check), collapse = " ")
+      grepl("d2 <- spec\\$data", body) })
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

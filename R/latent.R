@@ -128,7 +128,7 @@ latent_contrast_matrix <- function(model, spec, target, policy = "equal",
   }
   if (is.null(cells)) cells <- spec$cells
   pol <- if (inherits(policy, "nestimand_policy")) policy
-         else nest_policy(spec, target, policy, at, data, cells = cells)
+         else nest_policy(spec, target, policy, at, spec$data, cells = cells)
   M <- policy_contrast_matrix(spec, target, pol, data, model, cells = cells)
   levs <- rownames(M)
   prs <- contrast_pairs(levs, contrast)
@@ -201,7 +201,7 @@ latent_draws <- function(model, target, policy = "equal", at = NULL,
     stop("draw-wise translation needs a posterior; this is a frequentist fit. ",
          "Use latent_estimand() for the delta-method interval.")
   pol <- if (inherits(policy, "nestimand_policy")) policy
-         else nest_policy(spec, target, policy, at, data, cells = cells)
+         else nest_policy(spec, target, policy, at, spec$data, cells = cells)
   M <- policy_contrast_matrix(spec, target, pol, data, model, cells = cells)
   D <- as.matrix(brms::as_draws_matrix(model))
   nm <- draw_names(colnames(M), colnames(D))
