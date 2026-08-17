@@ -345,8 +345,12 @@ estimand <- function(model, target, policy = "equal", at = NULL,
     ## Where the engine's own quantity is the linear predictor, `eta` gives the
     ## same numbers from the coefficients, without a prediction per row - and
     ## per draw, on a posterior. Worth saying once; the choice stays the user's.
+    ## Only where the engine will actually produce it: if the type is about to
+    ## be refused, an equivalence is beside the point and the refusal is the
+    ## information.
     same_as_eta <- identical(type, "link") &&
-      (identity_link || (has_thresholds(spec) && inherits(model, "brmsfit")))
+      (identity_link || (has_thresholds(spec) && inherits(model, "brmsfit"))) &&
+      engine_accepts(model, spec, type, data)
     if (isTRUE(same_as_eta))
       message("type = \"eta\" gives these same numbers from the coefficients, ",
               "without evaluating the model at every grid row",

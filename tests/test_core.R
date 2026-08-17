@@ -2263,4 +2263,24 @@ chk("type: a slower engine equivalent draws a note pointing at eta",
                                 invokeRestart("muffleMessage") })
       any(grepl('type = "eta" gives these same numbers', z)) })
 
+chk("type: no equivalence is offered for a type about to be refused",
+    { z <- character(0)
+      withCallingHandlers(
+        tryCatch(estimand(mf, chord_type, type = "link", bounds = FALSE,
+                          self_check = FALSE), error = function(e) NULL),
+        message = function(m) { z <<- c(z, conditionMessage(m))
+                                invokeRestart("muffleMessage") })
+      length(z) == 0 })
+chk("type: the equivalence is offered where the engine will produce it",
+    { sp_g2 <- nesting_spec(dat, response ~ chord_type * inversion,
+                            "inversion %in% chord_type", fit = "glm",
+                            family = gaussian())
+      z <- character(0)
+      withCallingHandlers(
+        estimand(nest_fit(sp_g2), chord_type, type = "link", bounds = FALSE,
+                 self_check = FALSE),
+        message = function(m) { z <<- c(z, conditionMessage(m))
+                                invokeRestart("muffleMessage") })
+      any(grepl('type = "eta" gives these same numbers', z)) })
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
