@@ -1772,7 +1772,7 @@ chk("targets: a * b with a hypothesis returns all three, and says how they divid
            message = function(m) { z <<- c(z, conditionMessage(m))
                                    invokeRestart("muffleMessage") })
       identical(names(r), c("chord_type", "inversion", "chord_type:inversion")) &&
-      any(grepl("governs the two marginal contrasts", z)) })
+      any(grepl("gives three results", z)) })
 chk("targets: without a hypothesis all three parts come back",
     { r <- estimand(mf, chord_type * inversion, bounds = FALSE,
                     self_check = FALSE)
@@ -1783,7 +1783,8 @@ chk("messages: a note is said once, not once per part",
         hypothesis = "reference", bounds = FALSE, self_check = FALSE),
         message = function(m) { z <<- c(z, conditionMessage(m))
                                 invokeRestart("muffleMessage") })
-      sum(grepl("using your `hypothesis`", z)) == 1 })
+      sum(grepl("gives three results", z)) == 1 &&
+      !any(grepl("using your `hypothesis`", z)) })
 chk("messages: the ordinal note does not fire on a gaussian fit",
     { z <- character(0)
       withCallingHandlers(estimand(mf, chord_type, type = "response",
@@ -1975,5 +1976,51 @@ chk("hypothesis: refused on the linear predictor, for the reason that applies",
     grepl("no groups to compare within",
           err_of(estimand(mf, chord_type, type = "link",
                           hypothesis = ~ pairwise | group))))
+
+## ---- a model class the prediction machinery does not handle ----------------
+## clmm is one: marginaleffects supports no type for it, so the response scale
+## is unavailable however it is asked for. The linear predictor is unaffected,
+## being taken from the coefficients.
+if (requireNamespace("ordinal", quietly = TRUE)) {
+  spmm <- nesting_spec(do2, rating ~ chord_type * inversion + (1 | participant),
+                       "inversion %in% chord_type", fit = "clmm")
+  mmm <- suppressWarnings(nest_fit(spmm))
+  chk("clmm: the linear predictor works",
+      nrow(as.data.frame(estimand(mmm, chord_type, bounds = FALSE,
+                                  self_check = FALSE))) == 6)
+  chk("clmm: the response scale says the class is unsupported, and what does work",
+      { e <- err_of(estimand(mmm, chord_type, type = "response", bounds = FALSE,
+                             self_check = FALSE))
+        grepl("does not support models of class", e) &&
+        grepl('type = "link" works', e) })
+  chk("clmm: the message no longer names the retired `scale` argument",
+      { body <- paste(deparse(ordinal_response_type), collapse = " ")
+        !grepl('scale = ..latent', body) })
+}
+
+chk("messages: a star call says once what its parts would each repeat",
+    { z <- character(0)
+      withCallingHandlers(estimand(mf, chord_type * inversion,
+        policy = "proportional", hypothesis = "reference", bounds = FALSE,
+        self_check = FALSE),
+        message = function(m) { z <<- c(z, conditionMessage(m))
+                                invokeRestart("muffleMessage") })
+      length(z) == 1 && grepl("gives three results", z) &&
+      grepl("hypothesis", z) && grepl("policy", z) })
+chk("messages: a single target still explains itself",
+    { z <- character(0)
+      withCallingHandlers(estimand(mf, chord_type, hypothesis = "reference",
+        bounds = FALSE, self_check = FALSE),
+        message = function(m) { z <<- c(z, conditionMessage(m))
+                                invokeRestart("muffleMessage") })
+      length(z) == 1 && grepl("using your `hypothesis`", z) })
+chk("messages: the star flag is cleared afterwards",
+    { estimand(mf, chord_type * inversion, bounds = FALSE, self_check = FALSE)
+      z <- character(0)
+      withCallingHandlers(estimand(mf, chord_type, hypothesis = "reference",
+        bounds = FALSE, self_check = FALSE),
+        message = function(m) { z <<- c(z, conditionMessage(m))
+                                invokeRestart("muffleMessage") })
+      length(z) == 1 })
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

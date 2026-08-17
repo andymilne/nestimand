@@ -60,6 +60,8 @@ estimand <- function(model, target, policy = "equal", at = NULL,
         if (txt %in% seen) invokeRestart("muffleMessage")
         seen[[length(seen) + 1L]] <<- txt
       })
+      assign("star", TRUE, envir = nestimand_env)
+      on.exit(assign("star", FALSE, envir = nestimand_env), add = TRUE)
       out <- lapply(vs, function(k) { c2 <- cl; c2$target <- k; once(eval(c2, .env)) })
       names(out) <- vs
       ## The interaction is defined by its own comparison matrix, so a
@@ -67,10 +69,14 @@ estimand <- function(model, target, policy = "equal", at = NULL,
       ## but it need not be dropped either: on grouped output the interaction
       ## is formed within each group, which is the same restriction the
       ## hypothesis was asking for.
-      if (has_hyp)
-        message("your `hypothesis` governs the two marginal contrasts. The ",
-                "interaction is built from its own comparison matrix, formed ",
-                "within each group where the output is grouped.")
+      parts <- c(
+        if (has_hyp)
+          "your `hypothesis` sets the comparisons for the two marginal contrasts, and their labels and direction come from marginaleffects",
+        if (!identical(policy, "equal"))
+          sprintf("the policy weights those two and not the interaction, which uses only cells that exist"),
+        "the interaction has its own comparison matrix, formed within each group where the output is grouped")
+      message("`", paste(vs, collapse = " * "), "` gives three results: ",
+              paste(parts, collapse = "; "), ".")
       out <- c(out, list(once({ c2 <- cl; c2$target <- vs
                                 c2$contrast <- "interaction"
                                 c2$hypothesis <- NULL; eval(c2, .env) })))
@@ -342,6 +348,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
     ## also refuse the marginal contrasts of `a * b`, where the policy does
     ## apply - it is dropped here, and said so.
     if (!identical(policy, "equal")) {
+      if (!in_star())
       message("`policy = \"", if (is.character(policy)) policy else "supplied",
               "\"` does not apply to an interaction contrast: every cell it uses ",
               "exists, so no boundary is crossed and there are no versions to ",
@@ -382,6 +389,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
            "comparisons are formed. The interaction is built as a matrix of ",
            "differences of differences; supply your own hypothesis instead, or ",
            "drop it and let the interaction stand.")
+    if (!in_star())
     message("using your `hypothesis` instead of contrast = \"", contrast,
             "\". The comparisons, their names, and which way round each ",
             "subtraction goes are all as marginaleffects returns them.")
@@ -480,10 +488,23 @@ ordinal_response_type <- function(model, spec, data) {
     }, error = function(e) FALSE)
     if (ok) return(ty)
   }
+  ## Some classes the prediction machinery does not handle at all - clmm among
+  ## them - and no choice of type will help. The linear predictor is unaffected,
+  ## being computed from the coefficients.
+  unsupported <- tryCatch({
+    marginaleffects::predictions(model, newdata = g); FALSE
+  }, error = function(e) grepl("not supported", conditionMessage(e)))
+  if (isTRUE(unsupported))
+    stop("marginaleffects does not support models of class ",
+         paste(class(model), collapse = "/"), ", so no quantity computed by ",
+         "prediction is available for this fit - the response scale included. ",
+         "type = \"link\" works: the contrast is taken from the coefficients ",
+         "and their covariance, which this model does provide. It is also the ",
+         "default for an ordinal family.")
   stop("no response scale of this model was accepted by marginaleffects: ",
-       paste(cand, collapse = " or "), " were tried. Use scale = \"latent\", ",
-       "which does not go through the prediction machinery, or pass `type = ` ",
-       "yourself with a value this version accepts.")
+       paste(cand, collapse = " or "), " were tried. Use type = \"link\", ",
+       "which does not go through the prediction machinery, or pass a `type` ",
+       "this version accepts.")
 }
 
 ## --- code assembly ---------------------------------------------------------
@@ -783,6 +804,11 @@ reorder_check <- function(model, spec, target, policy, at, contrast, dots_txt, d
 }
 
 `%||%` <- function(a, b) if (is.null(a)) b else a
+
+## Set while the parts of `a * b` are computed: each would otherwise repeat
+## what the whole says once, from its own point of view.
+nestimand_env <- new.env(parent = emptyenv())
+in_star <- function() isTRUE(get0("star", envir = nestimand_env, ifnotfound = FALSE))
 
 nesting_spec_quiet <- function(spec, data) {
   suppressMessages(nesting_spec(data, spec$formula_in,
