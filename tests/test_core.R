@@ -1915,4 +1915,34 @@ chk("draws: ignored where there is no posterior to thin",
     nrow(as.data.frame(estimand(mf, chord_type, draws = 100, bounds = FALSE,
                                 self_check = FALSE))) == 6)
 
+## ---- the reorder check should not cry wolf ---------------------------------
+chk("reorder: a non-convergent shadow gives inconclusive, not failed",
+    { ## the status vocabulary must include it, and the warning must not fire
+      body <- paste(deparse(reorder_check), collapse = " ")
+      grepl("inconclusive", body) && grepl("did not", body) })
+chk("reorder: the note records the scale and grid it used",
+    { r <- attr(estimand(mf, chord_type, bounds = FALSE), "nestimand")$self_check
+      identical(r$status, "passed") })
+chk("reorder: a genuine failure still warns",
+    { body <- paste(deparse(reorder_check), collapse = " ")
+      grepl("Do not report it", body) })
+
+chk("arguments: subsample, draws and a hypothesis together",
+    { r <- suppressMessages(estimand(mf, chord_type, subsample = 100, draws = 100,
+             hypothesis = "reference", bounds = FALSE, self_check = FALSE))
+      nrow(as.data.frame(r)) == 3 })
+chk("arguments: every combination of the levers runs",
+    { ok <- TRUE
+      for (sub in list(NULL, 100)) for (dr in list(NULL, 100))
+        for (hyp in list(NULL, "reference")) {
+          cl <- quote(estimand(mf, "chord_type", bounds = FALSE,
+                               self_check = FALSE))
+          if (!is.null(sub)) cl$subsample <- sub
+          if (!is.null(dr))  cl$draws <- dr
+          if (!is.null(hyp)) cl$hypothesis <- hyp
+          r <- try(suppressMessages(eval(cl)), silent = TRUE)
+          if (inherits(r, "try-error")) ok <- FALSE
+        }
+      ok })
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

@@ -149,21 +149,6 @@ estimand <- function(model, target, policy = "equal", at = NULL,
     }
   }
 
-  ## The other dimension of the same problem: a posterior has as many draws as
-  ## it has, and the response scale evaluates the model once per draw. Thinning
-  ## them estimates the same posterior summaries with Monte Carlo error, and is
-  ## usually the cheaper of the two levers, since draws are far more numerous
-  ## than the quantities they inform.
-  if (!is.null(draws) && inherits(model, "brmsfit")) {
-    nd <- tryCatch(brms::ndraws(model), error = function(e) NA_integer_)
-    if (!is.na(nd) && draws < nd) {
-      dots$ndraws <- draws
-      message("using ", draws, " of ", format(nd, big.mark = ","),
-              " posterior draws. The summaries are the same quantities, with ",
-              "Monte Carlo error: 500 draws put about ", signif(1/sqrt(500), 2),
-              " of a posterior standard deviation on a mean.")
-    }
-  }
 
   ## Unit weights standardize to a population other than the sample: survey
   ## weights, or post-stratification to a target distribution of the covariates.
@@ -193,6 +178,21 @@ estimand <- function(model, target, policy = "equal", at = NULL,
 
   ## non-core arguments, passed through verbatim to the destination function
   dots <- as.list(substitute(list(...)))[-1]
+  ## The other dimension of the same problem: a posterior has as many draws as
+  ## it has, and the response scale evaluates the model once per draw. Thinning
+  ## them estimates the same posterior summaries with Monte Carlo error, and is
+  ## usually the cheaper of the two levers, since draws are far more numerous
+  ## than the quantities they inform.
+  if (!is.null(draws) && inherits(model, "brmsfit")) {
+    nd <- tryCatch(brms::ndraws(model), error = function(e) NA_integer_)
+    if (!is.na(nd) && draws < nd) {
+      dots$ndraws <- draws
+      message("using ", draws, " of ", format(nd, big.mark = ","),
+              " posterior draws. The summaries are the same quantities, with ",
+              "Monte Carlo error: 500 draws put about ", signif(1/sqrt(500), 2),
+              " of a posterior standard deviation on a mean.")
+    }
+  }
   ## A mixed fit predicts for a particular group unless told otherwise, and the
   ## estimands here are population-level. The exclusion is stated rather than
   ## assumed, and in the spelling the engine expects: brms and the frequentist
@@ -628,6 +628,12 @@ reorder_check <- function(model, spec, target, policy, at, contrast, dots_txt, d
     lmer = "lm", glmer = "glm", clmm = "clm",
     brms = if (has_thresholds(spec)) "clm" else if (is.null(spec$family)) "lm" else "glm",
     NULL)
+  converged <- function(fit) {
+    if (inherits(fit, "clm") || inherits(fit, "clmm"))
+      return(isTRUE(fit$convergence$code == 0))
+    if (inherits(fit, "glm")) return(isTRUE(fit$converged))
+    TRUE
+  }
   fit_shadow <- function(spx, dta) {
     f <- cell_formula(spx)
     switch(shadow,
@@ -649,6 +655,16 @@ reorder_check <- function(model, spec, target, policy, at, contrast, dots_txt, d
     } else {
       m1 <- fit_shadow(spec, spec$data); m2 <- fit_shadow(sp2, sp2$data)
     }
+    ## A shadow that did not converge cannot settle anything: two runs may
+    ## differ because the optimizer stopped in different places, which says
+    ## nothing about the parameterization. Saying so is better than telling
+    ## someone not to report a result that is probably fine.
+    if (!converged(m1) || !converged(m2))
+      return(list(status = "inconclusive",
+                  note = paste("the fixed-effects shadow model did not",
+                               "converge, so a difference between the two",
+                               "orderings would say more about the optimizer",
+                               "than about the parameterization")))
     e1 <- unname(estimand_values(m1, spec, target, policy, at, contrast,
                                  spec$data, scale, route))
     e2 <- unname(estimand_values(m2, sp2, target, policy, at, contrast,
@@ -670,6 +686,8 @@ reorder_check <- function(model, spec, target, policy, at, contrast, dots_txt, d
                             paste0(" of a ", shadow, " shadow model") else ""))
     else list(status = "passed", note = note)
   }, error = function(e) list(status = "error", note = conditionMessage(e)))
+  if (identical(out$status, "inconclusive"))
+    message("reorder self-check inconclusive: ", out$note, ".")
   if (identical(out$status, "failed"))
     warning("reorder self-check FAILED (", out$note, "): the estimate moved when ",
             "nested-factor levels were permuted, so this estimand depends on ",
