@@ -1674,4 +1674,31 @@ chk("ordinal: the linear predictor draws no such warning",
                                 invokeRestart("muffleMessage") })
       !any(grepl("contrasts where the linear predictor", msgs)) })
 
+## ---- a hypothesis of the user's own ----------------------------------------
+## The package forms one from `contrast`; supplying another would give the
+## engine two, so the user's replaces it, and the substitution is announced.
+chk("hypothesis: a supplied one replaces the contrast's, without colliding",
+    { e <- suppressMessages(estimand(mf, chord_type, hypothesis = "reference",
+                                     bounds = FALSE, self_check = FALSE))
+      nrow(as.data.frame(e)) == 3 &&
+      sum(grepl("hypothesis", attr(e, "nestimand")$code)) == 1 })
+chk("hypothesis: the substitution is reported, with what it costs",
+    { msg <- NULL
+      withCallingHandlers(estimand(mf, chord_type, hypothesis = "reference",
+                                   bounds = FALSE, self_check = FALSE),
+        message = function(m) { msg <<- conditionMessage(m)
+                                invokeRestart("muffleMessage") })
+      grepl("replaces the pairwise", msg) && grepl("direction", msg) })
+chk("hypothesis: it is refused alongside an interaction, which defines its own",
+    grepl("both define which comparisons",
+          err_of(estimand(mf, chord_type:inversion, hypothesis = "reference"))))
+chk("hypothesis: the emitted code runs",
+    { e <- suppressMessages(estimand(mf, chord_type, hypothesis = "reference",
+                                     bounds = FALSE, self_check = FALSE))
+      env <- new.env(); assign("mf", mf, env); assign("sp", sp, env)
+      r <- tryCatch(eval(parse(text = paste(attr(e, "nestimand")$code,
+                                            collapse = "\n")), envir = env),
+                    error = function(x) NULL)
+      !is.null(r) })
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

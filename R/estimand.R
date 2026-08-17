@@ -234,10 +234,25 @@ estimand <- function(model, target, policy = "equal", at = NULL,
     }
     bounds <- FALSE
   }
+  ## A hypothesis of the user's own replaces the one the contrast implies:
+  ## they are two answers to the same question, and the engine would refuse
+  ## both. The direction convention and the contrast argument go with it.
+  user_hyp <- "hypothesis" %in% names(dots)
+  if (user_hyp) {
+    if (identical(contrast, "interaction"))
+      stop("`hypothesis` and contrast = \"interaction\" both define which ",
+           "comparisons are formed. The interaction is built as a matrix of ",
+           "differences of differences; supply your own hypothesis instead, or ",
+           "drop it and let the interaction stand.")
+    message("`hypothesis` was supplied, so it replaces the ", contrast,
+            " comparison the package would have formed. Contrast direction is ",
+            "then the engine's, not the declared level order, and the reported ",
+            "labels are whatever it returns.")
+  }
   if (!exists("policy_dropped", inherits = FALSE)) policy_dropped <- FALSE
   code <- estimand_code(spec, target, policy, at, contrast, dots_txt,
                         model_name, spec_name, data_name, bounds, scale,
-                        deg, route, weights_txt, re_note)
+                        deg, route, weights_txt, re_note, user_hyp)
   ## if the model was fitted by nest_fit(), its call travels with it, so the
   ## code view is the whole pipeline rather than its second half
   ## The fit belongs in the code view, so that what is shown is a whole
@@ -318,7 +333,7 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
                           model_name, spec_name, data_name, bounds,
                           scale = "response", deg = NULL,
                           route = "g_computation", weights_txt = NULL,
-                          re_note = NULL) {
+                          re_note = NULL, user_hyp = FALSE) {
   cn <- spec$cell_name
   pol_txt <- if (is.character(policy) && length(policy) == 1L)
     sprintf('"%s"', policy)
@@ -434,10 +449,14 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
         sprintf('grid$.w <- policy_weights(%s, grid, pol)', spec_name))),
     "## estimand in the original variable space: `by =` names an original",
     sprintf("## factor, not the fitted `%s` predictor", cn), re_note,
-    sprintf('est  <- avg_predictions(%s, newdata = grid, by = "%s", wts = grid$.w,',
-            model_name, target),
-    sprintf('                        hypothesis = %s%s)',
-            mfx_hypothesis_txt(contrast), dots_txt),
+    if (user_hyp)
+      c(sprintf('est  <- avg_predictions(%s, newdata = grid, by = "%s", wts = grid$.w%s)',
+                model_name, target, dots_txt))
+    else
+      c(sprintf('est  <- avg_predictions(%s, newdata = grid, by = "%s", wts = grid$.w,',
+                model_name, target),
+        sprintf('                        hypothesis = %s%s)',
+                mfx_hypothesis_txt(contrast), dots_txt)),
     "## contrast direction is fixed by nestimand, not inherited from the engine:",
     "## later declared level minus earlier, so that it reads as a departure from",
     "## the reference condition. Engine versions differ on this, and an inherited",
