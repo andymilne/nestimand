@@ -9,7 +9,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
                      contrast = c("pairwise", "reference", "sequential", "within",
                                   "interaction"),
                      route = c("g_computation", "cells"),
-                     weights = NULL, type = NULL, subsample = NULL, draws = NULL,
+                     weights = NULL, type = NULL, subsample = NULL,
                      data = NULL, bounds = TRUE, self_check = TRUE,
                      dry_run = FALSE, ..., spec = NULL, .env = parent.frame()) {
   ## The declaration travels with a fit from nest_fit(); `spec` is needed only
@@ -139,9 +139,14 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   subsample_txt <- NULL
   if (!is.null(subsample) && identical(route, "g_computation")) {
     if (subsample < nrow(data)) {
+      ## the rows are drawn from a recorded seed rather than listed: a literal
+      ## index vector reproduces just as well but becomes unusable as code
+      ## once the sample is large
+      sub_seed <- sample.int(.Machine$integer.max, 1)
+      set.seed(sub_seed)
       idx <- sort(sample.int(nrow(data), subsample))
       data <- data[idx, , drop = FALSE]
-      subsample_txt <- sprintf("c(%s)", paste(idx, collapse = ", "))
+      subsample_txt <- sub_seed
       message("averaging over a random ", subsample, " of ",
               format(nrow(spec$data), big.mark = ","), " units rather than all ",
               "of them: the same population average, with Monte Carlo error. ",
@@ -178,23 +183,57 @@ estimand <- function(model, target, policy = "equal", at = NULL,
 
   ## non-core arguments, passed through verbatim to the destination function
   dots <- as.list(substitute(list(...)))[-1]
+  ## `ndraws` is the engine's own name for thinning a posterior, and it works
+  ## on either route: passed through to the prediction function, or applied to
+  ## the draws matrix here. The other dimension of the same problem as
+  ## `subsample`, and usually the cheaper one, since a posterior has far more
+  ## draws than the quantities they inform.
+  draws_txt <- ""
+  if (!is.null(dots$ndraws) && identical(scale, "latent")) {
+    draws_txt <- sprintf(", ndraws = %s", deparse(dots$ndraws))
+    dots$ndraws <- NULL
+  }
+
+  ## Unit weights standardize to a population other than the sample: survey
+  ## weights, or post-stratification to a target distribution of the covariates.
+  ## They are a separate question from the policy, which weights the versions of
+  ## a condition, and they multiply it.
+  weights_txt <- NULL
+  if (!is.null(weights)) {
+    if (identical(route, "cells"))
+      stop("unit weights standardize over the rows of the data, and ",
+           "route = \"cells\" evaluates one row per condition with the ",
+           "covariates at their means, so there are no units to weight. Use ",
+           "route = \"g_computation\" to standardize to a target population.")
+    if (is.character(weights) && length(weights) == 1L) {
+      if (!weights %in% names(data))
+        stop("no column `", weights, "` in the data the estimand is computed ",
+             "over. A weight column added after the model was fitted is not in ",
+             "the declaration the fit carries; add it before declaring, pass ",
+             "the data with `data =`, or supply the weights as a vector.")
+      weights_txt <- sprintf('%s[["%s"]]', data_name, weights)
+    } else {
+      if (is.numeric(weights) && length(weights) != nrow(data))
+        stop("`weights` has ", length(weights), " values but the data has ",
+             nrow(data), " rows: one weight per row is needed.")
+      weights_txt <- paste(deparse(wq), collapse = " ")
+    }
+  }
+
   ## The other dimension of the same problem: a posterior has as many draws as
   ## it has, and the response scale evaluates the model once per draw. Thinning
   ## them estimates the same posterior summaries with Monte Carlo error, and is
   ## usually the cheaper of the two levers, since draws are far more numerous
   ## than the quantities they inform.
-  if (!is.null(draws) && inherits(model, "brmsfit")) {
+  if (!is.null(dots$ndraws) && inherits(model, "brmsfit")) {
     nd <- tryCatch(brms::ndraws(model), error = function(e) NA_integer_)
-    if (!is.na(nd) && draws < nd) {
-      dots$ndraws <- draws
-      message("using ", draws, " of ", format(nd, big.mark = ","),
-              " posterior draws. The summaries are the same quantities, ",
-              "estimated from fewer draws: the Monte Carlo error on a ",
-              "posterior mean is about 1/sqrt(", draws, ") = ",
-              signif(1 / sqrt(draws), 2), " posterior standard deviations. ",
-              "The posterior itself is unchanged; only how precisely it is ",
-              "summarized.")
-    }
+    k <- tryCatch(eval(dots$ndraws, .env), error = function(e) NA_integer_)
+    if (!is.na(nd) && !is.na(k) && k < nd)
+      message("using ", k, " of ", format(nd, big.mark = ","),
+              " posterior draws. The posterior is unchanged; only how precisely ",
+              "it is summarized - the Monte Carlo error on a posterior mean is ",
+              "about 1/sqrt(", k, ") = ", signif(1 / sqrt(k), 2),
+              " posterior standard deviations.")
   }
   ## A mixed fit predicts for a particular group unless told otherwise, and the
   ## estimands here are population-level. The exclusion is stated rather than
@@ -259,8 +298,8 @@ estimand <- function(model, target, policy = "equal", at = NULL,
                 paste0(" `subsample = 500` averages over a random 500 units",
                        " instead, which estimates the same quantity;")
               else "",
-              if (is.null(draws) && !is.na(ndraw))
-                paste0(" `draws = 500` uses fewer posterior draws, likewise;")
+              if (is.null(dots$ndraws) && !is.na(ndraw))
+                paste0(" `ndraws = 500` uses fewer posterior draws, likewise;")
               else "",
               " route = \"cells\" answers a different question - the effect at ",
               "average covariates - which on a nonlinear scale is not the ",
@@ -316,6 +355,26 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   ## A hypothesis of the user's own replaces the one the contrast implies:
   ## they are two answers to the same question, and the engine would refuse
   ## both. The direction convention and the contrast argument go with it.
+  ## The linear predictor gives one value per condition, so the comparisons are
+  ## the ones `contrast` names and there is nothing for a hypothesis to group.
+  if (identical(scale, "latent")) {
+    if ("hypothesis" %in% names(dots))
+      stop("the linear predictor gives one value per condition, so there are ",
+           "no groups to compare within and a `hypothesis` cannot be applied ",
+           "here: the comparisons come from `contrast` - pairwise, reference, ",
+           "sequential, or interaction. A grouped hypothesis such as ",
+           "~ pairwise | group belongs with a quantity that is grouped, which ",
+           "on an ordinal fit means type = \"response\".")
+    other <- setdiff(names(dots), "conf_level")
+    if (length(other))
+      stop("`", paste(other, collapse = "`, `"), "` ",
+           if (length(other) > 1) "are arguments" else "is an argument",
+           " of marginaleffects::avg_predictions, which the linear predictor ",
+           "does not go through: the contrast is c'b, taken from the ",
+           "coefficients. `conf_level` and `ndraws` work on either route; for ",
+           "the rest, ask for a quantity that is computed by prediction, such ",
+           "as type = \"response\".")
+  }
   user_hyp <- "hypothesis" %in% names(dots)
   if (user_hyp) {
     if (identical(contrast, "interaction"))
@@ -328,12 +387,25 @@ estimand <- function(model, target, policy = "equal", at = NULL,
             "subtraction goes are all as marginaleffects returns them.")
   }
   if (!exists("policy_dropped", inherits = FALSE)) policy_dropped <- FALSE
+  sub_code <- NULL
   if (!is.null(subsample_txt)) {
-    data_name <- sprintf("%s[%s, ]", data_name, subsample_txt)
+    sub_code <- c(
+      sprintf("## averaging over a random %d of %s units, drawn from a recorded",
+              subsample, format(nrow(spec$data), big.mark = ",")),
+      "## seed so that the same rows come back",
+      sprintf("set.seed(%d)", subsample_txt),
+      sprintf(".rows <- sort(sample.int(nrow(%s), %d))", data_name, subsample),
+      sprintf(".data <- %s[.rows, ]", data_name))
+    data_name <- ".data"
   }
   code <- estimand_code(spec, target, policy, at, contrast, dots_txt,
                         model_name, spec_name, data_name, bounds, scale,
-                        deg, route, weights_txt, re_note, user_hyp)
+                        deg, route, weights_txt, re_note, user_hyp, draws_txt)
+  if (!is.null(sub_code)) {
+    i <- grep("^library\\(", code)
+    at_line <- if (length(i)) max(i) else 1L
+    code <- append(code, sub_code, after = at_line)
+  }
   ## if the model was fitted by nest_fit(), its call travels with it, so the
   ## code view is the whole pipeline rather than its second half
   ## The fit belongs in the code view, so that what is shown is a whole
@@ -354,7 +426,8 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   env <- new.env(parent = .env)
   assign(model_name, model, envir = env)
   assign(spec_name,  spec,  envir = env)
-  if (!exists(data_name, envir = env, inherits = TRUE))
+  if (grepl("^[.A-Za-z][.A-Za-z0-9._]*$", data_name) &&
+      !exists(data_name, envir = env, inherits = TRUE))
     assign(data_name, data, envir = env)
   out <- tryCatch(eval(parse(text = paste(run_code, collapse = "\n")), envir = env),
     error = function(err) {
@@ -419,7 +492,7 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
                           model_name, spec_name, data_name, bounds,
                           scale = "response", deg = NULL,
                           route = "g_computation", weights_txt = NULL,
-                          re_note = NULL, user_hyp = FALSE) {
+                          re_note = NULL, user_hyp = FALSE, draws_txt = "") {
   cn <- spec$cell_name
   pol_txt <- if (is.character(policy) && length(policy) == 1L)
     sprintf('"%s"', policy)
@@ -472,8 +545,8 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
       "## interaction on the latent scale: a difference of differences among",
       "## cells, computed as c'b. Exact, and free of the per-category expansion",
       "## that ordinal fits provoke.",
-      sprintf('est  <- latent_estimand(%s, c(%s), contrast = "interaction", spec = %s%s)',
-              model_name, tv, spec_name, dots_txt),
+      sprintf('est  <- latent_estimand(%s, c(%s), contrast = "interaction", spec = %s%s%s)',
+              model_name, tv, spec_name, dots_txt, draws_txt),
       "est"))
   }
   if (identical(scale, "latent")) {
@@ -482,8 +555,8 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
       "## with c a weighted difference of design-matrix rows. Exact, one matrix",
       "## product, and free of the per-category expansion of ordinal fits.",
       sprintf('pol  <- nest_policy(%s, "%s", %s%s)', spec_name, target, pol_txt, at_txt),
-      sprintf('est  <- latent_estimand(%s, "%s", pol, contrast = "%s", spec = %s%s)',
-              model_name, target, contrast, spec_name, dots_txt))
+      sprintf('est  <- latent_estimand(%s, "%s", pol, contrast = "%s", spec = %s%s%s)',
+              model_name, target, contrast, spec_name, dots_txt, draws_txt))
     if (isTRUE(bounds))
       body <- c(body,
         "## partial-identification bounds over all admissible policies",

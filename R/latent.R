@@ -140,7 +140,8 @@ latent_contrast_matrix <- function(model, spec, target, policy = "equal",
 
 latent_estimand <- function(model, target, policy = "equal", at = NULL,
                             contrast = "pairwise", data = NULL,
-                            conf_level = 0.95, spec = NULL, cells = NULL) {
+                            conf_level = 0.95, spec = NULL, cells = NULL,
+                            ndraws = NULL) {
   spec <- resolve_spec(model, spec)
   if (is.null(data)) data <- spec$data
   C <- latent_contrast_matrix(model, spec, target, policy, at, contrast, data, cells)
@@ -152,6 +153,8 @@ latent_estimand <- function(model, target, policy = "equal", at = NULL,
   ## reading; the draws give the posterior of the contrast itself.
   if (inherits(model, "brmsfit")) {
     D <- as.matrix(brms::as_draws_matrix(model))
+    if (!is.null(ndraws) && ndraws < nrow(D))
+      D <- D[sort(sample.int(nrow(D), ndraws)), , drop = FALSE]
     nm <- draw_names(colnames(C), colnames(D))
     B <- D[, nm, drop = FALSE]
     S <- B %*% t(C)

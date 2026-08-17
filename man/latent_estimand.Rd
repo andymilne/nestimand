@@ -12,7 +12,8 @@ operation, so this is G-computation rather than an approximation to it.
 }
 \usage{
 latent_estimand(model, target, policy = "equal", at = NULL, contrast = "pairwise", 
-                data = NULL, conf_level = 0.95, spec = NULL, cells = NULL)
+                data = NULL, conf_level = 0.95, spec = NULL, cells = NULL,
+                ndraws = NULL)
 
 latent_draws(model, target, policy = "equal", at = NULL, contrast = "pairwise", 
              data = NULL, spec = NULL, cells = NULL)
@@ -30,6 +31,7 @@ policy_contrast_matrix(spec, target, policy, data = spec$data, model = NULL,
   \item{data}{data over which the grid is formed.}
   \item{conf_level}{confidence level for the delta-method interval.}
   \item{cells}{the realized cells to work over. Chosen automatically: a marginal contrast of a nested variable is pooled only over the strata in which it varies, and an interaction over those in which every target varies.}
+  \item{ndraws}{thin the posterior of a \pkg{brms} fit to this many draws. The engine's own spelling, so the same argument serves on either route.}
 }
 \details{
 This route never calls the prediction machinery, so it is immune to the per-category

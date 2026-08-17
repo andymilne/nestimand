@@ -1858,11 +1858,16 @@ chk("routes: they differ on the response scale, as a nonlinear link requires",
 chk("subsample: estimates the same quantity as the full grid",
     { set.seed(2)
       max(abs(resp3()$estimate - resp3(subsample = 200)$estimate)) < 0.02 })
-chk("subsample: the rows drawn are written into the code",
+chk("subsample: the emitted script draws the same rows again",
     { set.seed(2)
-      cd <- suppressMessages(estimand(m3, chord_type, type = "response",
-              subsample = 50, dry_run = TRUE, bounds = FALSE))
-      grepl("sp3$data[c(", cd, fixed = TRUE) })
+      e1 <- suppressMessages(estimand(m3, chord_type, subsample = 50,
+              bounds = FALSE, self_check = FALSE))
+      env <- new.env(parent = globalenv())
+      assign("m3", m3, env); assign("sp3", sp3, env)
+      r <- eval(parse(text = paste(attr(e1, "nestimand")$code, collapse = "\n")),
+                envir = env)
+      isTRUE(all.equal(as.data.frame(r)$estimate,
+                       as.data.frame(e1)$estimate)) })
 chk("subsample: it is announced, since it trades exactness for time",
     { msg <- character(0); set.seed(2)
       withCallingHandlers(tryCatch(estimand(m3, chord_type, type = "response",
@@ -1900,10 +1905,12 @@ chk("subsample: the counts reported respect it",
         message = function(m) { z <<- c(z, conditionMessage(m))
                                 invokeRestart("muffleMessage") })
       any(grepl("random 50 of", z)) })
-chk("subsample: the rows drawn are written into the code",
+chk("subsample: the code records the draw so the same rows come back",
     { cd <- suppressMessages(estimand(mf, chord_type, subsample = 50,
               dry_run = TRUE, bounds = FALSE))
-      grepl("sp$data[c(", cd, fixed = TRUE) })
+      grepl("set.seed(", cd, fixed = TRUE) &&
+      grepl("sample.int(nrow(sp$data), 50)", cd, fixed = TRUE) &&
+      max(nchar(strsplit(as.character(cd), "\n")[[1]])) < 200 })
 chk("subsample: it estimates the same quantity",
     { set.seed(11)
       a <- as.data.frame(estimand(mf, chord_type, bounds = FALSE,
@@ -1911,9 +1918,9 @@ chk("subsample: it estimates the same quantity",
       b <- suppressMessages(as.data.frame(estimand(mf, chord_type,
              subsample = 200, bounds = FALSE, self_check = FALSE))$estimate)
       max(abs(a - b)) < 0.05 })
-chk("draws: ignored where there is no posterior to thin",
-    nrow(as.data.frame(estimand(mf, chord_type, draws = 100, bounds = FALSE,
-                                self_check = FALSE))) == 6)
+chk("ndraws: harmless where there is no posterior to thin",
+    nrow(as.data.frame(suppressMessages(estimand(mf, chord_type, type = "link",
+      ndraws = 100, bounds = FALSE, self_check = FALSE)))) == 6)
 
 ## ---- the reorder check should not cry wolf ---------------------------------
 chk("reorder: a non-convergent shadow gives inconclusive, not failed",
@@ -1927,9 +1934,10 @@ chk("reorder: a genuine failure still warns",
     { body <- paste(deparse(reorder_check), collapse = " ")
       grepl("Do not report it", body) })
 
-chk("arguments: subsample, draws and a hypothesis together",
-    { r <- suppressMessages(estimand(mf, chord_type, subsample = 100, draws = 100,
-             hypothesis = "reference", bounds = FALSE, self_check = FALSE))
+chk("arguments: subsample, ndraws and a hypothesis together",
+    { r <- suppressMessages(estimand(mf, chord_type, type = "response",
+             subsample = 100, ndraws = 100, hypothesis = "reference",
+             bounds = FALSE, self_check = FALSE))
       nrow(as.data.frame(r)) == 3 })
 chk("arguments: every combination of the levers runs",
     { ok <- TRUE
@@ -1938,22 +1946,34 @@ chk("arguments: every combination of the levers runs",
           cl <- quote(estimand(mf, "chord_type", bounds = FALSE,
                                self_check = FALSE))
           if (!is.null(sub)) cl$subsample <- sub
-          if (!is.null(dr))  cl$draws <- dr
+          if (!is.null(dr))  cl$ndraws <- dr
           if (!is.null(hyp)) cl$hypothesis <- hyp
           r <- try(suppressMessages(eval(cl)), silent = TRUE)
           if (inherits(r, "try-error")) ok <- FALSE
         }
       ok })
 
-chk("draws: the note quotes the number asked for, not a fixed one",
+chk("ndraws: the note quotes the number asked for, not a fixed one",
     { body <- paste(deparse(estimand), collapse = " ")
-      grepl('1/sqrt\\(", draws', body) && !grepl("sqrt\\(500\\)", body) })
-chk("draws: the size note counts the draws in use",
+      grepl("1/sqrt", body) && !grepl("sqrt\\(500\\)", body) })
+chk("ndraws: the size note counts the draws in use",
     { body <- paste(deparse(estimand), collapse = " ")
       grepl("dots\\$ndraws", body) })
 chk("messages: advice already taken is not repeated",
     { body <- paste(deparse(estimand), collapse = " ")
-      grepl("if \\(is.null\\(subsample\\)", body) &&
-      grepl("if \\(is.null\\(draws\\)", body) })
+      grepl("is.null\\(subsample\\)", body) &&
+      grepl("is.null\\(dots\\$ndraws\\)", body) })
+
+chk("ndraws: the engine's own spelling works on either route",
+    { a <- suppressMessages(estimand(mf, chord_type, type = "link", ndraws = 500,
+             dry_run = TRUE, bounds = FALSE))
+      b <- suppressMessages(estimand(mf, chord_type, type = "response",
+             ndraws = 500, dry_run = TRUE, bounds = FALSE))
+      grepl("ndraws = 500", a, fixed = TRUE) &&
+      grepl("ndraws = 500", b, fixed = TRUE) })
+chk("hypothesis: refused on the linear predictor, for the reason that applies",
+    grepl("no groups to compare within",
+          err_of(estimand(mf, chord_type, type = "link",
+                          hypothesis = ~ pairwise | group))))
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
