@@ -9,7 +9,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
                      contrast = c("pairwise", "reference", "sequential", "within",
                                   "interaction"),
                      route = c("g_computation", "cells"),
-                     weights = NULL, type = NULL, subsample = NULL,
+                     weights = NULL, type = NULL, subsample = NULL, draws = NULL,
                      data = NULL, bounds = TRUE, self_check = TRUE,
                      dry_run = FALSE, ..., spec = NULL, .env = parent.frame()) {
   ## The declaration travels with a fit from nest_fit(); `spec` is needed only
@@ -146,6 +146,22 @@ estimand <- function(model, target, policy = "equal", at = NULL,
               format(nrow(spec$data), big.mark = ","), " units rather than all ",
               "of them: the same population average, with Monte Carlo error. ",
               "The rows drawn are written into the code.")
+    }
+  }
+
+  ## The other dimension of the same problem: a posterior has as many draws as
+  ## it has, and the response scale evaluates the model once per draw. Thinning
+  ## them estimates the same posterior summaries with Monte Carlo error, and is
+  ## usually the cheaper of the two levers, since draws are far more numerous
+  ## than the quantities they inform.
+  if (!is.null(draws) && inherits(model, "brmsfit")) {
+    nd <- tryCatch(brms::ndraws(model), error = function(e) NA_integer_)
+    if (!is.na(nd) && draws < nd) {
+      dots$ndraws <- draws
+      message("using ", draws, " of ", format(nd, big.mark = ","),
+              " posterior draws. The summaries are the same quantities, with ",
+              "Monte Carlo error: 500 draws put about ", signif(1/sqrt(500), 2),
+              " of a posterior standard deviation on a mean.")
     }
   }
 
@@ -646,7 +662,12 @@ reorder_check <- function(model, spec, target, policy, at, contrast, dots_txt, d
     else if (!isTRUE(all.equal(sort(round(abs(e1), 8)), sort(round(abs(e2), 8)),
                                tolerance = 1e-8)))
       list(status = "failed",
-           note = sprintf("max |change| = %s", format(max(abs(sort(abs(e1)) - sort(abs(e2)))))))
+           note = sprintf(paste("max |change| = %s over %d contrasts, checked on",
+                                "the %s scale over the %s grid%s"),
+                          format(max(abs(sort(abs(e1)) - sort(abs(e2))))),
+                          length(e1), chk_scale, chk_route,
+                          if (!is.null(shadow))
+                            paste0(" of a ", shadow, " shadow model") else ""))
     else list(status = "passed", note = note)
   }, error = function(e) list(status = "error", note = conditionMessage(e)))
   if (identical(out$status, "failed"))

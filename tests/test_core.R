@@ -1892,4 +1892,27 @@ chk("posterior: pd is the larger tail, computed from draws",
     { z <- c(-1, 2, 3, 4)            # 3 of 4 positive
       abs(max(mean(z > 0), mean(z < 0)) - 0.75) < 1e-12 })
 
+## ---- the two levers on a large posterior -----------------------------------
+chk("subsample: the counts reported respect it",
+    { z <- character(0)
+      withCallingHandlers(estimand(mf, chord_type, subsample = 50,
+                                   bounds = FALSE, self_check = FALSE),
+        message = function(m) { z <<- c(z, conditionMessage(m))
+                                invokeRestart("muffleMessage") })
+      any(grepl("random 50 of", z)) })
+chk("subsample: the rows drawn are written into the code",
+    { cd <- suppressMessages(estimand(mf, chord_type, subsample = 50,
+              dry_run = TRUE, bounds = FALSE))
+      grepl("sp$data[c(", cd, fixed = TRUE) })
+chk("subsample: it estimates the same quantity",
+    { set.seed(11)
+      a <- as.data.frame(estimand(mf, chord_type, bounds = FALSE,
+                                  self_check = FALSE))$estimate
+      b <- suppressMessages(as.data.frame(estimand(mf, chord_type,
+             subsample = 200, bounds = FALSE, self_check = FALSE))$estimate)
+      max(abs(a - b)) < 0.05 })
+chk("draws: ignored where there is no posterior to thin",
+    nrow(as.data.frame(estimand(mf, chord_type, draws = 100, bounds = FALSE,
+                                self_check = FALSE))) == 6)
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
