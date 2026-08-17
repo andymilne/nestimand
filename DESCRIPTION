@@ -1,6 +1,6 @@
 Package: nestimand
 Title: Estimands for Partially Nested Designs by Cell Translation
-Version: 0.1.0.9000
+Version: 0.1.0.9001
 Authors@R: person("Andrew J.", "Milne",
                   email = "A.Milne@westernsydney.edu.au",
                   role = c("aut", "cre"))

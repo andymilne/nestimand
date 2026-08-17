@@ -5,7 +5,7 @@
 ## it is the parameterization: the declared structure is now compiled into a
 ## realized-cell factor rather than into a chain of interaction terms.
 
-nestimand_build <- "2026-08-15.1"
+nestimand_build <- "2026-08-17.1"
 
 nesting_spec <- function(data, formula, nests,
                          fit = c("lm", "glm", "lmer", "glmer", "clm", "clmm", "brms"),

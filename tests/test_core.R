@@ -1642,13 +1642,13 @@ chk("ordinal: the default route is unaffected by any of this",
                                 self_check = FALSE))) == 6)
 
 chk("ordinal: the predictive type warns that codes are being averaged",
-    { msg <- NULL
+    { msgs <- character(0)
       withCallingHandlers(
         tryCatch(estimand(mo, chord_type, type = "prediction", bounds = FALSE,
                           self_check = FALSE), error = function(e) NULL),
-        message = function(m) { msg <<- conditionMessage(m)
+        message = function(m) { msgs <<- c(msgs, conditionMessage(m))
                                 invokeRestart("muffleMessage") })
-      grepl("category codes", msg) && grepl("interval one", msg) })
+      any(grepl("category codes", msgs)) && any(grepl("interval one", msgs)) })
 chk("prediction: a non-ordinal fit draws no such note",
     { msg <- NULL
       withCallingHandlers(
@@ -1657,5 +1657,21 @@ chk("prediction: a non-ordinal fit draws no such note",
         message = function(m) { msg <<- conditionMessage(m)
                                 invokeRestart("muffleMessage") })
       is.null(msg) })
+
+chk("ordinal: the size of the comparison set is stated before the work starts",
+    { msgs <- character(0)
+      withCallingHandlers(
+        tryCatch(estimand(mo, chord_type, type = "response", bounds = FALSE,
+                          self_check = FALSE), error = function(e) NULL),
+        message = function(m) { msgs <<- c(msgs, conditionMessage(m))
+                                invokeRestart("muffleMessage") })
+      any(grepl("378 contrasts where the linear predictor gives 6", msgs)) })
+chk("ordinal: the linear predictor draws no such warning",
+    { msgs <- character(0)
+      withCallingHandlers(
+        estimand(mo, chord_type, bounds = FALSE, self_check = FALSE),
+        message = function(m) { msgs <<- c(msgs, conditionMessage(m))
+                                invokeRestart("muffleMessage") })
+      !any(grepl("contrasts where the linear predictor", msgs)) })
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

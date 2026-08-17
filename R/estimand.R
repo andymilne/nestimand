@@ -175,6 +175,28 @@ estimand <- function(model, target, policy = "equal", at = NULL,
               "which is the assumption the ordinal family was chosen to avoid. ",
               "type = \"response\" gives the probability of each category, and ",
               "type = \"link\" the latent scale.")
+    ## The response scale multiplies the rows by the number of categories, and
+    ## a pairwise comparison then grows as the square of that. The cost is
+    ## rarely what the user expected, so it is stated before the work starts.
+    if (has_thresholds(spec) && contrast %in% c("pairwise", "interaction")) {
+      ncat <- tryCatch(nlevels(stats::model.frame(spec$formula_in,
+                                                  data)[[spec$outcome]]),
+                       error = function(e) NA_integer_)
+      if (is.na(ncat))
+        ncat <- tryCatch(nlevels(data[[spec$outcome]]), error = function(e) NA_integer_)
+      nlev <- if (identical(contrast, "interaction")) nrow(spec$cells)
+              else length(unique(as.character(data[[target[1]]])))
+      if (!is.na(ncat) && ncat > 1) {
+        n1 <- choose(nlev, 2); n2 <- choose(nlev * ncat, 2)
+        message("ordinal fit on the response scale: each condition becomes ",
+                ncat, " numbers, one per outcome category, so this ",
+                contrast, " comparison is over ", nlev * ncat, " values rather ",
+                "than ", nlev, " - ", n2, " contrasts where the linear ",
+                "predictor gives ", n1, ", each computed over every draw. ",
+                "type = \"link\" gives the ", n1, "; to compare conditions ",
+                "within each category instead, pass a hypothesis of your own.")
+      }
+    }
     if (has_thresholds(spec) && identical(type, "response"))
       message("ordinal fit: type = \"", dots$type, "\" contrasts the outcome ",
               "probabilities, so each comparison becomes one number per ",
