@@ -75,7 +75,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
                                 c2$contrast <- "interaction"
                                 c2$hypothesis <- NULL; eval(c2, .env) })))
       names(out) <- c(vs, paste(vs, collapse = ":"))
-      return(structure(out, class = "nestimand_estimands"))
+      return(collect_estimands(out))
     }
   }
   if (!is.null(tg) && is.call(tg) && identical(tg[[1]], as.name("c")))
@@ -88,7 +88,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
     cl <- match.call()
     out <- lapply(multi, function(k) { cl$target <- k; eval(cl, .env) })
     names(out) <- multi
-    return(structure(out, class = "nestimand_estimands"))
+    return(collect_estimands(out))
   }
   if (is.name(tg)) {
     lit <- deparse(tg)
@@ -218,12 +218,12 @@ estimand <- function(model, target, policy = "equal", at = NULL,
 
     ## One note, and only where it can still change what the user does. With a
     ## hypothesis of their own the comparison set is already theirs.
+    ## Only for a plain pairwise comparison: an interaction already forms its
+    ## contrasts within each group, so there is nothing to recommend.
     if (has_thresholds(spec) && identical(type, "response") &&
-        !"hypothesis" %in% names(dots) &&
-        contrast %in% c("pairwise", "interaction")) {
+        !"hypothesis" %in% names(dots) && identical(contrast, "pairwise")) {
       ncat <- tryCatch(nlevels(data[[spec$outcome]]), error = function(e) NA_integer_)
-      nlev <- if (identical(contrast, "interaction")) nrow(spec$cells)
-              else length(unique(as.character(data[[target[1]]])))
+      nlev <- length(unique(as.character(data[[target[1]]])))
       message("ordinal fit on the response scale: every condition becomes ",
               if (is.na(ncat)) "one number per outcome category"
               else paste(ncat, "numbers, one per outcome category"),
@@ -442,8 +442,16 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
       sprintf('pol  <- nest_policy(%s, "%s", "equal"%s)', spec_name,
               target[length(target)],
               if (is.null(deg)) "" else ", cells = cells"),
-      sprintf('grid <- counterfactual_grid(%s, %s, pol%s)', spec_name, data_name,
-              if (is.null(deg)) "" else ", cells = cells"),
+      if (identical(route, "cells"))
+        c("## one row per realized cell, covariates at their means",
+          sprintf('grid <- cell_grid(%s)', spec_name),
+          if (!is.null(deg))
+            sprintf('grid <- grid[as.character(grid$%s) %%in%% as.character(cells$%s), ]',
+                    cn, cn),
+          sprintf('grid$.w <- policy_weights(%s, grid, pol)', spec_name))
+      else
+        sprintf('grid <- counterfactual_grid(%s, %s, pol%s)', spec_name, data_name,
+                if (is.null(deg)) "" else ", cells = cells"),
       "## the cell means first, to learn the order the engine returns them in",
       sprintf('g0   <- avg_predictions(%s, newdata = grid, by = c(%s), wts = grid$.w%s)',
               model_name, tv, dots_txt),
@@ -642,7 +650,12 @@ estimand_values <- function(model, spec, target, policy, at, contrast, data,
       spec$cells[as.character(spec$cells[[deg$vars[1]]]) %in% deg$keep, , drop = FALSE]
     pol <- nest_policy(spec, target[length(target)], "equal", NULL, data,
                        cells = cells)
-    g <- counterfactual_grid(spec, data, pol, cells = cells)
+    g <- if (identical(route, "cells")) {
+      d <- cell_grid(spec, data)
+      d <- d[as.character(d[[spec$cell_name]]) %in%
+             as.character(cells[[spec$cell_name]]), , drop = FALSE]
+      d$.w <- policy_weights(spec, d, pol); d
+    } else counterfactual_grid(spec, data, pol, cells = cells)
     g0 <- marginaleffects::avg_predictions(model, newdata = g, by = target,
                                            wts = g$.w)
     H <- interaction_matrix(g0, target)
@@ -767,4 +780,20 @@ show_code.nestimand_estimands <- function(x, ...) {
     c(sprintf("## --- %s ---", nm[i]), attr(x[[i]], "nestimand")$code, "")))
   cat(paste(code, collapse = "\n"), "\n", sep = "")
   invisible(structure(paste(code, collapse = "\n"), class = "nestimand_code"))
+}
+
+
+## Several targets in one call. With `dry_run` each part is code rather than a
+## result, and the collection is then one script rather than a list of tables:
+## a list of code objects would have no useful print or show_code.
+collect_estimands <- function(out) {
+  if (all(vapply(out, inherits, TRUE, "nestimand_code"))) {
+    nm <- names(out)
+    code <- unlist(lapply(seq_along(out), function(i)
+      c(sprintf("## --- %s ---", nm[i]),
+        attr(out[[i]], "nestimand_code"), "")))
+    return(structure(paste(code, collapse = "\n"), class = "nestimand_code",
+                     nestimand_code = code))
+  }
+  structure(out, class = "nestimand_estimands")
 }

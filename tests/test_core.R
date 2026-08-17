@@ -1812,4 +1812,26 @@ chk("interaction: ungrouped output is unchanged",
     ncol(interaction_matrix(dg[dg$group == "1", c("chord_type", "inversion")],
                             c("chord_type", "inversion"))) == 3)
 
+## ---- the route reaches every part of a call --------------------------------
+## The interaction had its own grid construction, which ignored `route`: with
+## route = "cells" the marginal contrasts used 9 rows while the interaction
+## quietly built the whole G-computation grid.
+chk("route: the interaction honours it too",
+    { cd <- suppressMessages(estimand(mf, chord_type:inversion, route = "cells",
+              dry_run = TRUE, bounds = FALSE))
+      grepl("cell_grid(sp)", cd, fixed = TRUE) &&
+      !grepl("counterfactual_grid", cd, fixed = TRUE) })
+chk("route: and gives the same answer either way in a linear model",
+    { a <- as.data.frame(estimand(mf, chord_type:inversion, route = "cells",
+                                  bounds = FALSE, self_check = FALSE))
+      b <- as.data.frame(estimand(mf, chord_type:inversion, bounds = FALSE,
+                                  self_check = FALSE))
+      max(abs(a$estimate - b$estimate)) < 1e-8 })
+chk("dry_run: several targets give one script, not a list of them",
+    { cd <- suppressMessages(estimand(mf, chord_type * inversion,
+              dry_run = TRUE, bounds = FALSE))
+      inherits(cd, "nestimand_code") &&
+      length(capture.output(show_code(cd))) > 10 &&
+      grepl("--- chord_type ---", cd, fixed = TRUE) })
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
