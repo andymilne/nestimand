@@ -39,8 +39,9 @@ engine_types(model = NULL)
   \item{subsample}{average over a random sample of this many units rather than all of them, on the G-computation route. The same quantity, with Monte Carlo error in place of exactness; the seed is written into the emitted code, so the same rows come back. Which conditions the sampled rows happen to carry does not matter, since every row is crossed with every realized cell; and a proportional policy is counted from the whole data rather than from the sample, so the weights are unaffected.}
   \item{type}{the quantity to contrast. \code{"eta"} is nestimand's own name for
 the linear predictor - the mean structure, with thresholds and link excluded -
-computed from the coefficients as c'b. It is exact, gives one number per
-contrast, is available for every model class including those the prediction
+computed from the coefficients as c'b: the group deviations held at zero, which
+describes the average group rather than any sampled one. It is
+exact, gives one number per contrast, is available for every model class including those the prediction
 machinery cannot handle, and costs one matrix product rather than a prediction
 per row. Every other value is passed to \code{marginaleffects::avg_predictions}
 verbatim, and means there exactly what that package means by it: \code{"link"}
@@ -66,14 +67,31 @@ and releases.}
   \item{scale}{internal, for \code{add_bounds}: whether the bounds are computed from the coefficients or through the prediction function. \code{\link{estimand}} sets it from \code{type}.}
 }
 \section{Mixed models}{
-An estimand here is population-level: it describes a typical group rather than
-any sampled one, so the random effects are excluded from the predictions. That
-is stated in the emitted code rather than left to a default, and in the spelling
-the engine expects - \code{re.form = NA} for the frequentist engines,
-\code{re_formula = NA} for \pkg{brms} - since each silently ignores the other's.
-Supplying either yourself overrides it. Section 6.6 of the companion document
-sets out the alternatives, which average over the sampled groups or integrate
-over the fitted distribution instead.
+Whether the group-level effects enter the predictions is the engine's default to
+make: \code{re.form} and \code{re_formula} are passed through untouched, like
+every other engine argument. What the package does is say which default is in
+force when none is given, since it settles whether the estimand describes a
+typical group or the ones in the data - \pkg{brms} and \pkg{lme4} both include
+them unless told otherwise. \code{NA} gives the typical group. The spelling
+differs between engines and neither accepts the other's, so the note uses the
+one that fits the model. \code{"eta"} evaluates the contrast with the group deviations at zero - the
+average group, as a coefficient is read with the other terms at zero - which
+corresponds to \code{NA} rather than \code{NULL}. On a linear scale the two give
+the same estimate, since the deviations average to zero; under a link they do
+not, and that is when the choice matters.
+
+The spread is where the choice bites, and that depends on the engine. On a
+\pkg{brms} fit the draws carry the group-level parameters, so \code{NULL} gives
+a wider posterior than \code{NA}. On a frequentist mixed fit
+\pkg{marginaleffects} forms the interval from the fixed-effect covariance
+either way, so the sampled-group spread is not available on any route there.
+\code{"eta"} is the average-group quantity by default. On a \pkg{brms} fit
+\code{re_formula = NULL} is accepted there too: the group-level draws are added
+before the contrast is taken, so the estimate is unchanged and the posterior
+widens, at the speed of the linear route. On any other engine there is nothing
+to average over and it is refused rather than ignored. A \pkg{brms} fit carries the group-level parameters in its
+draws, so there the uncertainty does follow the choice. Section 6.6 of the
+companion document sets out what the three answers mean.
 }
 \section{What each engine accepts}{
 The \code{type} vocabulary is \pkg{marginaleffects}', and differs by model class

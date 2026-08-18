@@ -13,7 +13,7 @@ operation, so this is G-computation rather than an approximation to it.
 \usage{
 latent_estimand(model, target, policy = "equal", at = NULL, contrast = "pairwise", 
                 data = NULL, conf_level = 0.95, spec = NULL, cells = NULL,
-                ndraws = NULL, weights = NULL, route = "g_computation")
+                ndraws = NULL, weights = NULL, route = "g_computation", re_formula = NA)
 
 latent_draws(model, target, policy = "equal", at = NULL, contrast = "pairwise", 
              data = NULL, spec = NULL, cells = NULL)
@@ -34,6 +34,7 @@ policy_contrast_matrix(spec, target, policy, data = spec$data, model = NULL,
   \item{ndraws}{thin the posterior of a \pkg{brms} fit to this many draws. The engine's own spelling, so the same argument serves on either route.}
   \item{weights}{unit weights, as a column name or one value per row. They multiply the row weights, standardizing the estimand to another population; the contrast is a weighted average of design rows either way.}
   \item{route}{over which rows the design is averaged, as in \code{\link{estimand}}. The two coincide unless a design column is a nonlinear function of a covariate.}
+  \item{re_formula}{\code{NA}, the default, evaluates the contrast at the average group. \code{NULL} averages over the groups in the data instead, by adding their draw-wise mean deviation before the contrast is taken; available for a \pkg{brms} fit, where the group-level parameters are in the draws.}
 }
 \details{
 This route never calls the prediction machinery, so it is immune to the per-category

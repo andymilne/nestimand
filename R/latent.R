@@ -179,7 +179,7 @@ latent_estimand <- function(model, target, policy = "equal", at = NULL,
                             contrast = "pairwise", data = NULL,
                             conf_level = 0.95, spec = NULL, cells = NULL,
                             ndraws = NULL, weights = NULL,
-                            route = "g_computation") {
+                            route = "g_computation", re_formula = NA) {
   spec <- resolve_spec(model, spec)
   if (is.null(data)) data <- spec$data
   C <- latent_contrast_matrix(model, spec, target, policy, at, contrast, data,
@@ -205,6 +205,15 @@ latent_estimand <- function(model, target, policy = "equal", at = NULL,
       D <- D[sort(sample.int(nrow(D), ndraws)), , drop = FALSE]
     nm <- draw_names(colnames(C), colnames(D))
     B <- D[, nm, drop = FALSE]
+    ## `re_formula = NULL` asks for the sampled groups rather than the average
+    ## one. Draw by draw the group deviations do not average to zero, and that
+    ## is where the extra width comes from: the estimate is unchanged, the
+    ## posterior is wider. Only the group mean is needed, since the estimand
+    ## averages over groups anyway.
+    if (is.null(re_formula)) {
+      U <- group_mean_draws(D, colnames(C))
+      B <- B + U
+    }
     S <- B %*% t(C)
     pd <- apply(S, 2, function(z) max(mean(z > 0), mean(z < 0)))
     out <- data.frame(
@@ -318,3 +327,24 @@ quad_form_diag <- function(C, V) {
   V <- as.matrix(V)
   as.numeric(rowSums((C %*% V) * C))
 }
+
+
+## The draw-wise mean over groups of each group-level coefficient, aligned to
+## the fixed-effect columns a contrast uses. A coefficient with no group-level
+## counterpart contributes nothing, and one that is common to every condition
+## cancels in a contrast, so both are left at zero.
+group_mean_draws <- function(D, coefs) {
+  U <- matrix(0, nrow(D), length(coefs), dimnames = list(NULL, coefs))
+  rcols <- grep("^r_", colnames(D), value = TRUE)
+  if (!length(rcols)) return(U)
+  ## r_<group>[<level>,<term>]
+  term <- sub("^r_[^\\[]+\\[[^,]+,(.*)\\]$", "\\1", rcols)
+  for (k in seq_along(coefs)) {
+    want <- sub("^b_", "", coefs[k])
+    i <- which(punct_free(term) == punct_free(want))
+    if (length(i)) U[, k] <- rowMeans(D[, rcols[i], drop = FALSE])
+  }
+  U
+}
+
+punct_free <- function(x) gsub("[^A-Za-z0-9]", "", x)

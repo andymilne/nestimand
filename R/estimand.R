@@ -276,17 +276,33 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   ## estimands here are population-level. The exclusion is stated rather than
   ## assumed, and in the spelling the engine expects: brms and the frequentist
   ## engines disagree, and the wrong one is silently ignored.
+  ## Whether the group-level effects enter the predictions is the engine's
+  ## default to make, not the package's: `re.form` and `re_formula` are passed
+  ## through untouched, as every other engine argument is. What the package
+  ## does is say which default is in force, since it decides whether the
+  ## estimand describes a typical group or the sampled ones - and the answer is
+  ## not obvious from the call.
   re_arg <- if (length(grouping_vars(spec)) &&
                 spec$fit %in% c("lmer", "glmer", "clmm", "brm"))
     (if (identical(spec$fit, "brm")) "re_formula" else "re.form")
   re_note <- NULL
   if (!is.null(re_arg) && !re_arg %in% names(dots) && !identical(scale, "latent")) {
-    dots[[re_arg]] <- quote(NA)
     re_note <- c(
-      sprintf("## %s = NA: the estimand is population-level, describing a typical", re_arg),
-      "## group rather than any sampled one. brms and the frequentist engines",
-      "## spell this differently, and the wrong spelling is silently ignored.")
+      sprintf("## no %s given, so the engine's default stands: the group", re_arg),
+      "## deviations enter the predictions, and the estimand averages over the",
+      sprintf("## groups in the data. %s = NA holds them at zero instead - the", re_arg),
+      "## average group - as a coefficient is read with the other terms at zero.")
+    if (!in_star())
+      message("no `", re_arg, "` given, so ",
+              if (identical(spec$fit, "brm")) "brms" else "the engine",
+              "'s default stands: the group deviations enter the predictions, ",
+              "so the estimand averages over the groups in the data. `",
+              re_arg, " = NA` holds them at zero instead - the average group - ",
+              "as a coefficient is read with the other terms at zero. On a ",
+              "linear scale the two give the same estimate, the deviations ",
+              "averaging to zero; under a link they do not.")
   }
+
   ## An ordinal family has no single response scale, so `scale` chooses it and
   ## the engine's own spelling is supplied here: the user should not have to
   ## know that clm calls it "prob" and brms calls it "response".
@@ -419,6 +435,40 @@ estimand <- function(model, target, policy = "equal", at = NULL,
            "sequential, or interaction. A grouped hypothesis such as ",
            "~ pairwise | group belongs with a quantity that is grouped, which ",
            "on an ordinal fit means type = \"response\".")
+    ## eta is the contrast with the group deviations at zero. Asking for the
+    ## sampled-group quantity is asking for a different spread, which this
+    ## route cannot produce: it never touches the group-level parameters.
+    re_named <- intersect(names(dots), c("re.form", "re_formula"))
+    ## On a brms fit the group-level parameters are in the draws, so eta can
+    ## average over the sampled groups after all: the estimate is unchanged and
+    ## the posterior widens. Elsewhere there is nothing to average over.
+    eta_re <- ""
+    if (length(re_named) && inherits(model, "brmsfit")) {
+      val <- tryCatch(eval(dots[[re_named[1]]], .env), error = function(e) NA)
+      if (is.null(val)) {
+        eta_re <- ", re_formula = NULL"
+        dots[[re_named[1]]] <- NULL
+        re_named <- character(0)
+        message("averaging over the groups in the data on the linear ",
+                "predictor: the group-level draws are added before the ",
+                "contrast is taken, so the estimate is unchanged and the ",
+                "posterior is wider than for the average group.")
+      }
+    }
+    if (length(re_named))
+      stop("`", re_named[1], "` and type = \"eta\" ask for different things: ",
+           "eta holds the group deviations at zero - the average group - and ",
+           "is computed from the fixed effects alone. ",
+           if (inherits(model, "brmsfit"))
+             paste0("On a brms fit that distinction is real: the draws carry ",
+                    "the group-level parameters, so ", re_named[1], " = NULL ",
+                    "gives a wider posterior. Ask for a predicted quantity - ",
+                    "type = \"response\" - to get it.")
+           else
+             paste0("On this engine marginaleffects builds the interval from ",
+                    "the fixed-effect covariance whichever ", re_named[1],
+                    " is given, so the sampled-group spread is not available ",
+                    "on any route: dropping the argument loses nothing."))
     other <- setdiff(names(dots), "conf_level")
     if (length(other))
       stop("`", paste(other, collapse = "`, `"), "` ",
@@ -456,7 +506,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   code <- estimand_code(spec, target, policy, at, contrast, dots_txt,
                         model_name, spec_name, data_name, bounds, scale,
                         deg, route, weights_txt, re_note, user_hyp, draws_txt,
-                        linear_shortcut)
+                        linear_shortcut, if (exists("eta_re", inherits = FALSE)) eta_re else "")
   if (!is.null(sub_code)) {
     i <- grep("^library\\(", code)
     at_line <- if (length(i)) max(i) else 1L
@@ -602,7 +652,7 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
                           scale = "response", deg = NULL,
                           route = "g_computation", weights_txt = NULL,
                           re_note = NULL, user_hyp = FALSE, draws_txt = "",
-                          shortcut = FALSE) {
+                          shortcut = FALSE, eta_re = "") {
   cn <- spec$cell_name
   pol_txt <- if (is.character(policy) && length(policy) == 1L)
     sprintf('"%s"', policy)
@@ -675,11 +725,11 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
       "## product, and free of the per-category expansion of ordinal fits.",
       sprintf('pol  <- nest_policy(%s, "%s", %s%s%s)', spec_name, target, pol_txt,
               at_txt, if (is.null(deg)) "" else ", cells = cells"),
-      sprintf('est  <- latent_estimand(%s, "%s", pol, contrast = "%s", spec = %s, data = %s%s%s%s%s%s)',
+      sprintf('est  <- latent_estimand(%s, "%s", pol, contrast = "%s", spec = %s, data = %s%s%s%s%s%s%s)',
               model_name, target, contrast, spec_name, data_name,
               if (identical(route, "g_computation")) "" else
                 sprintf(', route = "%s"', route),
-              if (is.null(deg)) "" else ", cells = cells",
+              if (is.null(deg)) "" else ", cells = cells", eta_re,
               if (is.null(weights_txt)) "" else sprintf(", weights = %s", weights_txt),
               dots_txt, draws_txt))
     if (isTRUE(bounds))

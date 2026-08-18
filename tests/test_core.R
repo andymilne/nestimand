@@ -1167,9 +1167,10 @@ if (requireNamespace("lme4", quietly = TRUE)) {
       identical(grouping_vars(spm2), "participant"))
   cd <- attr(estimand(mm2, chord_type, route = "cells", bounds = FALSE,
                       self_check = FALSE, p_adjust = "none"), "nestimand")$code
-  chk("mixed: the random effects are excluded, in the engine's own spelling",
-      any(grepl("re.form = NA", cd, fixed = TRUE)) &&
-      any(grepl("population-level", cd)))
+  chk("mixed: the engine's default stands, and is stated",
+      any(grepl("default stands", cd)) &&
+      !any(grepl("re.form", grep("avg_predictions|hypothesis =", cd, value = TRUE),
+                 fixed = TRUE)))
   chk("mixed: a user-supplied re.form is not overridden",
       any(grepl("re.form = NULL",
           attr(estimand(mm2, chord_type, bounds = FALSE, self_check = FALSE,
@@ -2373,5 +2374,118 @@ chk("declaration: the emitted call is brms::brm either way",
 chk("declaration: every engine name maps to a fitting function",
     all(vapply(c("lm", "glm", "lmer", "glmer", "clm", "clmm", "brm"),
                function(k) nzchar(engine_call(k)), TRUE)))
+
+## ---- random effects: the engine's default, stated not overridden -----------
+## Whether the group-level effects enter is the engine's decision. The package
+## says which default is in force, since it settles whether the estimand
+## describes a typical group or the sampled ones.
+if (requireNamespace("lme4", quietly = TRUE)) {
+  chk("re.form: nothing is injected into the call",
+      { cd <- attr(suppressMessages(suppressWarnings(estimand(mm2, chord_type,
+                     type = "response", p_adjust = "none", bounds = FALSE,
+                     self_check = FALSE))), "nestimand")$code
+        call_lines <- grep("avg_predictions|hypothesis =", cd, value = TRUE)
+        !any(grepl("re.form", call_lines, fixed = TRUE)) })
+  chk("re.form: the default in force is announced",
+      { z <- character(0)
+        withCallingHandlers(suppressWarnings(estimand(mm2, chord_type,
+          type = "response", p_adjust = "none", bounds = FALSE,
+          self_check = FALSE)),
+          message = function(m) { z <<- c(z, conditionMessage(m))
+                                  invokeRestart("muffleMessage") })
+        any(grepl("default stands", z)) && any(grepl("re.form = NA", z)) })
+  chk("re.form: supplying one silences the note and reaches the engine",
+      { z <- character(0)
+        cd <- attr(withCallingHandlers(suppressWarnings(estimand(mm2, chord_type,
+                type = "response", re.form = NA, p_adjust = "none",
+                bounds = FALSE, self_check = FALSE)),
+                message = function(m) { z <<- c(z, conditionMessage(m))
+                                        invokeRestart("muffleMessage") }),
+              "nestimand")$code
+        !any(grepl("default stands", z)) &&
+        any(grepl("re.form = NA",
+                  grep("avg_predictions|hypothesis =", cd, value = TRUE),
+                  fixed = TRUE)) })
+  chk("re.form: the question does not arise on the linear predictor",
+      { z <- character(0)
+        withCallingHandlers(suppressWarnings(estimand(mm2, chord_type,
+          type = "eta", bounds = FALSE, self_check = FALSE)),
+          message = function(m) { z <<- c(z, conditionMessage(m))
+                                  invokeRestart("muffleMessage") })
+        !any(grepl("default stands", z)) })
+}
+
+## ---- what eta does about the random effects --------------------------------
+## It takes the fixed effects, which is the typical group - the equivalent of
+## re.form = NA. On a linear scale the sampled-group answer is the same number,
+## since the group deviations average to zero.
+if (requireNamespace("lme4", quietly = TRUE)) {
+  g_re <- function(...) as.data.frame(suppressMessages(suppressWarnings(
+    estimand(mm2, chord_type, bounds = FALSE, self_check = FALSE, ...))))$estimate
+  chk("eta: equals the prediction route with the deviations held at zero",
+      max(abs(g_re(type = "eta") -
+              g_re(type = "response", p_adjust = "none", re.form = NA))) < 1e-8)
+  chk("eta: and, on a linear scale, with them included too",
+      max(abs(g_re(type = "eta") -
+              g_re(type = "response", p_adjust = "none", re.form = NULL))) < 1e-8)
+  chk("eta: because the group deviations average to zero",
+      max(abs(colMeans(lme4::ranef(mm2)[[1]]))) < 1e-6)
+  chk("re.form: the note says eta is the typical group, not the sampled ones",
+      { z <- character(0)
+        withCallingHandlers(suppressWarnings(estimand(mm2, chord_type,
+          type = "response", p_adjust = "none", bounds = FALSE,
+          self_check = FALSE)),
+          message = function(m) { z <<- c(z, conditionMessage(m))
+                                  invokeRestart("muffleMessage") })
+        any(grepl("average group", z)) && any(grepl("at zero", z)) })
+}
+
+if (requireNamespace("lme4", quietly = TRUE)) {
+  se_of <- function(rf) as.data.frame(suppressMessages(suppressWarnings(
+    estimand(mm2, chord_type, type = "response", p_adjust = "none",
+             re.form = rf, bounds = FALSE, self_check = FALSE))))$std.error
+  ## marginaleffects forms the interval by the delta method from the
+  ## fixed-effect covariance, so the two settings give the same standard error
+  ## up to numerical differentiation - they differ at 1e-9, not at all in kind.
+  chk("re.form: a frequentist fit gives the same interval either way",
+      max(abs(se_of(NA) - se_of(NULL))) < 1e-6)
+}
+
+## ---- eta and the random-effects form ---------------------------------------
+if (requireNamespace("lme4", quietly = TRUE)) {
+  chk("eta: a random-effects form is refused, since eta is the average group",
+      grepl("ask for different things",
+            err_of(estimand(mm2, chord_type, type = "eta", re.form = NULL))))
+  chk("eta: on a frequentist fit the refusal says nothing is lost",
+      grepl("not available on any route",
+            err_of(estimand(mm2, chord_type, type = "eta", re.form = NULL))))
+}
+
+## ---- eta over the sampled groups, where the draws allow it -----------------
+## The group deviations average to zero across draws but not within one, and
+## that is where the extra posterior width comes from. Tested on constructed
+## draws, since a fitted brms model is not available here.
+set.seed(1); nd_g <- 800
+Dg <- cbind(b_cellA = rnorm(nd_g, 1), b_cellB = rnorm(nd_g, 2))
+for (g in c("g1", "g2", "g3")) for (tm in c("cellA", "cellB"))
+  Dg <- cbind(Dg, matrix(rnorm(nd_g, 0, 0.5), nd_g, 1,
+              dimnames = list(NULL, sprintf("r_participant[%s,%s]", g, tm))))
+Ug <- group_mean_draws(Dg, c("b_cellA", "b_cellB"))
+chk("group draws: one column per coefficient, one row per draw",
+    nrow(Ug) == nd_g && ncol(Ug) == 2)
+chk("group draws: they average to zero across draws",
+    max(abs(colMeans(Ug))) < 0.05)
+chk("group draws: but vary within a draw, which is the point",
+    all(apply(Ug, 2, stats::sd) > 0.1))
+Cg <- matrix(c(-1, 1), 1, 2, dimnames = list("B - A", c("b_cellA", "b_cellB")))
+s_avg <- Dg[, colnames(Cg)] %*% t(Cg)
+s_grp <- (Dg[, colnames(Cg)] + Ug) %*% t(Cg)
+chk("group draws: including them widens the posterior without moving it",
+    abs(mean(s_avg) - mean(s_grp)) < 0.05 && stats::sd(s_grp) > stats::sd(s_avg))
+chk("group draws: a coefficient with no group-level counterpart contributes nothing",
+    all(group_mean_draws(Dg, "b_training") == 0))
+chk("eta: a non-Bayesian fit still refuses the sampled-group request",
+    grepl("ask for different things",
+          err_of(estimand(mf, chord_type, type = "eta", re.form = NULL))))
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
