@@ -150,7 +150,7 @@ nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "
   } else {
     mode <- match.arg(mode, c("cells", "effects"))
     mode_note <- sprintf("## parameterization: %s (requested)", mode)
-    if (identical(mode, "effects") && identical(fit, "brms") && is.null(priors))
+    if (identical(mode, "effects") && identical(fit, "brm") && is.null(priors))
       message("chain parameterization on brms without declarations: the design ",
               "carries columns the data cannot inform, and the posterior will ",
               "be improper along them. chain_priors(spec) derives the ",
@@ -160,7 +160,7 @@ nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "
   if (identical(mode, "effects") && identical(random_structure, "cells"))
     random_structure <- "chain_slope"   # match the random side to the fixed side
   re <- if (fit %in% c("lmer", "glmer", "clmm")) random_terms(spec, random_structure)
-        else if (identical(fit, "brms")) random_terms(spec, random_structure)
+        else if (identical(fit, "brm")) random_terms(spec, random_structure)
   if (!is.null(re)) f <- paste(f, "+", re)
   fam <- if (!is.null(spec$family)) sprintf(", family = %s", spec$family) else ""
   dots <- as.list(substitute(list(...)))[-1]
@@ -254,7 +254,7 @@ nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "
   if (!is.null(priors)) {
     if (!inherits(priors, "nestimand_prior"))
       stop("`priors` must be a nestimand_prior object, as returned by nest_prior().")
-    if (!identical(fit, "brms"))
+    if (!identical(fit, "brm"))
       stop("translated priors apply to the brms engine; the declared engine is `",
            fit, "`, which has no prior to state.")
     check_prior_dimension(priors, spec, mode)
@@ -273,10 +273,10 @@ nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "
       "## both spaces, and prior_for_estimand() what it implies for a contrast.")
   }
   fn <- switch(fit, lm = "lm", glm = "glm", lmer = "lme4::lmer", glmer = "lme4::glmer",
-               clm = "ordinal::clm", clmm = "ordinal::clmm", brms = "brms::brm")
+               clm = "ordinal::clm", clmm = "ordinal::clmm", brm = "brms::brm")
   lib <- switch(fit, lmer = "library(lme4)", glmer = "library(lme4)",
                 clm = "library(ordinal)", clmm = "library(ordinal)",
-                brms = "library(brms)")
+                brm = "library(brms)")
   re_note <- if (!is.null(re) && !identical(re, spec$random_original))
     c(sprintf("## random structure %s", spec$random_original),
       sprintf("## translated to   %s", re),

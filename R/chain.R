@@ -70,7 +70,7 @@ chain_random_zeros <- function(spec, data = NULL) {
 
 chain_priors <- function(spec, regularize = "normal(0, 5)", data = NULL) {
   if (is.null(data)) data <- sentinel_first(spec)
-  if (!identical(spec$fit, "brms"))
+  if (!identical(spec$fit, "brm"))
     stop("chain-mode declarations are a brms facility: they hold coefficients ",
          "at zero through the prior, which frequentist engines have no way to ",
          "express. The declared engine is `", spec$fit, "`; use the cell ",

@@ -8,9 +8,12 @@
 nestimand_build <- "2026-08-17.1"
 
 nesting_spec <- function(data, formula, nests,
-                         fit = c("lm", "glm", "lmer", "glmer", "clm", "clmm", "brms"),
+                         fit = c("lm", "glm", "lmer", "glmer", "clm", "clmm", "brm"),
                          family = NULL, random = NULL,
                          cell_name = "cell") {
+  ## The engines are named for their fitting functions, so brms's is `brm`.
+  ## Its package name is an easy slip and is accepted as the same thing.
+  if (identical(fit, "brms")) fit <- "brm"
   fit <- match.arg(fit)
   fq <- substitute(family)
   family <- if (is.null(fq)) NULL
@@ -73,7 +76,7 @@ nesting_spec <- function(data, formula, nests,
   outcome <- deparse(formula[[2]])
   if (fit %in% c("clm", "clmm") && !(outcome %in% names(data) && is.ordered(data[[outcome]])))
     stop("fit = '", fit, "' needs an ordered-factor outcome; `", outcome, "` is not one.")
-  if (fit == "brms" && outcome %in% names(data) && is.ordered(data[[outcome]]) &&
+  if (fit == "brm" && outcome %in% names(data) && is.ordered(data[[outcome]]) &&
       is.null(family))
     stop("outcome `", outcome, "` is an ordered factor, and brms defaults to ",
          "family = gaussian, which requires a numeric response. For ordinal ",

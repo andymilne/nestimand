@@ -277,8 +277,8 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   ## assumed, and in the spelling the engine expects: brms and the frequentist
   ## engines disagree, and the wrong one is silently ignored.
   re_arg <- if (length(grouping_vars(spec)) &&
-                spec$fit %in% c("lmer", "glmer", "clmm", "brms"))
-    (if (identical(spec$fit, "brms")) "re_formula" else "re.form")
+                spec$fit %in% c("lmer", "glmer", "clmm", "brm"))
+    (if (identical(spec$fit, "brm")) "re_formula" else "re.form")
   re_note <- NULL
   if (!is.null(re_arg) && !re_arg %in% names(dots) && !identical(scale, "latent")) {
     dots[[re_arg]] <- quote(NA)
@@ -527,7 +527,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
 ## accepted set has differed between marginaleffects versions and between model
 ## classes, so it is probed on two rows rather than assumed.
 ordinal_response_type <- function(model, spec, data) {
-  cand <- if (identical(spec$fit, "brms")) c("response", "prob")
+  cand <- if (identical(spec$fit, "brm")) c("response", "prob")
           else c("prob", "response")
   g <- utils::head(data, 2)
   for (ty in cand) {
@@ -837,7 +837,7 @@ reorder_check <- function(model, spec, target, policy, at, contrast, dots_txt, d
   ## fitted without the random terms.
   shadow <- switch(spec$fit,
     lmer = "lm", glmer = "glm", clmm = "clm",
-    brms = if (has_thresholds(spec)) "clm" else if (is.null(spec$family)) "lm" else "glm",
+    brm = if (has_thresholds(spec)) "clm" else if (is.null(spec$family)) "lm" else "glm",
     NULL)
   converged <- function(fit) {
     if (inherits(fit, "clm") || inherits(fit, "clmm"))

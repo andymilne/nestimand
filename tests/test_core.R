@@ -338,7 +338,7 @@ chk("ordinal: the response scale is probed, and refused clearly if unavailable",
                            self_check = FALSE))
       identical(e, "") || grepl("scale = \"latent\"", e) })
 spbo <- nesting_spec(do2, rating ~ chord_type * inversion,
-                     "inversion %in% chord_type", fit = "brms", family = "cumulative()")
+                     "inversion %in% chord_type", fit = "brm", family = "cumulative()")
 chk("ordinal: brms cumulative also takes the threshold-aware coding",
     identical(paste(deparse(cell_formula(spbo)), collapse = " "), "rating ~ cell"))
 chk("ordinal: brms family threaded into the emitted call",
@@ -346,7 +346,7 @@ chk("ordinal: brms family threaded into the emitted call",
 chk("brms: non-core arguments reach the engine and appear in the code",
     grepl("chains = 4, iter = 2000, seed = 1",
           nest_fit(nesting_spec(dat, response ~ chord_type * inversion,
-                   "inversion %in% chord_type", fit = "brms"),
+                   "inversion %in% chord_type", fit = "brm"),
                    dry_run = TRUE, chains = 4, iter = 2000, seed = 1), fixed = TRUE))
 
 ## ---- latent scale: estimands as linear functionals -----------------------
@@ -414,7 +414,7 @@ chk("prior_for_estimand: aug - maj sd is 1.5 * sqrt(1 + 1/3)",
 chk("prior_for_estimand: a within-family contrast is tighter",
     abs(pfe$sd[pfe$parameter == "maj - dim"] - 1.5 * sqrt(2/3)) < 1e-10)
 spb2 <- nesting_spec(dat, response ~ chord_type * inversion + training,
-                     "inversion %in% chord_type", fit = "brms")
+                     "inversion %in% chord_type", fit = "brm")
 prb <- nest_prior(spb2, mean = 4, sd = 1.5, on = "cells", covariate_sd = 1)
 chk("prior: brms call carries the statement and the stanvars",
     grepl("prior = prior_statement(prb), stanvars = prior_stanvars(prb)",
@@ -561,7 +561,7 @@ chk("RE: a structure with no structural slope is passed through in silence",
 ## ---- chain mode: declarations for brms -----------------------------------
 spc <- nesting_spec(dat, response ~ chord_type * inversion + training +
                     (chord_type * inversion | participant),
-                    "inversion %in% chord_type", fit = "brms")
+                    "inversion %in% chord_type", fit = "brm")
 cp <- chain_priors(spc)
 chk("chain: fixed design is 16 columns beyond the intercept, of rank 11",
     cp$fixed$columns == 16 && cp$fixed$rank == 11)
@@ -911,7 +911,7 @@ sent_last <- dat
 sent_last$inversion <- factor(sent_last$inversion, levels = c("0", "1", "2", "none"))
 for (lv in list(list("first", dat), list("sentinel last", sent_last))) {
   sp_l <- nesting_spec(lv[[2]], response ~ chord_type * inversion + training,
-                       "inversion %in% chord_type", fit = "brms")
+                       "inversion %in% chord_type", fit = "brm")
   z <- zero_columns(cell_formula(sp_l, "effects"), sp_l$data)
   X <- stats::model.matrix(cell_formula(sp_l, "effects"), sp_l$data)
   chk(paste0("declarations identify the model exactly (", lv[[1]], ")"),
@@ -939,9 +939,9 @@ chk("sentinel: found from the design, not from its name",
     identical(unlist(sentinel_levels(sp)), c(inversion = "none")) &&
     identical(unlist(sentinel_levels(sp_last)), c(inversion = "none")))
 spb_f <- nesting_spec(dat, response ~ chord_type * inversion + training,
-                      "inversion %in% chord_type", fit = "brms")
+                      "inversion %in% chord_type", fit = "brm")
 spb_l <- nesting_spec(sent_last, response ~ chord_type * inversion + training,
-                      "inversion %in% chord_type", fit = "brms")
+                      "inversion %in% chord_type", fit = "brm")
 chk("sentinel: the declarations no longer depend on the declared order",
     identical(chain_priors(spb_f)$table$coef, chain_priors(spb_l)$table$coef))
 chk("sentinel: the reordering is written into the emitted code, not silent",
@@ -1049,7 +1049,7 @@ chk("reference: the basis stays square and full rank whichever is chosen",
 chk("reference: the chain declarations constrain the same columns",
     { dd <- dat; dd$inversion <- factor(dd$inversion, levels = c("0","1","2","none"))
       spb_r <- nesting_spec(dd, response ~ chord_type * inversion + training,
-                            "inversion %in% chord_type", fit = "brms")
+                            "inversion %in% chord_type", fit = "brm")
       ic <- chain_priors(spb_r)$table
       ic <- ic$coef[ic$part == "fixed" & ic$kind == "identification constraint"]
       all(grepl("inversion0$", ic)) && length(ic) == 3 })
@@ -1177,8 +1177,8 @@ if (requireNamespace("lme4", quietly = TRUE)) {
   chk("mixed: brms would be told in its own spelling",
       { spb_m <- nesting_spec(dat, response ~ chord_type * inversion +
                               (1 | participant), "inversion %in% chord_type",
-                              fit = "brms")
-        identical(if (identical(spb_m$fit, "brms")) "re_formula" else "re.form",
+                              fit = "brm")
+        identical(if (identical(spb_m$fit, "brm")) "re_formula" else "re.form",
                   "re_formula") && length(grouping_vars(spb_m)) == 1 })
 }
 chk("mixed: a fit with no random terms is left alone",
@@ -1360,7 +1360,7 @@ if (requireNamespace("brms", quietly = TRUE)) {
 ## ---- brms priors: what belongs where ---------------------------------------
 if (requireNamespace("brms", quietly = TRUE)) {
   spb_re <- nesting_spec(dat, response ~ chord_type * inversion + (1 | participant),
-                         "inversion %in% chord_type", fit = "brms")
+                         "inversion %in% chord_type", fit = "brm")
   pb <- nest_prior(spb_re, mean = 4, sd = 1.5, on = "cells")
   chk("brms priors: sd and cor priors pass through in silence",
       { msg <- NULL
@@ -2135,7 +2135,7 @@ if (requireNamespace("ordinal", quietly = TRUE)) {
             capture.output(print(nest_summary(mo)))[1]))
 }
 chk("nest_summary: the engine names map to real functions",
-    identical(engine_call("brms"), "brms::brm()") &&
+    identical(engine_call("brm"), "brms::brm()") &&
     identical(engine_call("glmer"), "lme4::glmer()") &&
     identical(engine_call("something"), "something()"))
 
@@ -2358,5 +2358,20 @@ chk("eta: and the emitted code records it",
     grepl('route = "cells"',
           estimand(mf, chord_type, type = "eta", route = "cells",
                    dry_run = TRUE, bounds = FALSE), fixed = TRUE))
+
+## ---- the engines are named for their fitting functions ---------------------
+chk("declaration: the brms engine is `brm`, as the others are `lm`, `clm`",
+    identical(nesting_spec(dat, response ~ chord_type * inversion,
+                           "inversion %in% chord_type", fit = "brm")$fit, "brm"))
+chk("declaration: `brms`, the package's name, is accepted for it",
+    identical(nesting_spec(dat, response ~ chord_type * inversion,
+                           "inversion %in% chord_type", fit = "brms")$fit, "brm"))
+chk("declaration: the emitted call is brms::brm either way",
+    { cd <- nest_fit(nesting_spec(dat, response ~ chord_type * inversion,
+                     "inversion %in% chord_type", fit = "brms"), dry_run = TRUE)
+      grepl("brms::brm(", cd, fixed = TRUE) })
+chk("declaration: every engine name maps to a fitting function",
+    all(vapply(c("lm", "glm", "lmer", "glmer", "clm", "clmm", "brm"),
+               function(k) nzchar(engine_call(k)), TRUE)))
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

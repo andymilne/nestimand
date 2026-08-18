@@ -64,7 +64,7 @@ sentinel_relevel_code <- function(spec, data_name) {
 ## only the intercept convention changes and no estimand is affected.
 has_thresholds <- function(spec)
   spec$fit %in% c("clm", "clmm") ||
-  (identical(spec$fit, "brms") && !is.null(spec$family) &&
+  (identical(spec$fit, "brm") && !is.null(spec$family) &&
      grepl("cumulative|sratio|cratio|acat", spec$family))
 
 cell_formula <- function(spec, mode = c("cells", "effects"), intercept = NULL) {

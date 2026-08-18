@@ -11,7 +11,7 @@ sentinel level, refusing genuine missingness.
 }
 \usage{
 nesting_spec(data, formula, nests, fit = c("lm", "glm", "lmer", 
-             "glmer", "clm", "clmm", "brms"), family = NULL, random = NULL,
+             "glmer", "clm", "clmm", "brm"), family = NULL, random = NULL,
              cell_name = "cell")
 
 apply_sentinel(data, var, where = NULL, sentinel = "none") 
@@ -20,7 +20,7 @@ apply_sentinel(data, var, where = NULL, sentinel = "none")
   \item{data}{a data frame containing the outcome, the nesting variables, and any covariates.}
   \item{formula}{the desired model, written freely in ordinary R syntax; crossed terms are welcome and are transformed rather than fitted as given. Random-effects terms may be written here in \code{lme4}/\code{brms} syntax.}
   \item{nests}{the nesting links, quoted or bare: \code{"inversion \%in\% chord_type"}, or \code{c(inv \%in\% chord, doub \%in\% inv)} for a chain.}
-  \item{fit}{the modelling engine.}
+  \item{fit}{the modelling engine, named for its fitting function: \code{"lm"}, \code{"glm"}, \code{"lmer"}, \code{"glmer"}, \code{"clm"}, \code{"clmm"}, \code{"brm"}. \code{"brms"} is accepted for the last, being the package's name rather than the function's.}
   \item{family}{family for the engines that need one, quoted or as a bare call, e.g. \code{cumulative("probit")}.}
   \item{random}{random-effects terms, if not written into \code{formula}.}
   \item{cell_name}{name for the constructed cell factor. An existing column of that name is refused rather than overwritten.}

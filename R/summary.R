@@ -186,5 +186,5 @@ print.nestimand_summary <- function(x, digits = 4, ...) {
 engine_call <- function(fit) {
   switch(fit, lm = "lm()", glm = "glm()", lmer = "lme4::lmer()",
          glmer = "lme4::glmer()", clm = "ordinal::clm()",
-         clmm = "ordinal::clmm()", brms = "brms::brm()", paste0(fit, "()"))
+         clmm = "ordinal::clmm()", brm = "brms::brm()", paste0(fit, "()"))
 }

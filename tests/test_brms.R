@@ -70,7 +70,7 @@ chk <- function(label, expr) {
 }
 
 spb <- nesting_spec(dat, response ~ chord_type * inversion + training,
-                    "inversion %in% chord_type", fit = "brms")
+                    "inversion %in% chord_type", fit = "brm")
 
 ## ---- 1. the cell parameterization samples, and the fit is the expected one
 cat("\n[1/6] fitting the cell parameterization (compilation takes a few minutes)\n")
@@ -154,7 +154,7 @@ dat3 <- do.call(rbind, lapply(1:3, function(i) {
   d <- dat; d$response <- d$response + rnorm(nrow(d), 0, 0.3); d }))
 spm <- nesting_spec(dat3, response ~ chord_type * inversion + training +
                     (1 | participant), "inversion %in% chord_type",
-                    fit = "brms")
+                    fit = "brm")
 mm <- nest_fit(spm, chains = 2, iter = 1000, warmup = 500, seed = 3, refresh = 0)
 e_re  <- latent_estimand(mm, spm, "chord_type", "equal")
 chk("the latent route is unaffected by random effects (fixed effects only)",
