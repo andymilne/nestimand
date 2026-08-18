@@ -134,13 +134,14 @@ averaging predictions over a covariate distribution is not the same as
 evaluating at its mean: \code{"g_computation"} gives the population-averaged
 effect, \code{"cells"} the conditional effect at an average covariate value.
 
-A third route, averaging the fitted values over each condition's own rows, was
-offered and withdrawn. Under the cell parameterization the fixed part is
-saturated over the cells, so that average returns the weighted raw cell means
-exactly: the covariate adjustment cancels, because each condition's average
-restores its own covariate mean. It summarizes the data rather than estimating
-anything from the model, and \code{data =} with a subset covers the cases where
-a summary of particular rows is wanted.
+On the linear predictor the two routes give the same matrix whenever every
+column of the design is a linear function of the variables held in the grid -
+the ordinary case, covering a covariate entering additively or interacted with
+the conditions. Averaging those columns over the observed rows and evaluating
+them at the covariate means then coincide exactly, so \code{route} costs nothing
+there and \code{"cells"} is the cheaper way to the same number. They separate
+only where a design column is a nonlinear function of a covariate, since the
+average of a function is not the function of the average.
 
 An interaction contrast is a different kind of quantity: every cell it uses
 exists, so no boundary is crossed, no policy applies, and there are no bounds to

@@ -2327,4 +2327,36 @@ chk("engine_types: it names the version it read",
     grepl(as.character(utils::packageVersion("marginaleffects")),
           capture.output(print(et))[1], fixed = TRUE))
 
+## ---- a transformation written into the formula ----------------------------
+## all.vars() sees through I(x^2) to x, so such a term was silently reduced to
+## the untransformed column - and its interaction with the conditions lost.
+chk("declaration: an in-place transformation is refused, not reduced",
+    { e <- err_of(nesting_spec(dat, response ~ chord_type * inversion *
+                                 I(training^2), "inversion %in% chord_type"))
+      grepl("transforms a variable in place", e) &&
+      grepl("as a column of the data", e) })
+chk("declaration: the same model as a column is accepted",
+    { d_t <- dat; d_t$t2 <- d_t$training^2
+      sp_t <- nesting_spec(d_t, response ~ chord_type * inversion * t2,
+                           "inversion %in% chord_type")
+      grepl("cell:t2", paste(deparse(cell_formula(sp_t)), collapse = ""),
+            fixed = TRUE) })
+chk("declaration: random-effects terms are not mistaken for transformations",
+    { sp_r <- nesting_spec(dat, response ~ chord_type * inversion +
+                             (1 | participant), "inversion %in% chord_type",
+                           fit = "lmer")
+      inherits(sp_r, "nesting_spec") })
+
+## ---- the eta route honours the route it was given --------------------------
+chk("eta: route reaches the contrast matrix",
+    { pol_e <- nest_policy(sp, "chord_type", "equal")
+      Mc <- policy_contrast_matrix(sp, "chord_type", pol_e, sp$data, mf,
+                                   route = "cells")
+      Mg <- policy_contrast_matrix(sp, "chord_type", pol_e, sp$data, mf)
+      nrow(Mc) == nrow(Mg) && max(abs(Mc - Mg)) < 1e-8 })
+chk("eta: and the emitted code records it",
+    grepl('route = "cells"',
+          estimand(mf, chord_type, type = "eta", route = "cells",
+                   dry_run = TRUE, bounds = FALSE), fixed = TRUE))
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

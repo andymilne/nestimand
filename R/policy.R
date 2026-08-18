@@ -218,13 +218,10 @@ policy_vertices <- function(spec, target) {
 ##   cells           one row per realized cell, covariates at their means. The
 ##                   conditional effect at an average covariate value.
 ##
-## A third route, averaging the fitted values over each condition's own rows,
-## was offered and withdrawn. Under the cell parameterization the fixed part is
-## saturated over the cells, so that average returns the weighted raw cell means
-## exactly - the covariate adjustment cancels, because each condition's average
-## restores its own covariate mean. It is a summary of the data rather than an
-## estimate from the model, and `data =` with a subset covers the cases where a
-## summary of particular rows is wanted.
+## On the linear predictor the two coincide whenever every design column is a
+## linear function of the variables in the grid, which is the ordinary case:
+## averaging the columns over the observed rows and evaluating them at the
+## covariate means are then the same operation.
 
 ## --- interaction contrasts --------------------------------------------------
 ## A contrast of contrasts: (a1 b1 - a1 b2) - (a2 b1 - a2 b2). It crosses no

@@ -675,8 +675,10 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
       "## product, and free of the per-category expansion of ordinal fits.",
       sprintf('pol  <- nest_policy(%s, "%s", %s%s%s)', spec_name, target, pol_txt,
               at_txt, if (is.null(deg)) "" else ", cells = cells"),
-      sprintf('est  <- latent_estimand(%s, "%s", pol, contrast = "%s", spec = %s, data = %s%s%s%s%s)',
+      sprintf('est  <- latent_estimand(%s, "%s", pol, contrast = "%s", spec = %s, data = %s%s%s%s%s%s)',
               model_name, target, contrast, spec_name, data_name,
+              if (identical(route, "g_computation")) "" else
+                sprintf(', route = "%s"', route),
               if (is.null(deg)) "" else ", cells = cells",
               if (is.null(weights_txt)) "" else sprintf(", weights = %s", weights_txt),
               dots_txt, draws_txt))

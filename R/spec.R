@@ -129,6 +129,21 @@ nesting_spec <- function(data, formula, nests,
   ## per-family realized tables, for reporting
   cells_by_family <- lapply(cat_families, function(f) unique(data[, f, drop = FALSE]))
 
+  ## `all.vars` sees through a transformation - I(x^2), log(x), poly(x, 2) -
+  ## and reports the variable underneath, so a formula written with one would
+  ## be silently reduced to the untransformed column. Refused rather than
+  ## reduced: the fitted model would not be the one that was declared.
+  fixed_terms <- attr(stats::terms(stats::as.formula(
+    paste("~", paste(deparse(formula[[3]]), collapse = " ")))), "term.labels")
+  fixed_terms <- fixed_terms[!grepl("\\|", fixed_terms)]
+  transformed <- fixed_terms[grepl("[A-Za-z._][A-Za-z0-9._]*\\(", fixed_terms)]
+  if (length(transformed))
+    stop("the formula transforms a variable in place: ",
+         paste(unique(sub(".*:", "", transformed)), collapse = ", "),
+         ". The declaration is translated term by term, and a transformation ",
+         "written inside it would be lost. Compute the transformed variable as ",
+         "a column of the data - dat$x2 <- dat$x^2 - and name that column in ",
+         "the formula.")
   covariates <- setdiff(all.vars(formula[[3]]), c(unlist(families), "|"))
   covariates <- setdiff(covariates, unlist(lapply(bar_labs, function(b)
     all.vars(stats::as.formula(paste("~", gsub("|", "+", b, fixed = TRUE)))))))

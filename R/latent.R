@@ -16,8 +16,19 @@
 ## rows are the same operation, so this is G-computation, not an approximation.
 policy_contrast_matrix <- function(spec, target, policy, data = spec$data,
                                    model = NULL, cells = spec$cells,
-                                   weights = NULL) {
-  g <- counterfactual_grid(spec, data, policy, cells = cells)
+                                   weights = NULL, route = "g_computation") {
+  ## The route says which rows the design is averaged over, here as on the
+  ## prediction side: every observed row crossed with every condition, or one
+  ## row per condition with the covariates at their means. The two coincide
+  ## unless a design column is a nonlinear function of a covariate.
+  g <- if (identical(route, "cells")) {
+    d <- cell_grid(spec, data)
+    d <- d[as.character(d[[spec$cell_name]]) %in%
+           as.character(cells[[spec$cell_name]]), , drop = FALSE]
+    d$.w <- policy_weights(spec, d, policy)
+    d$.row <- seq_len(nrow(d))
+    d
+  } else counterfactual_grid(spec, data, policy, cells = cells)
   ## Unit weights standardize to another population. They multiply the row
   ## weights, exactly as they do on the prediction route: the contrast is a
   ## weighted average of design rows either way, and which weights are used is
@@ -135,7 +146,7 @@ cell_design_rows <- function(spec, data, cells, model) {
 latent_contrast_matrix <- function(model, spec, target, policy = "equal",
                                    at = NULL, contrast = "pairwise",
                                    data = spec$data, cells = NULL,
-                                   weights = NULL) {
+                                   weights = NULL, route = "g_computation") {
   if (is.null(cells) && !identical(contrast, "interaction")) {
     dg <- degenerate_strata(spec, target[length(target)])
     cells <- if (is.null(dg) || !length(dg$drop)) spec$cells else
@@ -155,7 +166,7 @@ latent_contrast_matrix <- function(model, spec, target, policy = "equal",
   pol <- if (inherits(policy, "nestimand_policy")) policy
          else nest_policy(spec, target, policy, at, spec$data, cells = cells)
   M <- policy_contrast_matrix(spec, target, pol, data, model, cells = cells,
-                              weights = weights)
+                              weights = weights, route = route)
   levs <- rownames(M)
   prs <- contrast_pairs(levs, contrast)
   C <- do.call(rbind, lapply(prs, function(p) M[p[1], ] - M[p[2], ]))
@@ -167,11 +178,12 @@ latent_contrast_matrix <- function(model, spec, target, policy = "equal",
 latent_estimand <- function(model, target, policy = "equal", at = NULL,
                             contrast = "pairwise", data = NULL,
                             conf_level = 0.95, spec = NULL, cells = NULL,
-                            ndraws = NULL, weights = NULL) {
+                            ndraws = NULL, weights = NULL,
+                            route = "g_computation") {
   spec <- resolve_spec(model, spec)
   if (is.null(data)) data <- spec$data
   C <- latent_contrast_matrix(model, spec, target, policy, at, contrast, data,
-                              cells, weights)
+                              cells, weights, route)
   ## One row per reported contrast. Anything else means the contrast matrix has
   ## been built over grid rows rather than over conditions, and the result would
   ## be meaningless as well as enormous.
