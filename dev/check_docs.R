@@ -25,6 +25,13 @@ for (fl in pages) {
         say(basename(fl), ": `", a, "` usage omits `", p, "`\n")
   }
 }
+## 2a. no argument documented twice
+for (fl in pages) {
+  it <- sub("^\\s*\\\\item\\{([^}]*)\\}.*", "\\1",
+            grep("\\\\item\\{", readLines(fl), value = TRUE))
+  for (d in names(which(table(it) > 1)))
+    say(basename(fl), ": `", d, "` is documented twice\n")
+}
 ## 2. every argument has an \item
 for (fl in pages) {
   x <- readLines(fl)
