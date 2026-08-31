@@ -285,7 +285,13 @@ nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "
               if (user_b) "the prior you supplied" else "normal(0, 5)",
               ", and passing `priors =` yourself replaces all of this.")
       priors <- cp
-      prior_name <- sprintf("chain_priors(%s)", spec_name)
+      ## The emitted code re-derives the block rather than naming an object the
+      ## fitting environment held, so it has to carry the arguments it was
+      ## derived with: with the default regularizer it would state a second
+      ## `class = "b"` prior beside the user's, which brms refuses as a
+      ## duplicate - and the code that was run would not be the code shown.
+      prior_name <- sprintf("chain_priors(%s%s)", spec_name,
+                            if (user_b) ", regularize = NULL" else "")
     }
   }
   if (!is.null(priors) && !is.null(user_prior) && "prior" %in% names(dots))

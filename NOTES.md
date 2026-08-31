@@ -576,7 +576,13 @@ like a reference level, which leaves every estimand unchanged). A `class = "b"` 
 supplied by the user becomes the prior on the remaining coefficients rather than being
 displaced, and appears once in the call; supplying `priors` replaces the block
 entirely. The emitted code reads `chain_prior_object(chain_priors(sp))`, so it stands
-on its own rather than referring to an object only the fitting environment held.
+on its own rather than referring to an object only the fitting environment held - and
+it carries the arguments the block was derived with, which the first version did not.
+`nest_fit()` runs the code it emits, so re-deriving with the default regularizer put a
+second `class = "b"` prior beside the user's and brms refused the whole call as
+duplicated. It now emits `chain_priors(sp, regularize = NULL)` where the user has
+supplied one. Checked by evaluating the emitted expression and handing the result to
+`brms::validate_prior()`, which accepts it, with and without a prior of the user's.
 
 ## Not yet implemented
 

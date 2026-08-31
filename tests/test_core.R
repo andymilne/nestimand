@@ -3009,6 +3009,23 @@ chk("constraints: a supplied class-b prior is kept, and named once",
       call <- cd[length(cd)]
       grepl("normal(0, 1)", call, fixed = TRUE) &&
         lengths(regmatches(call, gregexpr("prior =", call))) == 1 })
+chk("constraints: the emitted block carries the arguments it was derived with",
+    { cd <- suppressMessages(res_code(
+        prior = brms::set_prior("normal(0, 1)", class = "b")))
+      grepl("regularize = NULL", cd[length(cd)], fixed = TRUE) })
+chk("constraints: with no prior of the user's, the regularizer stands",
+    { cd <- suppressMessages(res_code())
+      !grepl("regularize = NULL", cd[length(cd)], fixed = TRUE) })
+chk("constraints: the block the emitted code builds has no duplicate entry",
+    { ## the code is evaluated, not just printed: a second `class = "b"` prior
+      ## beside the user's is what brms refuses, and it appeared only once the
+      ## call was re-derived with its defaults
+      en <- new.env(parent = globalenv()); assign("res_brm", res_brm, en)
+      pr <- eval(parse(text = paste(
+        "c(chain_prior_object(chain_priors(res_brm, regularize = NULL)),",
+        "brms::set_prior(\"normal(0, 1)\", class = \"b\"))")), en)
+      k <- paste(pr$class, pr$coef, pr$group, pr$dpar, pr$resp, pr$nlpar)
+      !any(duplicated(k)) && sum(pr$class == "b" & pr$coef == "") == 1 })
 chk("constraints: a cell fit needs none of this",
     { sp <- suppressMessages(nesting_spec(cross_dat,
         response ~ chord_type * inversion * top, "inversion %in% chord_type",
