@@ -2650,6 +2650,60 @@ chk("random chain: an unbranched family still gives the prefix ladder",
 chk("random chain: the cells form is untouched by the branching",
     identical(random_terms(re_a, "cells"), "(0 + cell | participant)"))
 
+## A categorical variable of the design that is nested in nothing. It belongs
+## in the cell factor all the same - a variable left out of it is a covariate,
+## which cannot be the target of an estimand.
+cross_dat <- local({
+  rows <- list()
+  for (ct in c("aug", "dim", "min", "maj")) {
+    invs <- if (ct == "aug") "none" else c("0", "1", "2")
+    for (iv in invs) for (tp in c("t1", "t2"))
+      rows[[length(rows) + 1]] <-
+        data.frame(chord_type = ct, inversion = iv, top = tp)
+  }
+  g <- do.call(rbind, rows); d <- g[rep(seq_len(nrow(g)), each = 12), ]
+  d$chord_type <- factor(d$chord_type, levels = c("aug", "dim", "min", "maj"))
+  d$inversion  <- factor(d$inversion, levels = c("none", "0", "1", "2"))
+  d$top <- factor(d$top)
+  set.seed(15); d$response <- rnorm(nrow(d), 4); d
+})
+sp_x <- nesting_spec(cross_dat, response ~ chord_type * inversion * top,
+                     c("inversion %in% chord_type", "top"))
+m_x <- nest_fit(sp_x)
+chk("crossed: a bare name declares a variable nested in nothing",
+    identical(sp_x$crossed, "top") &&
+      identical(sp_x$cell_vars, c("chord_type", "inversion", "top")))
+chk("crossed: the same declaration unquoted",
+    identical(nesting_spec(cross_dat, response ~ chord_type * inversion * top,
+                           c(inversion %in% chord_type, top))$cell_vars,
+              c("chord_type", "inversion", "top")))
+chk("crossed: it joins the cell factor, which stays full rank",
+    { A <- effect_basis(sp_x)
+      nrow(A) == 20 && qr(A)$rank == 20 && !anyNA(coef(m_x)) })
+chk("crossed: and is a target like any other",
+    { e <- as.data.frame(estimand(m_x, top, policy = "equal", bounds = FALSE))
+      identical(e$term, "t2 - t1") })
+chk("crossed: the declaration round-trips, so the reorder check can run",
+    { setequal(spec_nests(sp_x), c("inversion %in% chord_type", "top")) &&
+      identical(attr(estimand(m_x, top, policy = "equal", bounds = FALSE),
+                     "nestimand")$self_check$status, "passed") })
+chk("crossed: a numeric one is refused, since that is a covariate",
+    grepl("is a covariate",
+          err_of(nesting_spec(within(cross_dat, top <- as.numeric(top)),
+                              response ~ chord_type * inversion * top,
+                              c("inversion %in% chord_type", "top")))))
+chk("crossed: declaring it both ways is refused",
+    grepl("one position in the structure",
+          err_of(nesting_spec(cross_dat, response ~ chord_type * inversion * top,
+                              c("top %in% chord_type", "top")))))
+sp_undeclared <- nesting_spec(cross_dat, response ~ chord_type * inversion * top,
+                              "inversion %in% chord_type")
+m_undeclared <- nest_fit(sp_undeclared)
+chk("target: an undeclared factor is told how to become a target",
+    { e <- err_of(estimand(m_undeclared, top, policy = "equal"))
+      grepl("declare it", e, fixed = TRUE) &&
+        grepl('c("inversion %in% chord_type", "top")', e, fixed = TRUE) })
+
 ## `a * b * c` parses as `(a * b) * c`, so the operands have to be gathered
 ## through the nesting: reading the top call alone left `a * b` as a name.
 chk("target: a * b * c names three targets, not two",

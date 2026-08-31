@@ -21,6 +21,9 @@ nested_names <- function(txt, parent) {
          "it separately.")
   walk <- function(e) {
     if (is.name(e)) return(as.character(e))
+    ## a quoted declaration parses its names as string constants
+    if (is.character(e) && length(e) == 1L &&
+        grepl("^[A-Za-z.][A-Za-z0-9._]*$", e)) return(e)
     if (is.call(e) && as.character(e[[1]]) %in% c("(", "c", "+"))
       return(unlist(lapply(as.list(e)[-1], walk), use.names = FALSE))
     refuse(e)
@@ -51,17 +54,19 @@ nesting_spec <- function(data, formula, nests,
   if (inherits(random, "formula")) random <- paste(deparse(random[[2]]), collapse = " ")
   data_name <- { dq <- substitute(data); if (is.name(dq)) deparse(dq) else "dat" }
   ## The declaration may arrive as text, as a character vector, or unquoted -
-  ## `inversion %in% chord_type`, `c(inversion, X1) %in% chord_type`, or the
-  ## `inversion + X1 %in% chord_type` sugar, whose parse tree does not match
-  ## its reading. Everything unquoted is carried as its own text and split
-  ## below; only a value that is already a vector of declarations is evaluated.
+  ## `inversion %in% chord_type`, `c(inversion, X1) %in% chord_type`, the
+  ## `inversion + X1 %in% chord_type` sugar, whose parse tree does not match its
+  ## reading, or a bare name for a variable nested in nothing. Everything
+  ## unquoted is carried as its own text and read below; a value that is already
+  ## a vector of declarations is taken as it stands.
   ne <- substitute(nests)
   ne_txt <- paste(deparse(ne), collapse = " ")
   ne_val <- tryCatch(eval(ne, parent.frame()), error = function(e) NULL)
-  nests <- if (is.character(ne_val) && all(grepl("%in%", ne_val, fixed = TRUE)))
-    ne_val
+  nests <- if (is.character(ne_val)) ne_val
+  else if (is.name(ne)) ne_txt
   else if (is.call(ne) && identical(ne[[1]], as.name("c")))
-    vapply(as.list(ne)[-1], function(x) paste(deparse(x), collapse = " "), "")
+    vapply(as.list(ne)[-1], function(x)
+      if (is.character(x)) x else paste(deparse(x), collapse = " "), "")
   else if (is.call(ne) && grepl("%in%", ne_txt, fixed = TRUE))
     ne_txt
   else eval(ne, parent.frame())
@@ -86,7 +91,16 @@ nesting_spec <- function(data, formula, nests,
     kids <- nested_names(p[1], p[2])
     stats::setNames(rep(p[2], length(kids)), kids)    # child -> parent
   }
-  parent <- do.call(c, lapply(nests, parse1))
+  ## An entry with no `%in%` names a categorical variable of the design that is
+  ## nested in nothing - crossed with the rest of the structure. It belongs in
+  ## the cell factor all the same: the cells are the realized categorical
+  ## design, and a variable left out of them is a covariate, which is a
+  ## different thing to be and cannot be the target of an estimand.
+  is_nest <- grepl("%in%", nests, fixed = TRUE)
+  crossed <- unique(unlist(lapply(nests[!is_nest], function(z)
+    nested_names(z, "the design"))))
+  parent <- if (any(is_nest))
+    do.call(c, lapply(nests[is_nest], parse1)) else character(0)
   if (anyDuplicated(names(parent)))
     stop("`", paste(unique(names(parent)[duplicated(names(parent))]),
                     collapse = "`, `"), "` is declared inside more than one ",
@@ -94,7 +108,7 @@ nesting_spec <- function(data, formula, nests,
          "the deeper parent, which carries the other with it.")
 
   ## --- validation --------------------------------------------------------
-  nest_vars <- unique(c(names(parent), parent))
+  nest_vars <- unique(c(names(parent), parent, crossed))
   for (v in nest_vars) {
     if (!v %in% names(data)) stop("variable not in data: ", v)
     if (anyNA(data[[v]]))
@@ -113,7 +127,20 @@ nesting_spec <- function(data, formula, nests,
          "cell_name = to choose another, or rename the column.")
 
   ## --- families (roots and their chains) --------------------------------
-  roots <- setdiff(parent, names(parent))
+  ## A crossed variable is a family of its own, one variable deep.
+  for (v in crossed) {
+    if (is.numeric(data[[v]]))
+      stop("`", v, "` is numeric, and a numeric variable crossed with the ",
+           "structure is a covariate, which is what it already is if it is ",
+           "left out of the declaration: write it in the formula and it enters ",
+           "as a slope within the realized cells. Declare it here only if its ",
+           "values are labels, in which case make it a factor first.")
+    if (v %in% names(parent))
+      stop("`", v, "` is declared both on its own and inside `", parent[[v]],
+           "`. A variable holds one position in the structure: nested, or ",
+           "crossed with everything else.")
+  }
+  roots <- unique(c(setdiff(parent, names(parent)), crossed))
   ## A family is a tree, not only a chain: one parent may hold several nested
   ## variables - inversion and X1 both inside chord_type - and each of those
   ## may hold further ones. The family is returned depth-first in declaration
@@ -260,7 +287,7 @@ nesting_spec <- function(data, formula, nests,
             "contrasts; inference needs trial-level data.")
 
   structure(list(data = data, outcome = outcome, formula_in = formula,
-                 parent = parent,
+                 parent = parent, crossed = crossed,
                  families = families, cat_families = cat_families,
                  cont_nested = cont_nested, covariates = covariates,
                  cov_by_cell = cov_by_cell, term_labels = labs,
@@ -287,6 +314,7 @@ nest_ancestors <- function(spec, v) {
 ## and as its declarations otherwise, which stays unambiguous when it branches.
 family_label <- function(x, fam) {
   mark <- function(v) if (v %in% x$cont_nested) paste0(v, " (continuous)") else v
+  if (length(fam) == 1L) return(paste(mark(fam), "(crossed)"))
   kids <- vapply(fam, function(v) sum(x$parent == v), 1L)
   if (all(kids <= 1))
     return(paste(vapply(fam, mark, ""), collapse = " > "))

@@ -391,6 +391,28 @@ longer guesses: only `Intercept[k]` and `a|b` are called thresholds, and anythin
 else says it was left as fitted. A wrong label is worse than an unhelpful one - these
 rows were being read as ordinal cut points.
 
+### A design variable that is nested in nothing (added 2026-08-31)
+
+The declaration surface had no way to say "this factor is part of the categorical
+design and is crossed with the rest of it". Such a variable was left out of `nests`,
+which made it a covariate: it entered the fit as `cell:x`, which is the right mean
+structure, but it was not in the cell factor and so could not be the target of an
+estimand - there were no conditions to weight over. The user's case was
+`inversion_top_notes`, defined at every level of chord type and inversion.
+
+An entry with no `%in%` now names such a variable: `c("inversion %in% chord_type",
+"inversion_top_notes")`, or unquoted. It becomes a one-variable family, joins
+`cell_vars`, and everything downstream follows without further change - 20 realized
+cells rather than 10, a square full-rank effect basis, `estimand(m, top)` with
+policies and bounds, and the reorder check passing once `spec_nests()` was taught to
+restate the crossed declarations (it rebuilt the spec from the parent map alone,
+which would have dropped them). A numeric variable is refused there, since a numeric
+variable crossed with the structure is exactly what a covariate already is.
+
+The estimand error for an undeclared target now says this rather than only refusing:
+it names the variable, says it is entering as a covariate, and prints the `nests`
+vector that would make it a target.
+
 ## Not yet implemented
 
 The prior translation and audit

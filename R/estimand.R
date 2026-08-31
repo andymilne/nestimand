@@ -125,12 +125,27 @@ estimand <- function(model, target, policy = "equal", at = NULL,
                  if (is.character(v) && length(v) == 1L) v else lit },
                error = function(e) lit)
   }
-  if (!all(target %in% spec$cell_vars))
-    stop("`", paste(target, collapse = "`, `"),
-         "` is not among the declared categorical nesting ",
-         "variables (", paste(spec$cell_vars, collapse = ", "), "). Contrasts ",
-         "of a covariate do not cross the structural boundary and need no ",
-         "policy; compute them directly.")
+  if (!all(target %in% spec$cell_vars)) {
+    miss <- setdiff(target, spec$cell_vars)
+    in_data <- miss[miss %in% names(spec$data)]
+    categorical <- in_data[vapply(in_data, function(v)
+      is.factor(spec$data[[v]]) || is.character(spec$data[[v]]), TRUE)]
+    stop("`", paste(miss, collapse = "`, `"),
+         "` is not among the declared categorical design ",
+         "variables (", paste(spec$cell_vars, collapse = ", "), "), so it has ",
+         "no conditions to average over and no policy to apply.",
+         if (length(categorical))
+           paste0(" `", paste(categorical, collapse = "`, `"),
+                  "` is a factor of the data, entering the model as a ",
+                  "covariate crossed with the cells. If it is part of the ",
+                  "categorical design rather than a covariate, declare it: a ",
+                  "variable nested in nothing is named on its own, ",
+                  "nests = c(\"", paste(spec_nests(spec), collapse = "\", \""),
+                  if (length(spec_nests(spec))) "\", \"" else "",
+                  categorical[1], "\"), which puts it in the cell factor and ",
+                  "makes it a target like any other.")
+         else " Contrasts of a covariate do not cross the structural boundary and need no policy; compute them directly.")
+  }
 
   ## A marginal contrast of a nested variable is computed only over the strata
   ## in which that variable varies. Elsewhere it holds a single level, and a
@@ -988,8 +1003,11 @@ nesting_spec_quiet <- function(spec, data) {
 ## The declarations, rebuilt from the parent map rather than from adjacency in
 ## the family vector, which is not ancestry once a parent holds two children.
 spec_nests <- function(spec)
-  if (length(spec$parent))
-    unname(sprintf("%s %%in%% %s", names(spec$parent), spec$parent)) else character(0)
+  c(if (length(spec$parent))
+      unname(sprintf("%s %%in%% %s", names(spec$parent), spec$parent)),
+    ## a variable nested in nothing is declared by name, and has to be restated
+    ## or the rebuilt spec would lose it from the cell factor
+    unname(spec$crossed))
 
 estimand_values <- function(model, spec, target, policy, at, contrast, data,
                             scale = "response", route = "g_computation") {
