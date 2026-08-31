@@ -117,12 +117,32 @@ random_terms <- function(spec, structure = c("cells", "chain", "chain_slope",
       ## the grouping-chain submodel: parsimonious, but it constrains conditions
       ## sharing a stratum to equal correlation, where the cell form does not.
       ## It is always identified, and is the remedy offered for a partial
-      ## structure, so it accepts one: the chain is truncated at the deepest
-      ## declared level.
-      depth <- if (partial) max(match(intersect(fam, struct_vars), fam)) else length(fam)
+      ## structure, so it accepts one: only the declared variables and their
+      ## ancestors contribute a rung.
+      ##
+      ## A rung is the ancestor path of a variable, not a prefix of the family
+      ## vector. The two coincide while the family is a chain - p:a, p:a:b,
+      ## p:a:b:c - but where a parent holds two children the prefix form would
+      ## make one of them the coarser division and the other the finer one,
+      ## which the design does not say and which the order of the declaration
+      ## would then decide. Siblings therefore enter crossed, one variance
+      ## each, with the whole structure as the finest rung.
+      vars <- if (partial) intersect(fam, struct_vars) else fam
+      vars <- unique(unlist(lapply(vars, function(v)
+        c(nest_ancestors(spec, v), v))))
+      ## Order the rungs by depth and then by name rather than by the order the
+      ## nests were declared: siblings commute inside a grouping factor, so the
+      ## same design should emit the same formula however it was written.
+      depth_of <- function(v) length(nest_ancestors(spec, v))
+      vars <- vars[order(vapply(vars, depth_of, 1L), vars)]
+      rungs <- vapply(vars, function(v)
+        paste(c(grp, nest_ancestors(spec, v), v), collapse = ":"), "")
+      if (length(vars) > 1)
+        rungs <- c(rungs, paste(c(grp, vars), collapse = ":"))
+      rungs <- unique(rungs)
+      rungs <- rungs[order(lengths(strsplit(rungs, ":")), rungs)]
       c(rewrap(sprintf("(1%s | %s)", cov_txt, grp)),
-        vapply(seq_len(depth), function(k)
-          sprintf("(1 | %s)", paste(c(grp, fam[seq_len(k)]), collapse = ":")), ""))
+        vapply(rungs, function(z) sprintf("(1 | %s)", z), ""))
     }
   }))
   paste(unique(out), collapse = " + ")

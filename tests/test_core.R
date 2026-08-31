@@ -2574,6 +2574,39 @@ chk("branching: the declaration round-trips through spec_nests()",
     setequal(spec_nests(sp_d),
              c("inversion %in% chord_type", "X1 %in% chord_type",
                "Z %in% inversion")))
+## The grouping-chain submodel over a branching family: siblings are crossed,
+## not ranked, since the design does not say which of them divides the other.
+re_dat <- local({
+  d <- deep[deep$Z %in% c("none", "z1"), c("chord_type", "inversion", "X1")]
+  d <- d[rep(seq_len(nrow(d)), each = 2), ]
+  d$participant <- factor(rep(rep(1:8, each = 2), length.out = nrow(d)))
+  set.seed(12); d$response <- rnorm(nrow(d)); d
+})
+re_f <- response ~ chord_type * inversion * X1 +
+  (chord_type * inversion * X1 | participant)
+re_a <- nesting_spec(re_dat, re_f, c(inversion, X1) %in% chord_type, fit = "lmer")
+re_b <- nesting_spec(re_dat, re_f, c(X1, inversion) %in% chord_type, fit = "lmer")
+chk("random chain: siblings enter crossed, one rung each",
+    { r <- random_terms(re_a, "chain")
+      all(vapply(c("(1 | participant:chord_type)",
+                   "(1 | participant:chord_type:inversion)",
+                   "(1 | participant:chord_type:X1)"),
+                 function(z) grepl(z, r, fixed = TRUE), TRUE)) })
+chk("random chain: the whole structure is the finest rung",
+    grepl("participant:chord_type:X1:inversion", random_terms(re_a, "chain"),
+          fixed = TRUE))
+chk("random chain: it does not depend on the order of the declaration",
+    identical(random_terms(re_a, "chain"), random_terms(re_b, "chain")))
+chk("random chain: an unbranched family still gives the prefix ladder",
+    identical(random_terms(
+      nesting_spec(re_dat, response ~ chord_type * inversion +
+                     (chord_type * inversion | participant),
+                   "inversion %in% chord_type", fit = "lmer"), "chain"),
+      paste("(1 | participant) + (1 | participant:chord_type) +",
+            "(1 | participant:chord_type:inversion)")))
+chk("random chain: the cells form is untouched by the branching",
+    identical(random_terms(re_a, "cells"), "(0 + cell | participant)"))
+
 chk("saturation: a formula spanning less than the realized cells says so",
     grepl("saturated",
           paste(utils::capture.output(

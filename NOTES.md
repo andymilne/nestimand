@@ -313,11 +313,22 @@ rank, no aliased coefficients, every target's estimand and its emitted script
 agreeing, and the reorder self-check passing at depth three. The whole suite is 487
 checks, 0 failures.
 
-One thing left as it was: `random_terms(structure = "chain")` builds its grouping
-chain from prefixes of the family vector, so with siblings the intermediate stratum
-is `chord_type:inversion` rather than anything symmetric between them. Every such
-prefix is still a valid coarsening of the cells, so the submodel is identified; it
-is simply not the only reasonable chain, and the cell form is unaffected.
+`random_terms(structure = "chain")` builds its rungs from ancestor paths rather than
+from prefixes of the family vector. The two coincide on a chain - `p:a`, `p:a:b`,
+`p:a:b:c`, unchanged - but where a parent holds two children the prefix form made one
+of them the coarser division and the other the finer one, which the design does not
+say and which the order of the declaration then decided: declaring `inversion` first
+gave `p:chord:inversion` as the intermediate rung, declaring `X1` first gave
+`p:chord:X1`. Siblings now enter crossed, one variance each, with the whole structure
+as the finest rung:
+
+    (1|p) + (1|p:chord_type) + (1|p:chord_type:inversion) + (1|p:chord_type:X1)
+          + (1|p:chord_type:X1:inversion)
+
+One variance component more than the ladder it replaces, and no longer a function of
+how the declaration was typed - the rungs are ordered by depth and then by name, so
+the same design emits the same formula however it was written. Run here on an `lmer`
+fit: five components, one per rung, and the `cells` form is unchanged.
 
 ## Not yet implemented
 
