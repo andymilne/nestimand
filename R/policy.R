@@ -276,23 +276,47 @@ interaction_matrix <- function(d, vars, group = NULL) {
                           sep = "\r"))
   lv <- lapply(vars, function(v) unique(as.character(d[[v]])))
   names(lv) <- vars
-  a <- lv[[1]]; b <- lv[[2]]
+  ## An interaction contrast picks two levels of every variable and takes the
+  ## product of the simple contrasts over the corners they define: with two
+  ## variables that is a difference of differences, with three a difference of
+  ## those, and so on. The corner cells must all exist, which is what rules a
+  ## comparison out in a partially nested design.
+  single <- vars[lengths(lv) < 2]
+  if (length(single))
+    stop("an interaction contrast needs two levels of every variable, and `",
+         paste(single, collapse = "`, `"), "` has one here.")
+  pairs <- lapply(lv, function(l) utils::combn(seq_along(l), 2, simplify = FALSE))
+  ## the last variable varies fastest, so a two-variable interaction comes out
+  ## in the order it always has
+  grid <- expand.grid(rev(lapply(pairs, seq_along)), KEEP.OUT.ATTRS = FALSE)
+  grid <- grid[, rev(seq_len(ncol(grid))), drop = FALSE]
+  n_corner <- 2^length(vars)
+  if (nrow(grid) > 500)
+    stop("this interaction would form ", nrow(grid), " contrasts over ",
+         length(vars), " variables. Name fewer targets, or `at` a level of one ",
+         "of them, or supply your own `hypothesis`.")
   cols <- list(); nm <- character(0)
-  for (i in seq_along(a)) for (ii in seq_along(a)) if (ii > i)
-    for (j in seq_along(b)) for (jj in seq_along(b)) if (jj > j) {
-      k <- c(paste(a[ii], b[jj], sep = "\r"), paste(a[ii], b[j], sep = "\r"),
-             paste(a[i], b[jj], sep = "\r"), paste(a[i], b[j], sep = "\r"))
-      if (!all(k %in% key)) next          # a combination that does not exist
-      ## later minus earlier in both factors, as the simple contrasts are
-      v <- numeric(nrow(d))
-      v[match(k[1], key)] <-  1; v[match(k[2], key)] <- -1
-      v[match(k[3], key)] <- -1; v[match(k[4], key)] <-  1
-      cols[[length(cols) + 1]] <- v
-      nm <- c(nm, sprintf("(%s - %s) x (%s - %s)", a[ii], a[i], b[jj], b[j]))
-    }
+  for (r in seq_len(nrow(grid))) {
+    sel <- lapply(seq_along(vars), function(k)
+      lv[[k]][pairs[[k]][[grid[r, k]]]])          # c(earlier, later)
+    corners <- expand.grid(sel, stringsAsFactors = FALSE, KEEP.OUT.ATTRS = FALSE)
+    kc <- do.call(paste, c(unname(as.list(corners)), sep = "\r"))
+    if (!all(kc %in% key)) next             # a combination that does not exist
+    sgn <- apply(corners, 1, function(z)
+      prod(vapply(seq_along(vars), function(k)
+        if (identical(z[[k]], sel[[k]][2])) 1 else -1, 1)))
+    v <- numeric(nrow(d))
+    v[match(kc, key)] <- sgn
+    cols[[length(cols) + 1]] <- v
+    nm <- c(nm, paste(vapply(seq_along(vars), function(k)
+      sprintf("(%s - %s)", sel[[k]][2], sel[[k]][1]), ""), collapse = " x "))
+  }
   if (!length(cols))
-    stop("no interaction contrast is available: no two levels of `", vars[1],
-         "` share two levels of `", vars[2], "`.")
+    stop("no interaction contrast is available: the design realizes no set of ",
+         n_corner, " conditions with two levels of every one of `",
+         paste(vars, collapse = "`, `"), "`. Within a partially nested design ",
+         "some such sets do not exist; `at` a level of one variable, or name ",
+         "fewer targets, to ask a comparison the design can answer.")
   M <- do.call(cbind, cols)
   colnames(M) <- nm
   M

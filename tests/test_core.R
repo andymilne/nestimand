@@ -2749,6 +2749,49 @@ chk("summary: a real threshold is still called one",
 chk("summary: every row still translates one coefficient",
     nrow(s_fac) == length(coef(m_fac)))
 
+## An interaction contrast over three variables: the corners are the eight
+## conditions two levels of each variable define, and the sign is the product
+## of the three simple contrasts. The matrix was written for two variables and
+## silently matched nothing when given three.
+sp_i3 <- suppressMessages(nesting_spec(cross_dat,
+  response ~ chord_type * inversion * top, "inversion %in% chord_type"))
+m_i3 <- nest_fit(sp_i3)
+chk("interaction: three variables give a difference of differences of differences",
+    { H <- interaction_matrix(sp_i3$cells,
+                              c("chord_type", "inversion", "top"))
+      ncol(H) == 9 && all(colSums(H) == 0) && all(colSums(abs(H)) == 8) })
+chk("interaction: the sentinel stratum is left out, having no two inversions",
+    { H <- interaction_matrix(sp_i3$cells, c("chord_type", "inversion", "top"))
+      !any(grepl("aug", colnames(H))) })
+chk("interaction: it matches the cell means it is a combination of",
+    { H <- interaction_matrix(sp_i3$cells, c("chord_type", "inversion", "top"))
+      mu <- stats::setNames(seq_len(nrow(sp_i3$cells)) / 7,
+                            as.character(sp_i3$cells$cell))
+      cn <- "(min - dim) x (1 - 0) x (t2 - t1)"
+      k <- function(a, b, cc) mu[[paste(a, b, cc, sep = ".")]]
+      hand <- (k("min","1","t2") - k("min","1","t1") -
+               k("min","0","t2") + k("min","0","t1")) -
+              (k("dim","1","t2") - k("dim","1","t1") -
+               k("dim","0","t2") + k("dim","0","t1"))
+      isTRUE(all.equal(as.numeric(mu %*% H[, cn]), hand)) })
+chk("interaction: `a * b * c` returns each variable and their interaction",
+    { e <- estimand(m_i3, chord_type * inversion * top, policy = "equal",
+                    bounds = FALSE, self_check = FALSE)
+      identical(names(e), c("chord_type", "inversion", "top",
+                            "chord_type:inversion:top")) })
+chk("interaction: a design with no such set of corners says so, and why",
+    { ## every variable has two levels, but no eight conditions carry two of
+      ## each: the design cannot answer a three-way comparison
+      d <- data.frame(chord_type = c("dim", "dim", "min", "min"),
+                      inversion  = c("0", "1", "0", "1"),
+                      top        = c("t1", "t2", "t2", "t1"))
+      grepl("realizes no set of 8 conditions",
+            err_of(interaction_matrix(d, c("chord_type", "inversion", "top")))) })
+chk("interaction: a variable with one level here is named rather than pivoted on",
+    grepl("has one here",
+          err_of(interaction_matrix(sp_i3$cells[sp_i3$cells$chord_type == "dim", ],
+                                    c("chord_type", "inversion", "top")))))
+
 ## A variable given a random slope keeps its fixed effect, and a covariate
 ## declared crossed with the structure keeps that crossing on both sides.
 slope_dat <- local({

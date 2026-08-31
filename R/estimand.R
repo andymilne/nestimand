@@ -93,11 +93,14 @@ estimand <- function(model, target, policy = "equal", at = NULL,
       ## hypothesis was asking for.
       parts <- c(
         if (has_hyp)
-          "your `hypothesis` sets the comparisons for the two marginal contrasts, and their labels and direction come from marginaleffects",
+          "your `hypothesis` sets the comparisons for the marginal contrasts, and their labels and direction come from marginaleffects",
         if (!identical(policy, "equal"))
-          sprintf("the policy weights those two and not the interaction, which uses only cells that exist"),
+          "the policy weights the marginal contrasts and not the interaction, which uses only cells that exist",
         "the interaction has its own comparison matrix, formed within each group where the output is grouped")
-      message("`", paste(vs, collapse = " * "), "` gives three results: ",
+      message("`", paste(vs, collapse = " * "), "` gives ",
+              c("one", "two", "three", "four", "five", "six")[
+                min(length(vs) + 1L, 6L)],
+              " results - each variable on its own, and their interaction: ",
               paste(parts, collapse = "; "), ".")
       out <- c(out, list(once({ c2 <- cl; c2$target <- vs
                                 c2$contrast <- "interaction"

@@ -425,6 +425,23 @@ The estimand error for an undeclared target now says this rather than only refus
 it names the variable, says it is entering as a covariate, and prints the `nests`
 vector that would make it a target.
 
+### Interaction contrasts beyond two variables (fixed 2026-08-31)
+
+`interaction_matrix()` read `lv[[1]]` and `lv[[2]]` and looked its corners up in a key
+built from *all* the variables it was given. With three, nothing matched, and the
+failure came out as "no two levels of `chord_type` share two levels of `inversion`" -
+false of the design, and pointing at the wrong thing. `estimand(m, a * b * c)` reaches
+this, since `*` returns each variable on its own and their interaction.
+
+It now takes two levels of every variable and forms the product of the simple
+contrasts over the 2^n corners they define, which is a difference of differences at
+n = 2 and a difference of those at n = 3. The corner set must be realized, which is
+what excludes the augmented stratum here: nine three-way contrasts among dim, min and
+maj. Two-variable output is unchanged, in values, labels and order. A design with no
+realized corner set now says so and says which variables it could not span; more than
+500 contrasts is refused with the alternatives named, since the count grows as the
+product of the pair counts.
+
 ## Not yet implemented
 
 The prior translation and audit
