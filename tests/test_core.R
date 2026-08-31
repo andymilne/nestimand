@@ -2650,6 +2650,34 @@ chk("random chain: an unbranched family still gives the prefix ladder",
 chk("random chain: the cells form is untouched by the branching",
     identical(random_terms(re_a, "cells"), "(0 + cell | participant)"))
 
+## A variable given a random slope keeps its fixed effect, and a covariate
+## declared crossed with the structure keeps that crossing on both sides.
+slope_dat <- local({
+  d <- deep[deep$Z %in% c("none", "z1"), ]
+  d$participant <- factor(rep(1:8, length.out = nrow(d)))
+  set.seed(13); d$GMSI <- rnorm(nrow(d)); d
+})
+sp_sl <- nesting_spec(slope_dat,
+  response ~ chord_type * inversion * X1 * GMSI +
+    (chord_type * inversion * X1 | participant),
+  "inversion %in% chord_type", fit = "lmer")
+chk("covariates: a variable with a random slope keeps its fixed effect",
+    all(c("X1", "GMSI") %in% sp_sl$covariates))
+chk("covariates: the grouping factor is not one of them",
+    !("participant" %in% sp_sl$covariates))
+chk("covariates: crossed with the structure on the fixed side",
+    { f <- paste(deparse(cell_formula(sp_sl)), collapse = " ")
+      grepl("cell:X1", f, fixed = TRUE) && grepl("cell:GMSI", f, fixed = TRUE) })
+chk("random: a covariate crossed with the structure keeps the crossing",
+    identical(random_terms(sp_sl, "cells"),
+              "(0 + cell + cell:X1 | participant)"))
+chk("random: one left additive in the bar stays additive",
+    identical(random_terms(nesting_spec(slope_dat,
+        response ~ chord_type * inversion * X1 * GMSI +
+          (chord_type * inversion + X1 | participant),
+        "inversion %in% chord_type", fit = "lmer"), "cells"),
+      "(0 + cell + X1 | participant)"))
+
 ## A numeric nested variable is a slope inside the cells, not a cell variable.
 ## It stays visible in the printed structure, since a variable whose values are
 ## labels is easily left numeric by accident.

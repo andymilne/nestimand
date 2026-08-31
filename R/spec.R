@@ -206,9 +206,13 @@ nesting_spec <- function(data, formula, nests,
          "written inside it would be lost. Compute the transformed variable as ",
          "a column of the data - dat$x2 <- dat$x^2 - and name that column in ",
          "the formula.")
-  covariates <- setdiff(all.vars(formula[[3]]), c(unlist(families), "|"))
-  covariates <- setdiff(covariates, unlist(lapply(bar_labs, function(b)
-    all.vars(stats::as.formula(paste("~", gsub("|", "+", b, fixed = TRUE)))))))
+  ## The covariates are the variables of the *fixed* terms that are not declared
+  ## nesting variables, read from the fixed term labels, which already exclude
+  ## the bars. Reading them from `all.vars(formula[[3]])` and then subtracting
+  ## everything named in a bar took out the slope variables along with the
+  ## grouping factors, so a variable given a random slope lost its fixed effect
+  ## - a random slope with no fixed counterpart, and nothing said.
+  covariates <- setdiff(unique(unlist(strsplit(labs, ":"))), unlist(families))
   covariates <- unique(c(covariates, cont_nested))
 
   ## does the declared formula ask for covariate x structure interaction?

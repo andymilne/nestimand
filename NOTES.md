@@ -352,6 +352,28 @@ equal wherever one variable is nested inside another. Working from the cell tabl
 also removes a latent fragility - the old version re-split dot-joined labels, which a
 level containing a full stop would have broken.
 
+### A random slope cost a variable its fixed effect (fixed 2026-08-31)
+
+`nesting_spec()` took the covariates from `all.vars(formula[[3]])` and then
+subtracted every variable named in a bar. The intention was to drop the grouping
+factors; the effect was to drop the slope variables too. Declaring
+
+    response ~ chord_type * inversion * top * GMSI + (chord_type * inversion * top | id)
+
+with `inversion %in% chord_type` therefore fitted `~ cell + cell:GMSI` - `top` gone
+from the mean structure entirely, while keeping a random slope on it, and nothing
+said. The covariates are now read from the fixed term labels, which already exclude
+the bars, so a bar can no longer remove anything from the fixed side.
+
+The same declaration exposed a second reduction, on the random side.
+`random_terms()` drops the structural terms of a bar as subsumed by the cell factor,
+which is right for `chord_type:inversion` but not for `chord_type:top`: `cell` alone
+carries no slope that varies by condition. A covariate declared crossed with the
+structure now keeps the crossing - `(0 + cell + cell:top | id)` rather than
+`(0 + cell + top | id)` - the same distinction `cov_by_cell` draws on the fixed side.
+One left additive in the bar stays additive. The compound-symmetric submodel
+(`structure = "chain"`) crosses nothing, by design.
+
 ## Not yet implemented
 
 The prior translation and audit

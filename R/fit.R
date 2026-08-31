@@ -83,6 +83,16 @@ random_terms <- function(spec, structure = c("cells", "chain", "chain_slope",
     ## repeated alongside it
     covs <- lhs[!vapply(strsplit(lhs, ":"), function(vs)
       any(vs %in% spec$cell_vars), TRUE)]
+    ## A covariate declared crossed with the structure keeps that crossing. The
+    ## structural terms it appeared in are dropped as subsumed by the
+    ## translation, but `cell` alone carries no slope that varies by condition,
+    ## so the crossing has to be restated against the translated factor - the
+    ## same distinction the fixed side draws with `cov_by_cell`.
+    crossed <- vapply(covs, function(k) {
+      kv <- strsplit(k, ":")[[1]]
+      any(vapply(strsplit(lhs, ":"), function(vs)
+        all(kv %in% vs) && any(vs %in% spec$cell_vars), TRUE))
+    }, TRUE)
     if (!any(structural))
       return(rewrap(sprintf("(%s | %s)", lhs_txt, grp)))
     ## Does the declared term describe the whole categorical structure, or only
@@ -105,12 +115,24 @@ random_terms <- function(spec, structure = c("cells", "chain", "chain_slope",
            "random_structure = \"as_declared\" to fit it as written, noting that ",
            "the sentinel level then enters as though it were a level of the ",
            "nested variable.")
-    cov_txt <- if (length(covs)) paste(" +", paste(covs, collapse = " + ")) else ""
+    ## `with` is the translated structure the crossing is restated against -
+    ## the cell factor, or the chain terms, which distribute over the covariate
+    ## one term at a time. NULL crosses nothing, for the compound-symmetric
+    ## submodel, where a crossed slope would not be the parsimonious
+    ## counterpart it is offered as.
+    cov_term <- function(with) {
+      if (!length(covs)) return("")
+      out <- unlist(lapply(seq_along(covs), function(i)
+        if (is.null(with) || !crossed[[i]]) covs[[i]]
+        else paste0(with, ":", covs[[i]])))
+      paste(" +", paste(out, collapse = " + "))
+    }
+    cov_txt <- cov_term(cn)
     if (structure == "chain_slope")
       ## the chain counterpart of an unstructured cell covariance: the same
       ## columns as the fixed part, so one set of declarations covers both
       rewrap(sprintf("(0 + %s%s | %s)", paste(chain_terms(spec), collapse = " + "),
-                     cov_txt, grp))
+                     cov_term(chain_terms(spec)), grp))
     else if (structure == "cells")
       rewrap(sprintf("(0 + %s%s | %s)", cn, cov_txt, grp))
     else {
@@ -141,7 +163,7 @@ random_terms <- function(spec, structure = c("cells", "chain", "chain_slope",
         rungs <- c(rungs, paste(c(grp, vars), collapse = ":"))
       rungs <- unique(rungs)
       rungs <- rungs[order(lengths(strsplit(rungs, ":")), rungs)]
-      c(rewrap(sprintf("(1%s | %s)", cov_txt, grp)),
+      c(rewrap(sprintf("(1%s | %s)", cov_term(NULL), grp)),
         vapply(rungs, function(z) sprintf("(1 | %s)", z), ""))
     }
   }))
