@@ -2937,6 +2937,45 @@ chk("continuous nested: the printed structure still shows it",
                          c(inversion, X1n) %in% chord_type)))), collapse = " "),
           fixed = TRUE))
 
+## A declaration that asks for less than the saturated structure is fitted as
+## written. The cell factor is saturated by construction, so the restriction can
+## only be expressed in the effects parameterization, and the fitting mode
+## follows the declaration rather than the default.
+res_sp <- suppressMessages(nesting_spec(cross_dat,
+  response ~ chord_type * (inversion + top), "inversion %in% chord_type"))
+res_m <- nest_fit(res_sp)
+chk("restricted: the declared terms give each nested variable its parent",
+    identical(declared_terms(res_sp),
+              c("chord_type", "top", "chord_type:inversion", "chord_type:top")))
+chk("restricted: they span less than the cells, and the mode follows",
+    { sp_full <- suppressMessages(nesting_spec(cross_dat,
+        response ~ chord_type * inversion * top, "inversion %in% chord_type"))
+      term_span(res_sp, declared_terms(res_sp)) < nrow(res_sp$cells) &&
+        identical(as.character(fitting_mode(res_sp)), "effects") &&
+        identical(as.character(fitting_mode(sp_full)), "cells") })
+chk("restricted: the fit is the model the formula names, not the saturated one",
+    { hand <- lm(response ~ chord_type + top + chord_type:inversion +
+                   chord_type:top, data = cross_dat)
+      isTRUE(all.equal(unname(fitted(res_m)), unname(fitted(hand)))) &&
+        df.residual(res_m) == df.residual(hand) })
+chk("restricted: the aliased columns the chain form carries are dropped, not fitted",
+    { b <- coef(res_m)
+      sum(!is.na(b)) == term_span(res_sp, declared_terms(res_sp)) })
+chk("restricted: estimands run, and the two routes agree",
+    { a <- as.data.frame(estimand(res_m, chord_type, policy = "equal",
+                                  bounds = FALSE, self_check = FALSE))
+      b <- as.data.frame(estimand(res_m, chord_type, type = "eta",
+                                  policy = "equal", bounds = FALSE,
+                                  self_check = FALSE))
+      nrow(a) == 6 && isTRUE(all.equal(a$estimate, b$estimate)) })
+chk("restricted: nest_summary reports the coefficients rather than refusing",
+    { d <- as.data.frame(nest_summary(res_m))
+      nrow(d) == sum(!is.na(coef(res_m))) &&
+        all(grepl("as declared", d$meaning)) })
+chk("restricted: the printed spec shows the formula that will be fitted",
+    { txt <- paste(utils::capture.output(print(res_sp)), collapse = " ")
+      grepl("effects parameterization", txt) && !grepl("0 \\+ cell", txt) })
+
 ## The effect basis reparameterizes the cell fit, which is saturated whatever
 ## the formula says, so the basis is saturated too: built from the declared
 ## terms it was smaller than the thing it is meant to translate, and

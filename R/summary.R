@@ -43,11 +43,19 @@ nest_summary <- function(model, space = c("effects", "cells"),
   b <- b[keep]; V <- V[keep, keep, drop = FALSE]
   cells <- as.character(spec$cells[[spec$cell_name]])
   cn <- spec$cell_name
-  if (!any(paste0(cn, cells) %in% names(b)))
+  if (!any(paste0(cn, cells) %in% names(b))) {
+    ## A fit in the effects parameterization needs no translation: its
+    ## coefficients are already the effects this function exists to produce.
+    ## That happens when the declaration asks for less than the saturated
+    ## structure, which the cell factor cannot express.
+    if (identical(attr(model, "nestimand_mode"), "effects"))
+      return(effects_fit_summary(model, spec, conf_level, random))
     stop("nest_summary() reads the cell coefficients, and this model has none: ",
-         "it was not fitted in the cell parameterization. Refit with ",
+         "it was not fitted in the cell parameterization, and does not carry ",
+         "the declaration that says it was fitted as effects. Refit with ",
          "nest_fit(spec), whose coefficients this function translates, or ",
          "summarize the model with its own summary() method.")
+  }
   A <- effect_basis(spec)
 
   ## The coefficients fall into blocks, each holding one quantity per realized
@@ -160,6 +168,40 @@ nest_summary <- function(model, space = c("effects", "cells"),
                                  else stats::formula(model))), collapse = " "),
     error = function(e) NULL)
   attr(out, "nestimand_map") <- Tm
+  class(out) <- c("nestimand_summary", class(out))
+  out
+}
+
+## A fit whose coefficients are already effects. Nothing is translated: the
+## aliased columns the chain form carries are dropped, since they are held at
+## zero and say nothing, and each row is labelled with the term it belongs to.
+effects_fit_summary <- function(model, spec, conf_level = 0.95, random = FALSE) {
+  b <- coef_vector(model)
+  keep <- names(b)[!is.na(b)]
+  V <- vcov_beta(model, keep)
+  keep <- intersect(keep, colnames(V))
+  b <- b[keep]; V <- V[keep, keep, drop = FALSE]
+  se <- sqrt(diag(V))
+  if (inherits(model, "brmsfit")) {
+    D <- as.matrix(brms::as_draws_matrix(model))
+    S <- D[, draw_names(keep, colnames(D)), drop = FALSE]
+    out <- draws_summary(S, keep, conf_level)
+  } else {
+    z <- stats::qnorm(1 - (1 - conf_level) / 2)
+    out <- data.frame(term = keep, estimate = as.numeric(b), std.error = se,
+                      statistic = b / se, p.value = 2 * stats::pnorm(-abs(b / se)),
+                      conf.low = b - z * se, conf.high = b + z * se,
+                      row.names = NULL)
+  }
+  out$meaning <- "as declared (effects parameterization, not translated)"
+  attr(out, "nestimand_space") <- "effects"
+  attr(out, "nestimand_fit") <- spec$fit
+  attr(out, "nestimand_call") <- tryCatch(
+    paste(deparse(stats::formula(model)), collapse = " "), error = function(e) NULL)
+  if (isTRUE(random))
+    attr(out, "nestimand_random") <-
+      tryCatch(random_covariance(model, spec, "effects"),
+               error = function(e) structure(list(), note = conditionMessage(e)))
   class(out) <- c("nestimand_summary", class(out))
   out
 }

@@ -536,6 +536,30 @@ ancestors, so no term is a marginal effect the design cannot support. A chain st
 gives its prefix ladder, and more than twelve categorical design variables is refused
 rather than enumerated.
 
+### A restricted mean structure is now fitted as written
+
+Until now the declared formula did not decide the mean structure: cells mode fits
+`~ 0 + cell`, which is saturated, so `chord_type * (inversion + top)` - a model
+without the three-way interaction, and a reasonable thing to want when the data are
+thin - was silently enlarged to the saturated one and only a message said so.
+
+Two functions now do what one did. `chain_terms()` is the translation basis, the
+saturated ancestry-closed set over the realized cells; `declared_terms()` is the
+structure the formula asks for, closed under ancestry so that a nested variable is
+always given its parent - `inversion` alone is not a term this design admits and
+becomes `chord_type:inversion`. `cell_formula(mode = "effects")` fits the second, and
+`fitting_mode()` chooses it whenever the declared structure spans fewer dimensions
+than there are cells, since the cell factor cannot express a restriction.
+
+Checked on a design of 20 realized cells with a declaration spanning 14: the fitted
+values and residual degrees of freedom match a hand-written restricted `lm`, the 12
+columns the chain form carries that the data cannot inform are dropped as aliased
+rather than fitted, estimands agree between the prediction and coefficient routes,
+and `nest_summary()` reports the coefficients as fitted rather than refusing to
+translate a fit that needs no translation. `chain_priors()` derives 6 structural
+zeros and 6 identification constraints for the same design, which is what brms needs
+to fit it.
+
 ## Not yet implemented
 
 The prior translation and audit

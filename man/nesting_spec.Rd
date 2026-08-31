@@ -60,10 +60,18 @@ when it happens, and the printed structure marks the variable, since a variable 
 values are labels is easily left numeric by accident - convert it to a factor first if
 that is what it is.
 
-The fitted mean structure is saturated over the realized cells whatever the formula
-says, since cells mode fits \code{~ 0 + cell}. A formula that spans fewer dimensions
-than there are cells - \code{+} between two nesting variables where the design admits
-their interaction - is therefore not a restriction, and a message says so.
+A formula that spans fewer dimensions than there are realized cells - \code{+}
+between two variables the design admits an interaction between - asks for a
+restricted mean structure, and is fitted as written. The cell factor is saturated by
+construction and cannot express a restriction, so such a declaration is fitted in the
+effects parameterization instead, with each nested variable given its parent:
+\code{chord_type * (inversion + top_note)} is fitted as \code{chord_type +
+top_note + chord_type:inversion + chord_type:top_note}, since \code{inversion} has no
+effect outside the strata in which it varies. \code{fitting_mode()} reports which
+parameterization a declaration leads to, and the printed spec shows the formula that
+will be fitted. On \pkg{brms} a restricted structure needs
+\code{\link{chain_priors}} to hold its uninformative columns at zero, as the chain
+form always does.
 }
 \value{
 \code{nesting_spec} returns an object of class \code{nesting_spec}: a list whose

@@ -41,21 +41,10 @@ policy_contrast_matrix <- function(spec, target, policy, data = spec$data,
            nrow(data), " rows: one weight per row is needed.")
     g$.w <- g$.w * wv[g$.row]
   }
-  rhs <- paste(deparse(cell_formula(spec)[[3]]), collapse = " ")
+  rhs <- paste(deparse(cell_formula(spec, fit_mode(model))[[3]]), collapse = " ")
   X <- stats::model.matrix(stats::as.formula(paste("~", rhs)), g)
   if (colnames(X)[1] == "(Intercept)") X <- X[, -1, drop = FALSE]
-  if (!is.null(model)) {
-    b <- coef_vector(model)
-    missing_cols <- setdiff(colnames(X), names(b))
-    if (length(missing_cols))
-      stop("the fitted model has no coefficient for ",
-           length(missing_cols), " column(s) of the cell design matrix (",
-           paste(utils::head(missing_cols, 3), collapse = ", "),
-           if (length(missing_cols) > 3) ", ...", "), so the linear map cannot ",
-           "be formed. This happens when the model was not fitted from this ",
-           "spec; refit with nest_fit().")
-    X <- X[, colnames(X), drop = FALSE]
-  }
+  if (!is.null(model)) X <- align_design(X, model)
   w <- g$.w / sum(g$.w[!duplicated(g$.row)]) # per-row weights, normalized below
   lev <- as.character(g[[target]])
   levs <- levels(factor(spec$data[[target]]))
@@ -120,18 +109,44 @@ contrast_pairs <- function(levs, contrast = "pairwise") {
     stop("contrast must be pairwise, reference, or sequential here."))
 }
 
+## Which parameterization a fit is in, so that the design rows built here match
+## its coefficients. A fit from `nest_fit()` carries it; anything else is read
+## as the cell form, which is what it was before a declaration could restrict
+## the structure and be fitted as effects.
+fit_mode <- function(model) {
+  md <- attr(model, "nestimand_mode")
+  if (is.null(md)) "cells" else md
+}
+
+## A design column whose coefficient the engine dropped as aliased is held at
+## zero and contributes nothing, so it is removed from the design rather than
+## carried into the product as NA. Only a column with no coefficient at all -
+## which means the model was not fitted from this declaration - is an error.
+align_design <- function(X, model, what = "cell") {
+  b <- coef_vector(model)
+  aliased <- names(b)[is.na(b)]
+  missing_cols <- setdiff(colnames(X), names(b))
+  if (length(missing_cols))
+    stop("the fitted model has no coefficient for ",
+         length(missing_cols), " column(s) of the ", what, " design matrix (",
+         paste(utils::head(missing_cols, 3), collapse = ", "),
+         if (length(missing_cols) > 3) ", ...", "), so the linear map cannot ",
+         "be formed. This happens when the model was not fitted from this ",
+         "declaration; refit with nest_fit().")
+  X[, setdiff(colnames(X), aliased), drop = FALSE]
+}
+
 ## One design row per realized cell, covariates averaged over the grid, so that
 ## a contrast among cells is c'b in the same way a contrast among strata is.
 cell_design_rows <- function(spec, data, cells, model) {
   pol <- structure(list(kind = "uniform", target = NULL,
     p = NULL, at = NULL), class = "nestimand_policy")
   g <- counterfactual_grid(spec, data, cells = cells)
-  rhs <- paste(deparse(cell_formula(spec)[[3]]), collapse = " ")
+  rhs <- paste(deparse(cell_formula(spec, fit_mode(model))[[3]]), collapse = " ")
   X <- stats::model.matrix(stats::as.formula(paste("~", rhs)), g)
   if (colnames(X)[1] == "(Intercept)") X <- X[, -1, drop = FALSE]
   b <- coef_vector(model)
-  missing_cols <- setdiff(colnames(X), names(b))
-  X <- X[, setdiff(colnames(X), missing_cols), drop = FALSE]
+  X <- X[, intersect(colnames(X), names(b)[!is.na(b)]), drop = FALSE]
   key <- as.character(g[[spec$cell_name]])
   lv <- as.character(cells[[spec$cell_name]])
   M <- t(vapply(lv, function(k) colMeans(X[key == k, , drop = FALSE]),

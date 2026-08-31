@@ -78,11 +78,43 @@ cell_formula <- function(spec, mode = c("cells", "effects"), intercept = NULL) {
       if (isTRUE(spec$cov_by_cell[[cv]])) paste0(cn, ":", cv) else cv))
     paste(c(if (intercept) cn else paste0("0 + ", cn), cov_terms), collapse = " + ")
   } else {
-    paste(c(chain_terms(spec), spec$covariates[!spec$cov_by_cell],
+    ## the declared structure, which is the saturated one unless the formula
+    ## asked for less: the effects parameterization is where a restriction can
+    ## be expressed at all, the cell factor having no way to say it
+    tm <- declared_terms(spec)
+    paste(c(tm, spec$covariates[!spec$cov_by_cell],
             unlist(lapply(spec$covariates[spec$cov_by_cell], function(cv)
-              paste0(chain_terms(spec), ":", cv)))), collapse = " + ")
+              paste0(tm, ":", cv)))), collapse = " + ")
   }
   stats::as.formula(paste(spec$outcome, "~", rhs), env = parent.frame())
+}
+
+## The structure the formula declares, closed under ancestry: the terms the user
+## wrote, with each nested variable given its parent, since a nested variable
+## has no effect outside the strata it varies in - `inversion` alone is not a
+## term this design admits, and becomes `chord_type:inversion`. This is what is
+## fitted when the declaration asks for less than the saturated structure, and
+## it is a subset of `chain_terms()`, never more.
+declared_terms <- function(spec) {
+  fams <- spec$cat_families
+  rank_of <- function(v) { for (f in fams) if (v %in% f) return(match(v, f)); Inf }
+  canon <- function(vs) { vs <- unique(vs); vs[order(vapply(vs, rank_of, 1), vs)] }
+  labs <- lapply(strsplit(spec$term_labels, ":"), function(vs)
+    vs[vs %in% spec$cell_vars])
+  labs <- labs[lengths(labs) > 0]
+  closed <- lapply(labs, function(vs)
+    canon(unique(c(vs, unlist(lapply(vs, function(v) nest_ancestors(spec, v)))))))
+  out <- unique(vapply(closed, paste, "", collapse = ":"))
+  out[order(lengths(strsplit(out, ":")), out)]
+}
+
+## How many dimensions of the realized-cell space a set of terms spans, which is
+## what decides whether the declaration is the saturated structure or less.
+term_span <- function(spec, terms) {
+  if (!length(terms)) return(0L)
+  tab <- sentinel_first(spec, spec$cells)
+  qr(stats::model.matrix(stats::as.formula(paste("~", paste(terms, collapse = " + "))),
+                         tab))$rank
 }
 
 ## The identified chain basis, closed under ancestry: retained because the
@@ -263,6 +295,16 @@ fitting_mode <- function(spec, engine = "marginaleffects", priors = NULL) {
     return(structure("effects", reason = paste(
       "the declared priors are coordinate-aligned in effect space (independent",
       "non-elliptical, or constrained support), which pins the fitting basis")))
+  ## A declaration that asks for less than the saturated structure can only be
+  ## fitted in the effects parameterization: `~ 0 + cell` is saturated by
+  ## construction, so fitting it would silently enlarge the model the user
+  ## wrote. The cell form is kept wherever the two agree, which is whenever the
+  ## formula crosses the structure fully.
+  if (term_span(spec, declared_terms(spec)) < nrow(spec$cells))
+    return(structure("effects", reason = paste(
+      "the declared structure spans", term_span(spec, declared_terms(spec)),
+      "of the", nrow(spec$cells), "realized cells, and a restriction cannot be",
+      "written on the cell factor")))
   structure("cells", reason = "default: estimation is unconditionally well posed")
 }
 

@@ -293,12 +293,13 @@ nesting_spec <- function(data, formula, nests,
       paste("~", paste(struct_labs, collapse = " + "))), cells)
     if (qr(Xc)$rank < nrow(cells))
       message("the declared formula spans ", qr(Xc)$rank, " of the ",
-              nrow(cells), " realized cells, but the cell parameterization ",
-              "fits the saturated structure over all of them: a restriction ",
-              "written between nesting variables - `+` where the design ",
-              "admits an interaction - does not carry over. State a ",
-              "restricted mean structure as a prior, or read the fit as ",
-              "saturated.")
+              nrow(cells), " realized cells, so it asks for less than the ",
+              "saturated structure. That is fitted as written, in the effects ",
+              "parameterization - the cell factor is saturated by ",
+              "construction and has no way to express a restriction - with ",
+              "each nested variable given its parent, since a nested variable ",
+              "has no effect outside the strata it varies in. Cross the ",
+              "structure fully for the cell parameterization.")
   }
   ## A numeric nested variable is not part of the cell factor: it enters as a
   ## slope within the realized cells, which is what a continuous nesting means.
@@ -369,7 +370,14 @@ print.nesting_spec <- function(x, ...) {
       prod(vapply(x$cell_vars, function(v) length(unique(x$data[[v]])), 1L)),
       " in the full crossing\n", sep = "")
   if (length(x$covariates)) cat("Covariates:", paste(x$covariates, collapse = ", "), "\n")
-  cat("Fitting formula:", paste(deparse(cell_formula(x)), collapse = " "), "\n")
+  ## the formula that will actually be fitted, which is the effects one when the
+  ## declaration asks for less than the saturated structure
+  md <- tryCatch(as.character(fitting_mode(x)), error = function(e) "cells")
+  cat("Fitting formula:",
+      paste(deparse(cell_formula(x, md)), collapse = " "), "\n")
+  if (identical(md, "effects"))
+    cat("  (effects parameterization: the declaration asks for less than the",
+        "saturated structure)\n")
   invisible(x)
 }
 
