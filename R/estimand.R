@@ -684,7 +684,9 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
            "variable; `", target, "` is not nested within anything, so every ",
            "contrast of it crosses the structural boundary and requires a ",
            "policy. Use policy = instead.")
-    parents <- fam[seq_len(pos - 1)]
+    ## the strata of a nested variable are its ancestors, not everything
+    ## declared before it: a sibling is not one of its parents
+    parents <- nest_ancestors(spec, target)
     return(c(hdr,
       "## within-stratum contrasts: no boundary is crossed, so no policy applies",
       sprintf('levs <- levels(factor(%s$%s))', data_name, target),
@@ -975,9 +977,11 @@ nesting_spec_quiet <- function(spec, data) {
     nests = spec_nests(spec), fit = spec$fit, family = spec$family,
     random = spec$random_original, cell_name = spec$cell_name))
 }
+## The declarations, rebuilt from the parent map rather than from adjacency in
+## the family vector, which is not ancestry once a parent holds two children.
 spec_nests <- function(spec)
-  unlist(lapply(spec$cat_families, function(f)
-    if (length(f) > 1) sprintf("%s %%in%% %s", f[-1], f[-length(f)]) else character(0)))
+  if (length(spec$parent))
+    unname(sprintf("%s %%in%% %s", names(spec$parent), spec$parent)) else character(0)
 
 estimand_values <- function(model, spec, target, policy, at, contrast, data,
                             scale = "response", route = "g_computation") {
@@ -1004,7 +1008,7 @@ estimand_values <- function(model, spec, target, policy, at, contrast, data,
   }
   if (contrast == "within") {
     fam <- NULL; for (f in spec$cat_families) if (target %in% f) fam <- f
-    parents <- fam[seq_len(match(target, fam) - 1)]
+    parents <- nest_ancestors(spec, target)
     parts <- split(data, interaction(data[, parents, drop = FALSE], drop = TRUE))
     return(unlist(lapply(parts, function(d_s) {
       if (length(unique(d_s[[target]])) < 2) return(NULL)

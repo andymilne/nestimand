@@ -31,9 +31,7 @@ versions_of <- function(spec, target, cells = spec$cells) {
 ## Strata in which the target does not vary: there the comparison would leave
 ## the target's own levels and compare strata instead, under the target's label.
 degenerate_strata <- function(spec, target) {
-  fam <- NULL
-  for (f in spec$cat_families) if (target %in% f) fam <- f
-  above <- fam[seq_len(match(target, fam) - 1)]
+  above <- nest_ancestors(spec, target)
   if (!length(above)) return(NULL)
   tab <- spec$cells
   key <- do.call(paste, c(unname(lapply(above, function(v) as.character(tab[[v]]))),

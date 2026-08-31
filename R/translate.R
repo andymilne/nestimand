@@ -12,8 +12,10 @@ sentinel_levels <- function(spec) {
   out <- list()
   for (fam in spec$cat_families) {
     if (length(fam) < 2) next
-    for (k in seq_along(fam)[-1]) {
-      v <- fam[k]; above <- fam[seq_len(k - 1)]
+    for (v in fam[-1]) {
+      ## the strata of `v` are its ancestors, which is not the same as
+      ## everything before it in the family once a parent holds two children
+      above <- nest_ancestors(spec, v)
       tab <- spec$cells
       key <- do.call(paste, c(unname(lapply(above, function(a)
         as.character(tab[[a]]))), sep = "."))
@@ -89,19 +91,19 @@ cell_formula <- function(spec, mode = c("cells", "effects"), intercept = NULL) {
 chain_terms <- function(spec) {
   fams <- spec$cat_families
   rank_of <- function(v) { for (f in fams) if (v %in% f) return(match(v, f)); Inf }
-  ancestors <- function(v) {
-    for (f in fams) if (v %in% f) return(f[seq_len(match(v, f) - 1)])
-    character(0)
-  }
+  path_of <- function(v) c(nest_ancestors(spec, v), v)
   canon <- function(vars) { vars <- unique(vars); vars[order(vapply(vars, rank_of, 1), vars)] }
   labs <- spec$term_labels
   labs <- lapply(strsplit(labs, ":"), function(vs) vs[vs %in% spec$cell_vars])
   labs <- labs[lengths(labs) > 0]
-  closed <- lapply(labs, function(vs) canon(unique(c(vs, unlist(lapply(vs, ancestors))))))
+  closed <- lapply(labs, function(vs) canon(unique(unlist(lapply(vs, path_of)))))
   used <- unique(unlist(closed))
+  ## Each variable contributes its own ancestor path, so every stratum has an
+  ## intercept, and the whole family contributes the saturated term, so the
+  ## basis spans the realized cells however the family branches. On a chain
+  ## these are exactly the prefixes a > a:b > a:b:c.
   for (f in fams) if (any(f %in% used))
-    for (k in seq_along(f)) if (any(f[seq_len(k)] %in% used))
-      closed <- c(closed, list(f[seq_len(k)]))
+    closed <- c(closed, lapply(f, function(v) canon(path_of(v))), list(canon(f)))
   out <- unique(vapply(closed, paste, "", collapse = ":"))
   out[order(lengths(strsplit(out, ":")), out)]
 }

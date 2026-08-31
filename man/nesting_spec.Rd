@@ -19,7 +19,7 @@ apply_sentinel(data, var, where = NULL, sentinel = "none")
 \arguments{
   \item{data}{a data frame containing the outcome, the nesting variables, and any covariates.}
   \item{formula}{the desired model, written freely in ordinary R syntax; crossed terms are welcome and are transformed rather than fitted as given. Random-effects terms may be written here in \code{lme4}/\code{brms} syntax.}
-  \item{nests}{the nesting links, quoted or bare: \code{"inversion \%in\% chord_type"}, or \code{c(inv \%in\% chord, doub \%in\% inv)} for a chain.}
+  \item{nests}{the nesting links, quoted or bare: \code{"inversion \%in\% chord_type"}, or \code{c(inv \%in\% chord, doub \%in\% inv)} for a chain. A parent may hold several nested variables, declared one per entry or together as \code{c(inversion, X1) \%in\% chord_type}; \code{inversion + X1 \%in\% chord_type} reads the same way. Each variable is nested in exactly one parent, and \code{\%in\%} is not chained within one entry - \code{Z \%in\% inversion \%in\% chord_type} is two entries, since R would read it as \code{(Z \%in\% inversion) \%in\% chord_type}.}
   \item{fit}{the modelling engine, named for its fitting function: \code{"lm"}, \code{"glm"}, \code{"lmer"}, \code{"glmer"}, \code{"clm"}, \code{"clmm"}, \code{"brm"}. \code{"brms"} is accepted for the last, being the package's name rather than the function's.}
   \item{family}{family for the engines that need one, quoted or as a bare call, e.g. \code{cumulative("probit")}.}
   \item{random}{random-effects terms, if not written into \code{formula}.}
@@ -35,6 +35,17 @@ R's model machinery would delete those rows silently; a continuous variable in a
 non-leaf position is refused; an ordered-factor outcome sent to an engine that cannot
 model one is refused; and \code{||} on a factor is refused, because it does not give
 the diagonal covariance it is usually taken to give.
+
+A declared family is a tree: one parent may hold several nested variables, and each
+of those may hold further ones, to any depth. The strata of a nested variable are its
+own ancestors - a sibling is not one of them - so \code{inversion} and \code{X1}
+both inside \code{chord_type} are compared within chord type, not within
+chord type crossed with each other.
+
+The fitted mean structure is saturated over the realized cells whatever the formula
+says, since cells mode fits \code{~ 0 + cell}. A formula that spans fewer dimensions
+than there are cells - \code{+} between two nesting variables where the design admits
+their interaction - is therefore not a restriction, and a message says so.
 }
 \value{
 \code{nesting_spec} returns an object of class \code{nesting_spec}: a list whose
@@ -50,5 +61,10 @@ nesting families, the realized-cell table, the covariates, and the declared engi
 sp <- nesting_spec(dat, response ~ chord_type * inversion + training,
                    "inversion %in% chord_type")
 sp
+
+## two variables inside one parent, and one inside another
+sp2 <- nesting_spec(dat, response ~ chord_type * inversion * X1 * Z,
+                    c("inversion %in% chord_type", "X1 %in% chord_type",
+                      "Z %in% inversion"))
 }
 }

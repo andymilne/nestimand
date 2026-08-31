@@ -26,18 +26,56 @@ nesting_spec <- function(data, formula, nests,
     stop("fit = 'glmer' needs a `family`, e.g. family = \"binomial\"")
   if (inherits(random, "formula")) random <- paste(deparse(random[[2]]), collapse = " ")
   data_name <- { dq <- substitute(data); if (is.name(dq)) deparse(dq) else "dat" }
+  ## The declaration may arrive as text, as a character vector, or unquoted -
+  ## `inversion %in% chord_type`, `c(inversion, X1) %in% chord_type`, or the
+  ## `inversion + X1 %in% chord_type` sugar, whose parse tree does not match
+  ## its reading. Everything unquoted is carried as its own text and split
+  ## below; only a value that is already a vector of declarations is evaluated.
   ne <- substitute(nests)
-  nests <- if (is.call(ne) && identical(ne[[1]], as.name("c")) &&
-               !tryCatch(is.character(eval(ne, parent.frame())), error = function(e) FALSE))
+  ne_txt <- paste(deparse(ne), collapse = " ")
+  ne_val <- tryCatch(eval(ne, parent.frame()), error = function(e) NULL)
+  nests <- if (is.character(ne_val) && all(grepl("%in%", ne_val, fixed = TRUE)))
+    ne_val
+  else if (is.call(ne) && identical(ne[[1]], as.name("c")))
     vapply(as.list(ne)[-1], function(x) paste(deparse(x), collapse = " "), "")
-  else if (is.call(ne) && identical(ne[[1]], as.name("%in%")))
-    paste(deparse(ne), collapse = " ")
+  else if (is.call(ne) && grepl("%in%", ne_txt, fixed = TRUE))
+    ne_txt
   else eval(ne, parent.frame())
+
+  ## One declaration may name several variables nested in the same parent,
+  ## written `c(inversion, X1) %in% chord_type` or `inversion + X1 %in%
+  ## chord_type`. The declaration is carried as text and split here rather than
+  ## evaluated, which is what makes the second form work: `%in%` binds tighter
+  ## than `+`, so R parses it as `inversion + (X1 %in% chord_type)`, and only
+  ## the text says what was meant.
   parse1 <- function(s) {
-    p <- trimws(strsplit(s, "%in%")[[1]]); stopifnot(length(p) == 2)
-    stats::setNames(p[2], p[1])                       # child -> parent
+    p <- trimws(strsplit(s, "%in%")[[1]])
+    if (length(p) > 2)
+      stop("`", trimws(s), "` chains `%in%` more than once. The operator is ",
+           "left-associative, so this reads as `(", p[1], " %in% ", p[2],
+           ") %in% ", p[3], "`, which names no design. Declare one level per ",
+           "entry: c(\"", p[2], " %in% ", p[3], "\", \"", p[1], " %in% ",
+           p[2], "\").")
+    if (length(p) != 2)
+      stop("a nesting declaration reads `child %in% parent`; `", trimws(s),
+           "` has no `%in%`.")
+    kids <- trimws(strsplit(sub("^c\\((.*)\\)$", "\\1", p[1]), "[+,]")[[1]])
+    kids <- kids[nzchar(kids)]
+    bad <- kids[!grepl("^[A-Za-z.][A-Za-z0-9._]*$", kids)]
+    if (length(bad))
+      stop("the left of `%in%` names the variables nested in `", p[2],
+           "`, separated by `+` or gathered with `c()`; `",
+           paste(bad, collapse = "`, `"), "` is not a variable name. An ",
+           "interaction is not nested in anything - declare each variable of ",
+           "it separately.")
+    stats::setNames(rep(p[2], length(kids)), kids)    # child -> parent
   }
   parent <- do.call(c, lapply(nests, parse1))
+  if (anyDuplicated(names(parent)))
+    stop("`", paste(unique(names(parent)[duplicated(names(parent))]),
+                    collapse = "`, `"), "` is declared inside more than one ",
+         "parent. A variable holds one position in the structure: nest it in ",
+         "the deeper parent, which carries the other with it.")
 
   ## --- validation --------------------------------------------------------
   nest_vars <- unique(c(names(parent), parent))
@@ -60,17 +98,22 @@ nesting_spec <- function(data, formula, nests,
 
   ## --- families (roots and their chains) --------------------------------
   roots <- setdiff(parent, names(parent))
-  chain_of <- function(root) {
-    ch <- root
-    repeat {
-      kid <- names(parent)[parent == ch[length(ch)]]
-      if (!length(kid)) break
-      if (length(kid) > 1) stop("branching nests not supported: ", ch[length(ch)])
-      ch <- c(ch, kid)
+  ## A family is a tree, not only a chain: one parent may hold several nested
+  ## variables - inversion and X1 both inside chord_type - and each of those
+  ## may hold further ones. The family is returned depth-first in declaration
+  ## order, so an ancestor always precedes its descendants and the vector can
+  ## still be read as a sequence where that is all a caller needs. Real
+  ## ancestry is `nest_ancestors()`; a position in the vector is not it.
+  family_of <- function(root) {
+    walk <- function(v, seen) {
+      if (v %in% seen)
+        stop("the declared nesting is circular at `", v, "`.")
+      c(v, unlist(lapply(names(parent)[parent == v], walk, seen = c(seen, v)),
+                  use.names = FALSE))
     }
-    ch
+    walk(root, character(0))
   }
-  families <- lapply(unique(roots), chain_of)
+  families <- lapply(unique(roots), family_of)
 
   ## --- outcome and fit guards (unchanged) --------------------------------
   outcome <- deparse(formula[[2]])
@@ -158,6 +201,24 @@ nesting_spec <- function(data, formula, nests,
       cv %in% vs && any(unlist(families) %in% vs), TRUE)), TRUE)
   names(cov_by_cell) <- covariates
 
+  ## Does the declared formula ask for less than the saturated structure over
+  ## the realized cells? Cells mode fits `~ 0 + cell` whatever was written, so
+  ## `+` between two nesting variables restricts nothing. Saying so is better
+  ## than leaving it to be inferred from a residual degrees of freedom.
+  struct_labs <- unique(unlist(lapply(strsplit(labs, ":"), function(vs)
+    if (length(vs) && all(vs %in% cell_vars)) paste(vs, collapse = ":"))))
+  if (length(struct_labs)) {
+    Xc <- stats::model.matrix(stats::as.formula(
+      paste("~", paste(struct_labs, collapse = " + "))), cells)
+    if (qr(Xc)$rank < nrow(cells))
+      message("the declared formula spans ", qr(Xc)$rank, " of the ",
+              nrow(cells), " realized cells, but the cell parameterization ",
+              "fits the saturated structure over all of them: a restriction ",
+              "written between nesting variables - `+` where the design ",
+              "admits an interaction - does not carry over. State a ",
+              "restricted mean structure as a prior, or read the fit as ",
+              "saturated.")
+  }
   counts <- table(data[[cell_name]])
   if (all(counts == 1))
     message("every realized cell contains a single observation: the model will be ",
@@ -166,6 +227,7 @@ nesting_spec <- function(data, formula, nests,
             "contrasts; inference needs trial-level data.")
 
   structure(list(data = data, outcome = outcome, formula_in = formula,
+                 parent = parent,
                  families = families, cat_families = cat_families,
                  cont_nested = cont_nested, covariates = covariates,
                  cov_by_cell = cov_by_cell, term_labels = labs,
@@ -178,9 +240,28 @@ nesting_spec <- function(data, formula, nests,
             class = "nesting_spec")
 }
 
+## The ancestors of a nested variable, root first. Position in the family
+## vector is not ancestry once a parent holds more than one child, so every
+## caller that needs the strata above a variable asks here.
+nest_ancestors <- function(spec, v) {
+  p <- spec$parent
+  out <- character(0)
+  while (!is.null(p) && v %in% names(p)) { v <- unname(p[[v]]); out <- c(v, out) }
+  out
+}
+
+## A family reads as `a > b > c` while each variable holds at most one child,
+## and as its declarations otherwise, which stays unambiguous when it branches.
+family_label <- function(x, fam) {
+  kids <- vapply(fam, function(v) sum(x$parent == v), 1L)
+  if (all(kids <= 1)) return(paste(fam, collapse = " > "))
+  paste(vapply(fam[-1], function(v)
+    paste(unname(x$parent[[v]]), ">", v), ""), collapse = ", ")
+}
+
 print.nesting_spec <- function(x, ...) {
   for (i in seq_along(x$cat_families)) {
-    cat("Nesting chain:", paste(x$cat_families[[i]], collapse = " > "), "\n")
+    cat("Nesting:", family_label(x, x$cat_families[[i]]), "\n")
     cat("  realized cells:", nrow(x$cells_by_family[[i]]), "of",
         prod(vapply(x$cat_families[[i]],
                     function(v) length(unique(x$data[[v]])), 1L)),
