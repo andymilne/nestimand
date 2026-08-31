@@ -293,13 +293,17 @@ nesting_spec <- function(data, formula, nests,
       paste("~", paste(struct_labs, collapse = " + "))), cells)
     if (qr(Xc)$rank < nrow(cells))
       message("the declared formula spans ", qr(Xc)$rank, " of the ",
-              nrow(cells), " realized cells, so it asks for less than the ",
+              nrow(cells), " cell means, so it asks for less than the ",
               "saturated structure. That is fitted as written, in the effects ",
               "parameterization - the cell factor is saturated by ",
               "construction and has no way to express a restriction - with ",
               "each nested variable given its parent, since a nested variable ",
               "has no effect outside the strata it varies in. Cross the ",
-              "structure fully for the cell parameterization.")
+              "structure fully for the cell parameterization. (That is a count ",
+              "of cell means, and so of the mean structure alone; the ",
+              "coefficients nest_fit() then reports as uninformative are ",
+              "design columns, which the covariates and the random terms ",
+              "multiply.)")
   }
   ## A numeric nested variable is not part of the cell factor: it enters as a
   ## slope within the realized cells, which is what a continuous nesting means.

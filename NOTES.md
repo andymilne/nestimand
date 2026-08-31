@@ -584,6 +584,22 @@ duplicated. It now emits `chain_priors(sp, regularize = NULL)` where the user ha
 supplied one. Checked by evaluating the emitted expression and handing the result to
 `brms::validate_prior()`, which accepts it, with and without a prior of the user's.
 
+### Two counts of two different things, neither saying which
+
+`nesting_spec()` reported "spans 14 of the 20 realized cells" and `nest_fit()` then
+reported 24 coefficients held at zero, and nothing said the two were counting
+different things. They are consistent: 14 of 20 is the rank of the declared *mean
+structure* over the cell means, while 24 is a count of *design columns* - 12 in the
+mean structure and 12 in the random structure for one grouping factor, each structural
+term being crossed with the covariates it interacts with, so one condition that does
+not exist can carry several columns. On this design the fixed 12 are 6 structural
+zeros and 6 identification constraints, and the random side repeats them.
+
+Both messages now say what they count. The fit message breaks the total down by where
+the coefficients sit - the mean structure, then each grouping factor by name - and
+says outright that it counts coefficients rather than cells; the spec message says it
+counts cell means, and that the covariates and random terms multiply them.
+
 ## Not yet implemented
 
 The prior translation and audit

@@ -3026,6 +3026,38 @@ chk("constraints: the block the emitted code builds has no duplicate entry",
         "brms::set_prior(\"normal(0, 1)\", class = \"b\"))")), en)
       k <- paste(pr$class, pr$coef, pr$group, pr$dpar, pr$resp, pr$nlpar)
       !any(duplicated(k)) && sum(pr$class == "b" & pr$coef == "") == 1 })
+chk("constraints: the count is broken down by where the coefficients are",
+    { z <- character(0)
+      withCallingHandlers(res_code(),
+        message = function(m) { z <<- c(z, conditionMessage(m))
+                                invokeRestart("muffleMessage") })
+      grepl("in the mean structure", paste(z, collapse = " ")) })
+chk("constraints: and says it counts coefficients rather than cells",
+    { z <- character(0)
+      withCallingHandlers(res_code(),
+        message = function(m) { z <<- c(z, conditionMessage(m))
+                                invokeRestart("muffleMessage") })
+      grepl("counts coefficients, not cells", paste(z, collapse = " ")) })
+chk("constraints: a random structure is counted against its grouping factor",
+    { sp <- suppressMessages(nesting_spec(re_dat,
+        response ~ chord_type * (inversion + X1) +
+          (chord_type * (inversion + X1) | participant),
+        "inversion %in% chord_type", fit = "brm"))
+      z <- character(0)
+      withCallingHandlers(nest_fit(sp, dry_run = TRUE),
+        message = function(m) { z <<- c(z, conditionMessage(m))
+                                invokeRestart("muffleMessage") })
+      cp <- chain_priors(sp)
+      n <- sum(cp$table$part == "random")
+      n > 0 && grepl(sprintf("%d in the random structure for `participant`", n),
+                     paste(z, collapse = " ")) })
+chk("saturation: the spec message says it is counting cell means",
+    grepl("cell means",
+          paste(utils::capture.output(
+            nesting_spec(cross_dat, response ~ chord_type * (inversion + top),
+                         "inversion %in% chord_type"), type = "message"),
+            collapse = " ")))
+
 chk("constraints: a cell fit needs none of this",
     { sp <- suppressMessages(nesting_spec(cross_dat,
         response ~ chord_type * inversion * top, "inversion %in% chord_type",

@@ -272,16 +272,34 @@ nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "
     user_b <- inherits(user_prior, "brmsprior") && any(user_prior$class == "b")
     cp <- chain_priors(spec, regularize = if (user_b) NULL else "normal(0, 5)")
     if (nrow(cp$table)) {
-      n_str <- sum(cp$table$kind == "structural zero")
-      n_id  <- sum(cp$table$kind == "identification constraint")
-      message("the effects parameterization carries ", nrow(cp$table),
-              " coefficient(s) the data cannot inform, held at zero by ",
-              "constant(0) priors so that the posterior is proper: ", n_str,
-              " structural zero(s) - conditions the design does not realize - ",
-              "and ", n_id, " identification constraint(s) - a coding choice, ",
+      ## Say where the coefficients are as well as how many, since the count is
+      ## of design columns and the declaration was reported in cell dimensions:
+      ## the two differ, and comparing them without that is confusing. A
+      ## structural term is crossed with each covariate it interacts with, so
+      ## one uninformative condition can carry several columns, and the random
+      ## side repeats the whole set for every grouping factor.
+      tb <- cp$table
+      n_str <- sum(tb$kind == "structural zero")
+      n_id  <- sum(tb$kind == "identification constraint")
+      where <- c(
+        if (any(tb$part == "fixed"))
+          sprintf("%d in the mean structure", sum(tb$part == "fixed")),
+        unlist(lapply(unique(stats::na.omit(tb$group)), function(g)
+          sprintf("%d in the random structure for `%s`",
+                  sum(tb$part == "random" & tb$group %in% g), g))))
+      message("the effects parameterization states the structure as ",
+              "coefficients rather than as cells, and carries ", nrow(tb),
+              " of them the data cannot inform - ",
+              paste(where, collapse = ", "), ". Of these, ", n_str,
+              " are structural zeros - conditions the design does not realize - ",
+              "and ", n_id, " are identification constraints, a coding choice ",
               "like a reference level, which leaves every estimand unchanged. ",
-              "chain_priors(", spec_name, ") lists them and show_code() prints ",
-              "the block; the remaining coefficients take ",
+              "All are held at zero by constant(0) priors, so that the ",
+              "posterior is proper. This counts coefficients, not cells: a ",
+              "structural term is crossed with each covariate it interacts ",
+              "with, so one condition that does not exist can carry several ",
+              "columns. chain_priors(", spec_name, ") lists them and ",
+              "show_code() prints the block; the rest take ",
               if (user_b) "the prior you supplied" else "normal(0, 5)",
               ", and passing `priors =` yourself replaces all of this.")
       priors <- cp
