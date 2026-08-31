@@ -127,7 +127,7 @@ of weights names a different intervention, and so a different estimand.
 \tabular{ll}{
   \code{"equal"} \tab each realized version counts equally \cr
   \code{"proportional"} \tab versions counted at their frequency in the data \cr
-  \code{"hierarchical"} \tab equal at each level of the declared structure, not over the leaves; differs from \code{"equal"} only at depth two and beyond. Variables sharing a parent are independent choices, so their levels multiply and the two policies agree over a set of siblings \cr
+  \code{"hierarchical"} \tab equal at each node of the declared structure, not over the leaves. Each variable's split is made conditional on its own ancestors, so variables sharing a parent are independent choices whose probabilities multiply, and the weighting does not depend on the order the declarations were written. Over a set of siblings it therefore coincides with \code{"equal"}; it separates from it where one variable is nested inside another, since the number of levels to choose among then depends on the parent's value \cr
   \code{"nominated"} \tab all weight on one version, named in \code{at} \cr
   a named vector \tab weights supplied from outside the design, such as corpus frequencies \cr
 }

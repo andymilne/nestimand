@@ -330,6 +330,28 @@ how the declaration was typed - the rungs are ordered by depth and then by name,
 the same design emits the same formula however it was written. Run here on an `lmer`
 fit: five components, one per rung, and the `cells` form is unchanged.
 
+### Hierarchical weighting under branching
+
+`hierarchical_weights()` split the version *label* position by position, so with two
+variables under one parent it read one of them as dividing the other, and the weights
+depended on which was declared first: for versions `0.a, 0.b, 1.a, 2.a` it gave
+(1/6, 1/6, 1/3, 1/3) reading inversion first and (1/6, 1/2, 1/6, 1/6) reading X1
+first. The fix is the same one as elsewhere - condition on a variable's own ancestors
+rather than on its position - so the function now works from the cell table:
+
+    w(cell) proportional to prod over v of 1 / n(v | v's ancestors in that cell)
+
+which is the generative reading of the policy, one uniform draw per node of the
+declared structure. Siblings are then independent choices whose probabilities
+multiply; the weights are renormalized over the realized versions, as everywhere
+else. Consequences, all checked: on a chain the numbers are unchanged (the depth-one
+anchor -0.6779 and the depth-two anchor -0.6283 both hold); over a set of siblings
+hierarchical coincides with equal, which is right, since with independent draws and a
+complete crossing every leaf has the same probability; and it still separates from
+equal wherever one variable is nested inside another. Working from the cell table
+also removes a latent fragility - the old version re-split dot-joined labels, which a
+level containing a full stop would have broken.
+
 ## Not yet implemented
 
 The prior translation and audit

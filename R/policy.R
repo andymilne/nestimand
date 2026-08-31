@@ -85,8 +85,10 @@ nest_policy <- function(spec, target, policy = "equal", at = NULL, data = spec$d
           stats::setNames(cnt / sum(cnt), vs[[s]])
         }) |> stats::setNames(names(vs))
       },
-      hierarchical = lapply(vs, function(v) stats::setNames(
-        hierarchical_weights(v), v)),
+      hierarchical = {
+        hw <- hierarchical_weights(spec, target, cells)
+        stats::setNames(lapply(names(vs), function(s) hw[[s]][vs[[s]]]), names(vs))
+      },
       nominated = lapply(vs, function(v) {
         if (length(v) == 1L) return(stats::setNames(1, v))  # degenerate stratum
         pick <- version_key(spec, target, at, v)
@@ -129,18 +131,33 @@ nest_policy <- function(spec, target, policy = "equal", at = NULL, data = spec$d
 
 ## uniform at each level of the chain, rather than uniform over the leaves:
 ## the two coincide at depth one and differ at depth two and beyond.
-hierarchical_weights <- function(v) {
-  parts <- strsplit(v, ".", fixed = TRUE)
-  d <- max(lengths(parts))
-  w <- rep(1, length(v))
-  for (k in seq_len(d)) {
-    key <- vapply(parts, function(x) paste(utils::head(x, k - 1), collapse = "."), "")
-    lev <- vapply(parts, function(x) paste(utils::head(x, k), collapse = "."), "")
-    nsib <- ave_unique(lev, key)
-    w <- w / nsib
-  }
-  w / sum(w)
+## Hierarchical weighting: mass splits equally at each node of the declared
+## structure, not equally over the leaves. The split for a variable is made
+## conditional on that variable's own ancestors - never on its position among
+## the other variables - so variables sharing a parent are independent choices
+## whose probabilities multiply, and the result does not depend on the order the
+## declarations were written. On a chain this is the successive split down the
+## levels, unchanged. Where the realized combinations are fewer than that
+## product, the weights are renormalized over what exists, as everywhere else in
+## the package: a version that does not occur cannot carry mass.
+hierarchical_weights <- function(spec, target, cells = spec$cells) {
+  vars <- setdiff(spec$cell_vars, target)
+  lab <- if (length(vars))
+    do.call(paste, c(unname(lapply(vars, function(v) as.character(cells[[v]]))),
+                     sep = ".")) else rep("", nrow(cells))
+  lapply(split(seq_len(nrow(cells)), as.character(cells[[target]])), function(i) {
+    w <- rep(1, length(i))
+    for (v in vars) {
+      anc <- intersect(nest_ancestors(spec, v), c(vars, target))
+      key <- if (length(anc))
+        do.call(paste, c(unname(lapply(anc, function(a)
+          as.character(cells[[a]][i]))), sep = "\r")) else rep("", length(i))
+      w <- w / ave_unique(as.character(cells[[v]][i]), key)
+    }
+    stats::setNames(w / sum(w), lab[i])
+  })
 }
+
 ave_unique <- function(lev, key)
   as.numeric(stats::ave(seq_along(lev), key,
                         FUN = function(i) length(unique(lev[i]))))

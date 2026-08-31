@@ -2574,6 +2574,37 @@ chk("branching: the declaration round-trips through spec_nests()",
     setequal(spec_nests(sp_d),
              c("inversion %in% chord_type", "X1 %in% chord_type",
                "Z %in% inversion")))
+## Hierarchical weighting over a branching family: each variable's split is
+## conditional on its own ancestors, so siblings are independent choices whose
+## probabilities multiply, and no order of declaration is privileged.
+h_a <- nesting_spec(deep, response ~ chord_type * inversion * X1 * Z,
+                    c("inversion %in% chord_type", "X1 %in% chord_type",
+                      "Z %in% inversion"))
+h_b <- nesting_spec(deep, response ~ chord_type * inversion * X1 * Z,
+                    c("X1 %in% chord_type", "inversion %in% chord_type",
+                      "Z %in% inversion"))
+chk("hierarchical: the split is conditional on ancestry, not on the order declared",
+    { pa <- nest_policy(h_a, "chord_type", "hierarchical")$p[["maj"]]
+      pb <- nest_policy(h_b, "chord_type", "hierarchical")$p[["maj"]]
+      isTRUE(all.equal(sort(unname(pa)), sort(unname(pb)))) })
+chk("hierarchical: over a set of siblings it agrees with equal",
+    { sp_s <- nesting_spec(deep[deep$Z %in% c("none", "z1"), ],
+                           response ~ chord_type * inversion * X1,
+                           c(inversion, X1) %in% chord_type)
+      p <- nest_policy(sp_s, "chord_type", "hierarchical")$p[["maj"]]
+      max(abs(p - 1 / length(p))) < 1e-12 })
+chk("hierarchical: a ragged support is renormalized over what exists",
+    { d <- deep[!(deep$inversion != "0" & deep$X1 == "b"), ]   # X1 = b only at inversion 0
+      sp_r <- nesting_spec(d[d$Z %in% c("none", "z1"), ],
+                           response ~ chord_type * inversion * X1,
+                           c(inversion, X1) %in% chord_type)
+      p <- nest_policy(sp_r, "chord_type", "hierarchical")$p[["maj"]]
+      abs(sum(p) - 1) < 1e-12 && max(abs(p - 1 / length(p))) < 1e-12 })
+chk("hierarchical: it still separates from equal where one variable is inside another",
+    { ph <- nest_policy(h_a, "chord_type", "hierarchical")$p[["maj"]]
+      pe <- nest_policy(h_a, "chord_type", "equal")$p[["maj"]]
+      max(abs(ph - pe)) > 1e-6 })
+
 ## The grouping-chain submodel over a branching family: siblings are crossed,
 ## not ranked, since the design does not say which of them divides the other.
 re_dat <- local({
