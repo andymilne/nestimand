@@ -36,6 +36,30 @@ m  <- nest_fit(sp)
 e  <- estimand(m, chord_type, policy = "equal")
 show_code(e)}
 }
+\section{Deeper and branching structures}{
+A nested variable may itself hold nested variables, to any depth, and one parent
+may hold several. Each link is one declaration, and links sharing a parent may be
+gathered:
+
+\preformatted{## inversion and X1 are both undefined for augmented triads;
+## Z exists only within an inversion
+sp <- nesting_spec(dat, rating ~ chord_type * inversion * X1 * Z,
+                   c("inversion \%in\% chord_type", "X1 \%in\% chord_type",
+                     "Z \%in\% inversion"))
+
+## the two siblings, gathered - these three are the same declaration
+c(inversion, X1) \%in\% chord_type
+inversion + X1 \%in\% chord_type
+c("inversion \%in\% chord_type", "X1 \%in\% chord_type")}
+
+The strata of a nested variable are its own ancestors, and a sibling is not one
+of them: \code{estimand(m, X1, contrast = "within")} compares the levels of
+\code{X1} within each chord type, while \code{estimand(m, Z, contrast =
+"within")} compares within each chord type and inversion. A variable declared
+inside two parents is refused, as is \code{\%in\%} chained within one entry -
+\code{Z \%in\% inversion \%in\% chord_type} is two declarations, since R reads
+it as \code{(Z \%in\% inversion) \%in\% chord_type}.
+}
 \section{As the analysis requires}{
 \tabular{ll}{
   \code{\link{latent_estimand}} \tab the contrast as a linear functional: exact, and necessary for ordinal fits \cr

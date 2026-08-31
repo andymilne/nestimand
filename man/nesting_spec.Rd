@@ -62,9 +62,21 @@ sp <- nesting_spec(dat, response ~ chord_type * inversion + training,
                    "inversion %in% chord_type")
 sp
 
-## two variables inside one parent, and one inside another
+## Two variables inside one parent, and one inside another. The declarations
+## are given one per entry, bare or quoted.
 sp2 <- nesting_spec(dat, response ~ chord_type * inversion * X1 * Z,
                     c("inversion %in% chord_type", "X1 %in% chord_type",
                       "Z %in% inversion"))
+sp2                                   # chord_type > inversion, chord_type > X1,
+                                      # inversion > Z
+
+## Links sharing a parent may be gathered instead. These three declare the same
+## structure, and `+` is read as a list of children, not as a model term.
+nesting_spec(dat, response ~ chord_type * inversion * X1,
+             c(inversion, X1) %in% chord_type)
+nesting_spec(dat, response ~ chord_type * inversion * X1,
+             inversion + X1 %in% chord_type)
+nesting_spec(dat, response ~ chord_type * inversion * X1,
+             c("inversion %in% chord_type", "X1 %in% chord_type"))
 }
 }

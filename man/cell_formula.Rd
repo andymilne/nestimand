@@ -32,7 +32,7 @@ fitting_mode(spec, engine = "marginaleffects", priors = NULL)
 }
 \arguments{
   \item{spec}{a \code{nesting_spec} object.}
-  \item{mode}{\code{"cells"} places the whole categorical structure on one realized-cell factor; \code{"effects"} uses the ancestry-closed chain form, whose coefficients read as effects.}
+  \item{mode}{\code{"cells"} places the whole categorical structure on one realized-cell factor; \code{"effects"} uses the ancestry-closed form, whose coefficients read as effects: each variable contributes its ancestor path and each family its saturated term, which is the prefix chain \code{a}, \code{a:b}, \code{a:b:c} where nothing branches.}
   \item{intercept}{whether the coding carries an intercept. Chosen from the family when \code{NULL}: ordinal families already carry one in their thresholds.}
   \item{newdata}{a grid or data frame in the original variable space.}
   \item{unrealized}{what to do with rows naming combinations that do not exist: drop them, or stop.}

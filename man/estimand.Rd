@@ -34,7 +34,7 @@ engine_types(model = NULL)
   \item{spec}{a \code{nesting_spec} object, needed only for a model fitted by calling the engine directly: a fit from \code{\link{nest_fit}} carries its own.}
   \item{target}{the variable whose levels are contrasted, quoted or bare. Several may be named at once, and the formula operators carry their usual meaning: \code{c(chord_type, inversion)} computes each in turn, \code{chord_type:inversion} gives the interaction alone, and \code{chord_type * inversion} gives both variables and their interaction, as in a model formula.}
   \item{policy}{a distribution over the versions of a compound condition: one of \code{"equal"}, \code{"proportional"}, \code{"hierarchical"}, \code{"nominated"}, or a named numeric vector of masses.}
-  \item{at}{for \code{policy = "nominated"}, a named vector giving the version, e.g. \code{c(inversion = "0")}.}
+  \item{at}{for \code{policy = "nominated"}, a named vector giving the version: one level for every variable nested below the target, so \code{c(inversion = "0")} at depth one and \code{c(inversion = "0", X1 = "a", Z = "z1")} where the target has three variables below it.}
   \item{data}{data over which the estimand is averaged; for \code{add_bounds}, the data the bounds are computed over.}
   \item{subsample}{average over a random sample of this many units rather than all of them, on the G-computation route. The same quantity, with Monte Carlo error in place of exactness; the seed is written into the emitted code, so the same rows come back. Which conditions the sampled rows happen to carry does not matter, since every row is crossed with every realized cell; and a proportional policy is counted from the whole data rather than from the sample, so the weights are unaffected.}
   \item{type}{the quantity to contrast. \code{"eta"} is nestimand's own name for
@@ -127,7 +127,7 @@ of weights names a different intervention, and so a different estimand.
 \tabular{ll}{
   \code{"equal"} \tab each realized version counts equally \cr
   \code{"proportional"} \tab versions counted at their frequency in the data \cr
-  \code{"hierarchical"} \tab equal at each level of a nesting chain, not over the leaves; differs from \code{"equal"} only at depth two and beyond \cr
+  \code{"hierarchical"} \tab equal at each level of the declared structure, not over the leaves; differs from \code{"equal"} only at depth two and beyond. Variables sharing a parent are independent choices, so their levels multiply and the two policies agree over a set of siblings \cr
   \code{"nominated"} \tab all weight on one version, named in \code{at} \cr
   a named vector \tab weights supplied from outside the design, such as corpus frequencies \cr
 }
@@ -190,5 +190,18 @@ m  <- nest_fit(sp)
 e  <- estimand(m, chord_type, policy = "equal")   # the fit carries its spec
 e
 show_code(e)
+
+## A branching, three-deep structure. The target decides which strata the
+## contrast is pooled over: X1 within each chord type, Z within each chord
+## type and inversion.
+sp2 <- nesting_spec(dat, response ~ chord_type * inversion * X1 * Z,
+                    c("inversion %in% chord_type", "X1 %in% chord_type",
+                      "Z %in% inversion"))
+m2 <- nest_fit(sp2)
+estimand(m2, X1, contrast = "within")             # one contrast per chord type
+estimand(m2, Z,  contrast = "within")             # per chord type and inversion
+estimand(m2, Z,  policy = "equal")                # pooled, and so needs a policy
+estimand(m2, chord_type, policy = "nominated",
+         at = c(inversion = "0", X1 = "a", Z = "z1"))
 }
 }

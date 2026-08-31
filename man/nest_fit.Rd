@@ -27,7 +27,7 @@ has_thresholds(spec)
 \arguments{
   \item{spec}{a \code{nesting_spec} object.}
   \item{mode}{the parameterization; chosen by \code{\link{fitting_mode}} when \code{NULL}.}
-  \item{random_structure}{how a declared random structure is translated: \code{"cells"} for an unstructured covariance over realized cells, \code{"chain"} for the grouping-factor submodel, \code{"chain_slope"} for the chain counterpart of the cell covariance, \code{"as_declared"} to pass it through unchanged.}
+  \item{random_structure}{how a declared random structure is translated: \code{"cells"} for an unstructured covariance over realized cells, \code{"chain"} for the grouping-factor submodel - one rung per ancestor path, so a chain gives \code{(1|p) + (1|p:a) + (1|p:a:b)} and siblings enter crossed, \code{(1|p:a:b) + (1|p:a:c) + (1|p:a:b:c)}, neither of them made the coarser division - \code{"chain_slope"} for the chain counterpart of the cell covariance, \code{"as_declared"} to pass it through unchanged.}
   \item{data}{data to fit; the spec's data by default.}
   \item{engine}{the package the estimands will be computed with, which can affect the parameterization: \code{"marginaleffects"}, the default, works from the cell factor, while \code{"emmeans"} reads the nesting from the formula and so requires the chain form.}
   \item{priors}{a \code{\link{nest_prior}} or \code{\link{chain_priors}} object - a nestimand prior, translated or derived. It governs the mean structure; \pkg{brms}'s own \code{prior} remains the route to everything else - the random-effects standard deviations and correlations, the thresholds, sigma - and the two are combined into one call. A \code{class = "b"} entry in \code{prior} draws a note, since those coefficients are the realized conditions rather than the effects of the original variables, and supplying one alongside \code{priors} is refused as two priors for the same structure. It sits after \code{...} and must be named in full, so that \pkg{brms}'s own \code{prior} argument reaches the engine rather than being partial-matched to it.}
@@ -44,6 +44,20 @@ on a fully crossed variable, or a hand-written grouping structure is returned ex
 declared. A structure varying with a nested variable but not with its parent is refused
 rather than enlarged, and the alternatives are named. A covariance-structure wrapper such
 as \code{diag()} survives translation.
+
+The \code{"chain"} rungs are ordered by depth and then by name, so a design emits the
+same formula however its declarations were written; the \code{"cells"} form does not
+depend on the order in any case.
+
+\preformatted{sp <- nesting_spec(dat, rating ~ chord_type * inversion * X1 +
+                          (chord_type * inversion * X1 | participant),
+                   c(inversion, X1) \%in\% chord_type, fit = "lmer")
+random_terms(sp, "cells")
+## (0 + cell | participant)
+random_terms(sp, "chain")
+## (1 | participant) + (1 | participant:chord_type) +
+## (1 | participant:chord_type:X1) + (1 | participant:chord_type:inversion) +
+## (1 | participant:chord_type:X1:inversion)}
 }
 \value{
 \code{nest_fit} the fitted model, classed \code{nestimand_fit} behind the
