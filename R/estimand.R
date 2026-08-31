@@ -86,26 +86,34 @@ estimand <- function(model, target, policy = "equal", at = NULL,
       on.exit(assign("star", FALSE, envir = nestimand_env), add = TRUE)
       out <- lapply(vs, function(k) { c2 <- cl; c2$target <- k; once(eval(c2, .env)) })
       names(out) <- vs
-      ## The interaction is defined by its own comparison matrix, so a
-      ## `hypothesis` meant for the marginal contrasts does not apply to it -
-      ## but it need not be dropped either: on grouped output the interaction
+      ## `*` crosses, as in a formula: every variable on its own and every
+      ## interaction among them, `a * b * c` giving a, b, c, a:b, a:c, b:c and
+      ## a:b:c. Interactions are taken in order of the number of variables, so
+      ## the table reads from the simplest comparison to the most specific.
+      subsets <- unlist(lapply(2:length(vs), function(k)
+        utils::combn(vs, k, simplify = FALSE)), recursive = FALSE)
+      ## The interactions are defined by their own comparison matrices, so a
+      ## `hypothesis` meant for the marginal contrasts does not apply to them -
+      ## but it need not be dropped either: on grouped output an interaction
       ## is formed within each group, which is the same restriction the
       ## hypothesis was asking for.
       parts <- c(
         if (has_hyp)
           "your `hypothesis` sets the comparisons for the marginal contrasts, and their labels and direction come from marginaleffects",
         if (!identical(policy, "equal"))
-          "the policy weights the marginal contrasts and not the interaction, which uses only cells that exist",
-        "the interaction has its own comparison matrix, formed within each group where the output is grouped")
-      message("`", paste(vs, collapse = " * "), "` gives ",
-              c("one", "two", "three", "four", "five", "six")[
-                min(length(vs) + 1L, 6L)],
-              " results - each variable on its own, and their interaction: ",
+          "the policy weights the marginal contrasts and not the interactions, which use only cells that exist",
+        "each interaction has its own comparison matrix, formed within each group where the output is grouped")
+      message("`", paste(vs, collapse = " * "), "` crosses, as a formula does: ",
+              length(vs) + length(subsets), " results - each variable on its ",
+              "own, then ", if (length(subsets) == 1L) "their interaction"
+              else paste("every interaction among them, from the",
+                         "two-variable ones to the whole set"), ": ",
               paste(parts, collapse = "; "), ".")
-      out <- c(out, list(once({ c2 <- cl; c2$target <- vs
-                                c2$contrast <- "interaction"
-                                c2$hypothesis <- NULL; eval(c2, .env) })))
-      names(out) <- c(vs, paste(vs, collapse = ":"))
+      out <- c(out, lapply(subsets, function(k)
+        once({ c2 <- cl; c2$target <- k
+               c2$contrast <- "interaction"
+               c2$hypothesis <- NULL; eval(c2, .env) })))
+      names(out) <- c(vs, vapply(subsets, paste, "", collapse = ":"))
       return(collect_estimands(out))
     }
   }

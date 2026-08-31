@@ -433,14 +433,32 @@ failure came out as "no two levels of `chord_type` share two levels of `inversio
 false of the design, and pointing at the wrong thing. `estimand(m, a * b * c)` reaches
 this, since `*` returns each variable on its own and their interaction.
 
-It now takes two levels of every variable and forms the product of the simple
-contrasts over the 2^n corners they define, which is a difference of differences at
-n = 2 and a difference of those at n = 3. The corner set must be realized, which is
+`*` also returned only the whole-set interaction, where a formula crosses: it now
+returns every interaction among the targets, so `a * b * c` gives seven results - the
+three variables, the three pairs, and the triple - in the order a formula writes them.
+
+`interaction_matrix()` now takes two levels of every variable and forms the product of
+the simple contrasts over the 2^n corners they define, which is a difference of
+differences at n = 2 and a difference of those at n = 3. The corner set must be realized, which is
 what excludes the augmented stratum here: nine three-way contrasts among dim, min and
 maj. Two-variable output is unchanged, in values, labels and order. A design with no
 realized corner set now says so and says which variables it could not span; more than
 500 contrasts is refused with the alternatives named, since the count grows as the
 product of the pair counts.
+
+### An interaction over some of the design variables averaged nothing
+
+Reached as soon as the cell factor held a variable the interaction did not name -
+which the automatic fold made common. `latent_contrast_matrix()` built its comparison
+matrix from the raw cell table, so when several cells shared one combination of the
+targets, `match()` took the first and the contrast was formed at one arbitrary level
+of the remaining variables. On a demonstration design with a large three-way effect
+the interaction of chord type and inversion came out 0.515 where the answer is 3.278,
+and the prediction route agreed with it, since on an identity link it takes the same
+shortcut through the coefficients. The rows are now averaged within each combination
+of the targets, as the prediction route does by averaging predictions, and the two
+routes agree with the value computed by hand from the cell means. Two more
+`deg$vars[1]` stratum keys were fixed in the same function.
 
 ## Not yet implemented
 

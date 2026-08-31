@@ -1782,7 +1782,7 @@ chk("targets: a * b with a hypothesis returns all three, and says how they divid
            message = function(m) { z <<- c(z, conditionMessage(m))
                                    invokeRestart("muffleMessage") })
       identical(names(r), c("chord_type", "inversion", "chord_type:inversion")) &&
-      any(grepl("gives three results", z)) })
+      any(grepl("crosses, as a formula does: 3 results", z)) })
 chk("targets: without a hypothesis all three parts come back",
     { r <- estimand(mf, chord_type * inversion, bounds = FALSE,
                     self_check = FALSE)
@@ -1793,7 +1793,7 @@ chk("messages: a note is said once, not once per part",
         hypothesis = "reference", bounds = FALSE, self_check = FALSE),
         message = function(m) { z <<- c(z, conditionMessage(m))
                                 invokeRestart("muffleMessage") })
-      sum(grepl("gives three results", z)) == 1 &&
+      sum(grepl("crosses, as a formula does", z)) == 1 &&
       !any(grepl("using your `hypothesis`", z)) })
 chk("messages: the ordinal note does not fire on a gaussian fit",
     { z <- character(0)
@@ -2014,7 +2014,7 @@ chk("messages: a star call says once what its parts would each repeat",
         self_check = FALSE),
         message = function(m) { z <<- c(z, conditionMessage(m))
                                 invokeRestart("muffleMessage") })
-      length(z) == 1 && grepl("gives three results", z) &&
+      length(z) == 1 && grepl("crosses, as a formula does: 3 results", z) &&
       grepl("hypothesis", z) && grepl("policy", z) })
 chk("messages: a single target still explains itself",
     { z <- character(0)
@@ -2774,11 +2774,29 @@ chk("interaction: it matches the cell means it is a combination of",
               (k("dim","1","t2") - k("dim","1","t1") -
                k("dim","0","t2") + k("dim","0","t1"))
       isTRUE(all.equal(as.numeric(mu %*% H[, cn]), hand)) })
-chk("interaction: `a * b * c` returns each variable and their interaction",
+chk("interaction: `a * b * c` crosses, as a formula does",
     { e <- estimand(m_i3, chord_type * inversion * top, policy = "equal",
                     bounds = FALSE, self_check = FALSE)
       identical(names(e), c("chord_type", "inversion", "top",
-                            "chord_type:inversion:top")) })
+                            "chord_type:inversion", "chord_type:top",
+                            "inversion:top", "chord_type:inversion:top")) })
+chk("interaction: an interaction over some of the design variables averages over the rest",
+    { ## the target names two of the three cell variables, so each combination
+      ## covers two cells; the contrast is formed on their average, and taking
+      ## one of them would answer at an arbitrary level of the third
+      e <- as.data.frame(estimand(m_i3, chord_type:inversion, type = "eta",
+                                  bounds = FALSE, self_check = FALSE))
+      b <- coef(m_i3)
+      av <- function(a, i) mean(c(b[[paste0("cell", a, ".", i, ".t1")]],
+                                  b[[paste0("cell", a, ".", i, ".t2")]]))
+      hand <- (av("min", "1") - av("min", "0")) - (av("dim", "1") - av("dim", "0"))
+      isTRUE(all.equal(e$estimate[e$term == "(min - dim) x (1 - 0)"], hand)) })
+chk("interaction: the two routes agree on it, as they must on a linear scale",
+    { a <- as.data.frame(estimand(m_i3, chord_type:inversion, type = "eta",
+                                  bounds = FALSE, self_check = FALSE))
+      b <- as.data.frame(estimand(m_i3, chord_type:inversion,
+                                  bounds = FALSE, self_check = FALSE))
+      isTRUE(all.equal(a$estimate[order(a$term)], b$estimate[order(b$term)])) })
 chk("interaction: a design with no such set of corners says so, and why",
     { ## every variable has two levels, but no eight conditions carry two of
       ## each: the design cannot answer a three-way comparison

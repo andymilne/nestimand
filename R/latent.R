@@ -150,13 +150,27 @@ latent_contrast_matrix <- function(model, spec, target, policy = "equal",
   if (is.null(cells) && !identical(contrast, "interaction")) {
     dg <- degenerate_strata(spec, target[length(target)])
     cells <- if (is.null(dg) || !length(dg$drop)) spec$cells else
-      spec$cells[as.character(spec$cells[[dg$vars[1]]]) %in% dg$keep, , drop = FALSE]
+      spec$cells[deg_key(spec$cells, dg$vars) %in% dg$keep, , drop = FALSE]
   }
   if (identical(contrast, "interaction")) {
     dg <- degenerate_strata(spec, target[length(target)])
     cells <- if (is.null(dg) || !length(dg$drop)) spec$cells else
-      spec$cells[as.character(spec$cells[[dg$vars[1]]]) %in% dg$keep, , drop = FALSE]
+      spec$cells[deg_key(spec$cells, dg$vars) %in% dg$keep, , drop = FALSE]
     M <- cell_design_rows(spec, data, cells, model)
+    ## Several cells can share one combination of the targets, whenever the
+    ## design holds a variable the interaction does not name. The contrast is
+    ## then formed on their average, which is what the prediction route does by
+    ## averaging predictions; matching a combination to the first cell that
+    ## carries it would answer the question at one arbitrary level of the
+    ## others, silently.
+    key <- do.call(paste, c(unname(lapply(target, function(v)
+      as.character(cells[[v]]))), sep = "\r"))
+    if (anyDuplicated(key)) {
+      idx <- split(seq_along(key), key)
+      M <- do.call(rbind, lapply(idx, function(i) colMeans(M[i, , drop = FALSE])))
+      cells <- cells[vapply(idx, `[`, 1L, 1L), target, drop = FALSE]
+      rownames(M) <- NULL; rownames(cells) <- NULL
+    }
     H <- interaction_matrix(cells, target)
     C <- t(H) %*% M
     rownames(C) <- colnames(H)
