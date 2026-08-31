@@ -36,6 +36,32 @@ random_slope_rank <- function(spec, data = spec$data) {
 boundary_vars <- function(spec)
   unlist(lapply(spec$cat_families, function(f) f[-1]), use.names = FALSE)
 
+## The parts of the declared random terms, read from the parsed expression
+## rather than by matching parentheses in the text. A bar whose left side is
+## itself bracketed - `(chord_type * (inversion + top) | participant)`, which is
+## how anyone writes a slope over a set of variables - defeated the regex: it
+## matched the inner group, and the term arrived with no grouping factor at all.
+## A covariance-structure wrapper such as `diag(...)` is peeled off and kept, to
+## be restored after translation.
+bar_terms_of <- function(bars) {
+  e <- str2lang(paste("~", bars))[[2]]
+  flat <- function(z) if (is.call(z) && identical(as.character(z[[1]]), "+"))
+    c(flat(z[[2]]), flat(z[[3]])) else list(z)
+  lapply(flat(e), function(z) {
+    wrapper <- ""
+    while (is.call(z) && !as.character(z[[1]]) %in% c("|", "||")) {
+      if (!identical(as.character(z[[1]]), "(")) wrapper <- as.character(z[[1]])
+      z <- z[[2]]
+    }
+    if (!is.call(z) || !as.character(z[[1]]) %in% c("|", "||"))
+      stop("`", paste(deparse(z), collapse = " "), "` is not a random-effects ",
+           "term: a bar and a grouping factor were expected.")
+    list(wrapper = wrapper, op = as.character(z[[1]]),
+         lhs = paste(deparse(z[[2]]), collapse = " "),
+         grp = paste(deparse(z[[3]]), collapse = " "))
+  })
+}
+
 random_terms <- function(spec, structure = c("cells", "chain", "chain_slope",
                                              "as_declared")) {
   structure <- match.arg(structure)
@@ -62,19 +88,15 @@ random_terms <- function(spec, structure = c("cells", "chain", "chain_slope",
   ## 2.0-0 and later, for a diagonal covariance. The wrapper states what the
   ## covariance looks like and must survive translation: dropping it would turn
   ## a diagonal request into an unstructured one without saying so.
-  pieces <- regmatches(bars, gregexpr("[A-Za-z.][A-Za-z0-9._]*\\([^()]*\\)|\\([^()]*\\)",
-                                      bars))[[1]]
-  wrap <- sub("\\(.*$", "", pieces)
-  bl <- sub("^[A-Za-z.][A-Za-z0-9._]*\\(|^\\(", "", sub("\\)$", "", pieces))
+  bl <- bar_terms_of(bars)
   cn <- spec$cell_name
   out <- unlist(lapply(seq_along(bl), function(k) {
-    b <- bl[[k]]; wrapper <- wrap[[k]]
+    wrapper <- bl[[k]]$wrapper
     rewrap <- function(x) if (nzchar(wrapper))
       vapply(x, function(z) paste0(wrapper, z), "") else x
-    parts <- strsplit(b, "|", fixed = TRUE)[[1]]
-    grp <- trimws(parts[2])
-    lhs <- attr(stats::terms(stats::as.formula(paste("~", parts[1]))), "term.labels")
-    lhs_txt <- trimws(parts[1])
+    grp <- bl[[k]]$grp
+    lhs_txt <- bl[[k]]$lhs
+    lhs <- attr(stats::terms(stats::as.formula(paste("~", lhs_txt))), "term.labels")
     ## a term needs translation only if it reaches across the boundary
     structural <- vapply(strsplit(lhs, ":"), function(vs)
       any(vs %in% boundary_vars(spec)), TRUE)

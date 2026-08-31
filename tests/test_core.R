@@ -2650,6 +2650,36 @@ chk("random chain: an unbranched family still gives the prefix ladder",
 chk("random chain: the cells form is untouched by the branching",
     identical(random_terms(re_a, "cells"), "(0 + cell | participant)"))
 
+## The declared random terms are read from the parsed expression. A bar whose
+## left side is bracketed - the natural way to write a slope over a set of
+## variables - hid the bar from the regex that used to match parentheses, and
+## the term arrived with no grouping factor.
+chk("bars: a bracketed left side is still one term, with its grouping factor",
+    { b <- bar_terms_of("(chord_type * (inversion + X1) | participant)")
+      length(b) == 1 && b[[1]]$grp == "participant" &&
+        b[[1]]$wrapper == "" && grepl("inversion", b[[1]]$lhs) })
+chk("bars: several terms are separated, however they are bracketed",
+    { b <- bar_terms_of("(1 | participant) + ((a + b) | stimulus)")
+      length(b) == 2 &&
+        all(vapply(b, `[[`, "", "grp") %in% c("participant", "stimulus")) })
+chk("bars: a covariance wrapper is kept, not read as the grouping factor",
+    { b <- bar_terms_of("diag(a * b | participant)")
+      length(b) == 1 && b[[1]]$wrapper == "diag" && b[[1]]$grp == "participant" })
+chk("bars: a nested grouping factor is read whole",
+    identical(bar_terms_of("(1 | school:class)")[[1]]$grp, "school:class"))
+chk("bars: the translation is the same however the left side is bracketed",
+    { mk <- function(bar) suppressMessages(nesting_spec(re_dat,
+        stats::as.formula(paste("response ~ chord_type * inversion * X1 +", bar)),
+        "inversion %in% chord_type", fit = "lmer"))
+      identical(random_terms(mk("(chord_type * (inversion + X1) | participant)"), "cells"),
+                random_terms(mk("(chord_type * inversion * X1 | participant)"), "cells")) })
+chk("bars: grouping_vars reads them from the parse too",
+    identical(grouping_vars(suppressMessages(nesting_spec(re_dat,
+        response ~ chord_type * inversion * X1 +
+          (chord_type * (inversion + X1) | participant),
+        "inversion %in% chord_type", fit = "lmer"))), "participant"))
+
+
 ## A categorical variable of the design that is nested in nothing. It belongs
 ## in the cell factor all the same - a variable left out of it is a covariate,
 ## which cannot be the target of an estimand.

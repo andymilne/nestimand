@@ -499,6 +499,24 @@ information so much as stop mislabelling it. A ROPE percentage or a Bayes factor
 would answer a different question, and both need a decision about what counts as
 negligible on the latent scale; neither is implemented.
 
+### A bracketed random slope lost its grouping factor
+
+The declared random terms were split out of `random_original` with a regex that
+matched a parenthesised group, `\\([^()]*\\)`. That cannot match a bar whose left
+side is itself bracketed - `(chord_type * (inversion + top) | participant)`, which is
+how a slope over a set of variables gets written - because the character class stops
+at the inner parenthesis. The regex matched the inner group instead, so the term
+arrived as `inversion + top` with no bar at all, `grp` became NA, and the partial
+structure check refused a term the user had not written: "the random term
+`(inversion + inversion_top_notes | NA)` varies with ...".
+
+`bar_terms_of()` reads them from the parsed expression instead - flattening `+`,
+peeling `(` and any covariance wrapper, then taking the two sides of `|` or `||`.
+Used by `random_terms()`, `chain_random_zeros()` and `grouping_vars()`, all three of
+which had their own variant of the same regex. Checked on a bracketed left side, two
+terms bracketed differently, a `diag()` wrapper, and a nested grouping factor
+`school:class`; the translation is identical however the left side is bracketed.
+
 ## Not yet implemented
 
 The prior translation and audit

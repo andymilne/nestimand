@@ -163,9 +163,8 @@ cell_grid <- function(spec, data = spec$data, covariates = c("mean", "keep")) {
 grouping_vars <- function(spec) {
   bars <- spec$random_original
   if (is.null(bars)) return(character(0))
-  bl <- regmatches(bars, gregexpr("\\|[^)]*", bars))[[1]]
-  unique(unlist(lapply(gsub("^\\|\\s*", "", bl), function(z)
-    all.vars(stats::as.formula(paste("~", z))))))
+  unique(unlist(lapply(bar_terms_of(bars), function(b)
+    all.vars(stats::as.formula(paste("~", b$grp))))))
 }
 
 ## --- which columns carry the identification constraint ----------------------

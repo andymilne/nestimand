@@ -43,12 +43,11 @@ chain_random_zeros <- function(spec, data = NULL) {
   if (is.null(data)) data <- sentinel_first(spec)
   bars <- spec$random_original
   if (is.null(bars)) return(list())
-  bl <- gsub("^\\(|\\)$", "", regmatches(bars, gregexpr("\\(([^()]*)\\)", bars))[[1]])
+  bl <- bar_terms_of(bars)
   out <- list()
-  for (b in bl) {
-    parts <- strsplit(b, "|", fixed = TRUE)[[1]]
-    grp <- trimws(parts[2])
-    lhs <- trimws(parts[1])
+  for (bp in bl) {
+    grp <- bp$grp
+    lhs <- bp$lhs
     lab <- attr(stats::terms(stats::as.formula(paste("~", lhs))), "term.labels")
     if (!any(vapply(strsplit(lab, ":"), function(v)
           any(v %in% boundary_vars(spec)), TRUE)))
