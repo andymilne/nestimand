@@ -42,6 +42,14 @@ degenerate_strata <- function(spec, target) {
   list(vars = above, keep = names(n)[n > 1], drop = names(n)[n == 1])
 }
 
+## The stratum key `degenerate_strata()` reports is composite - one part per
+## ancestor - so a cell table is restricted by rebuilding that key, not by
+## matching the first ancestor alone. With one ancestor the two coincide,
+## which is why the difference only shows at a nesting depth of three or more.
+deg_key <- function(tab, vars)
+  do.call(paste, c(unname(lapply(vars, function(v) as.character(tab[[v]]))),
+                   sep = "."))
+
 ## p as a per-stratum named vector, from an alias or a supplied distribution.
 nest_policy <- function(spec, target, policy = "equal", at = NULL, data = spec$data,
                         cells = spec$cells) {

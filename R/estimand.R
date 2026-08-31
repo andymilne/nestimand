@@ -329,7 +329,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
     ## hours; the cells route asks the same question of one row per condition.
     nrows <- if (identical(route, "g_computation"))
       nrow(data) * nrow(if (is.null(deg)) spec$cells else
-        spec$cells[as.character(spec$cells[[deg$vars[1]]]) %in% deg$keep, ,
+        spec$cells[deg_key(spec$cells, deg$vars) %in% deg$keep, ,
                    drop = FALSE]) else nrow(spec$cells)
     ## the draws actually used, not the draws the model holds
     ndraw <- if (!is.null(dots$ndraws)) dots$ndraws
@@ -665,7 +665,8 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
                    paste(target, collapse = ":")),
            sprintf("library(marginaleffects)"))
   cells_txt <- if (is.null(deg)) sprintf("%s$cells", spec_name) else
-    sprintf('subset(%s$cells, %s %%in%% c(%s))', spec_name, deg$vars[1],
+    sprintf('subset(%s$cells, paste(%s, sep = ".") %%in%% c(%s))', spec_name,
+            paste(deg$vars, collapse = ", "),
             paste(sprintf('"%s"', deg$keep), collapse = ", "))
   restrict_note <- if (is.null(deg)) NULL else c(
     sprintf("## `%s` does not vary in every stratum. The contrast is pooled over", target),
@@ -846,7 +847,8 @@ add_bounds <- function(est, model, spec, target, contrast = "pairwise",
         stats::setNames(as.numeric(seq_along(vs[[s]]) == vert[i, s]), vs[[s]])),
         names(vs)), at = NULL), class = "nestimand_policy")
     if (identical(scale, "latent"))
-      return(latent_estimand(model, target, p, contrast = contrast, spec = spec)$estimate)
+      return(latent_estimand(model, target, p, contrast = contrast, spec = spec,
+                             data = data, cells = cells)$estimate)
     ## the bounds are the same estimand under other policies, so they are
     ## computed the same way: on whichever grid the estimand itself used
     g <- if (identical(route, "cells")) {
@@ -985,7 +987,7 @@ estimand_values <- function(model, spec, target, policy, at, contrast, data,
   if (identical(contrast, "interaction")) {
     deg <- degenerate_strata(spec, target[length(target)])
     cells <- if (is.null(deg) || !length(deg$drop)) spec$cells else
-      spec$cells[as.character(spec$cells[[deg$vars[1]]]) %in% deg$keep, , drop = FALSE]
+      spec$cells[deg_key(spec$cells, deg$vars) %in% deg$keep, , drop = FALSE]
     pol <- nest_policy(spec, target[length(target)], "equal", NULL, spec$data,
                        cells = cells)
     g <- if (identical(route, "cells")) {
@@ -1013,7 +1015,7 @@ estimand_values <- function(model, spec, target, policy, at, contrast, data,
   }
   deg <- if (!identical(contrast, "within")) degenerate_strata(spec, target)
   cells <- if (is.null(deg) || !length(deg$drop)) spec$cells else
-    spec$cells[as.character(spec$cells[[deg$vars[1]]]) %in% deg$keep, , drop = FALSE]
+    spec$cells[deg_key(spec$cells, deg$vars) %in% deg$keep, , drop = FALSE]
   ## The policy describes the design - how often each version is realized -
   ## and is a property of the whole data, not of whichever rows were sampled to
   ## average over. Computing it from a subsample would make the weights noisy,
@@ -1021,7 +1023,7 @@ estimand_values <- function(model, spec, target, policy, at, contrast, data,
   pol <- nest_policy(spec, target, policy, at, spec$data, cells = cells)
   if (identical(scale, "latent"))
     return(latent_estimand(model, target, pol, contrast = contrast,
-                           data = data, spec = spec)$estimate)
+                           data = data, spec = spec, cells = cells)$estimate)
   g <- switch(route,
     g_computation = counterfactual_grid(spec, data, pol, cells = cells),
     cells = { d <- cell_grid(spec, data)
