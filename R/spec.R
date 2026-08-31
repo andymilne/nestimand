@@ -107,6 +107,11 @@ nesting_spec <- function(data, formula, nests,
          "parent. A variable holds one position in the structure: nest it in ",
          "the deeper parent, which carries the other with it.")
 
+  ## The fixed term labels are needed before the families are formed, since a
+  ## categorical variable the formula crosses with the structure joins them.
+  labs <- attr(stats::terms(formula), "term.labels")
+  labs <- labs[!grepl("|", labs, fixed = TRUE)]
+
   ## --- validation --------------------------------------------------------
   nest_vars <- unique(c(names(parent), parent, crossed))
   for (v in nest_vars) {
@@ -127,6 +132,37 @@ nesting_spec <- function(data, formula, nests,
          "cell_name = to choose another, or rename the column.")
 
   ## --- families (roots and their chains) --------------------------------
+  ## A categorical variable the formula crosses with the declared structure is
+  ## part of the categorical design, and does not have to be declared to be
+  ## treated as one: `chord_type * inversion * top_note` says that the
+  ## conditions are the combinations of all three. It is folded into the cell
+  ## factor, which changes no fitted model - `cell + cell:top` and a cell factor
+  ## over the enlarged design span the same space - but makes it a legal target
+  ## of an estimand, and drops the columns of any combination the design does
+  ## not realize, which the interaction form would carry as aliased
+  ## coefficients. A variable entering additively is left alone: its effect is
+  ## declared common to every condition, and folding it in would silently
+  ## saturate it. So is an ordered factor, whose contrasts say it is meant as a
+  ## quantity; name it in `nests` to fold that in deliberately.
+  declared_vars <- unique(c(names(parent), parent, crossed))
+  is_design_cat <- function(v)
+    v %in% names(data) && !is.numeric(data[[v]]) && !is.ordered(data[[v]])
+  auto_crossed <- setdiff(unique(unlist(lapply(strsplit(labs, ":"), function(vs)
+    if (any(vs %in% declared_vars)) vs))), declared_vars)
+  auto_crossed <- auto_crossed[vapply(auto_crossed, is_design_cat, TRUE)]
+  if (length(auto_crossed))
+    message("`", paste(auto_crossed, collapse = "`, `"), "` ",
+            if (length(auto_crossed) > 1) "are factors" else "is a factor",
+            " crossed with the declared structure, so ",
+            if (length(auto_crossed) > 1) "they are " else "it is ",
+            "part of the categorical design and ",
+            if (length(auto_crossed) > 1) "join " else "joins ",
+            "the cell factor - the fitted model is unchanged, and ",
+            if (length(auto_crossed) > 1) "they can " else "it can ",
+            "be the target of an estimand. A variable entering additively, a ",
+            "numeric one, and an ordered factor stay covariates.")
+  crossed <- unique(c(crossed, auto_crossed))
+
   ## A crossed variable is a family of its own, one variable deep.
   for (v in crossed) {
     if (is.numeric(data[[v]]))
@@ -181,13 +217,11 @@ nesting_spec <- function(data, formula, nests,
          "if a linear analysis of the codes is intended.")
 
   ## --- fixed and random parts of the declared formula --------------------
-  tt   <- stats::terms(formula)
-  labs <- attr(tt, "term.labels")
-  bar_labs <- c(labs[grepl("|", labs, fixed = TRUE)],
+  all_labs <- attr(stats::terms(formula), "term.labels")
+  bar_labs <- c(all_labs[grepl("|", all_labs, fixed = TRUE)],
                 if (!is.null(random))
                   grep("|", attr(stats::terms(stats::as.formula(
                     paste("~", random))), "term.labels"), value = TRUE, fixed = TRUE))
-  labs <- labs[!grepl("|", labs, fixed = TRUE)]
   check_double_bar(bar_labs, data)
   ## `diag(...)`, and any other covariance-structure wrapper, is already a call:
   ## wrapping it again in parentheses would change the term.

@@ -400,8 +400,20 @@ structure, but it was not in the cell factor and so could not be the target of a
 estimand - there were no conditions to weight over. The user's case was
 `inversion_top_notes`, defined at every level of chord type and inversion.
 
-An entry with no `%in%` now names such a variable: `c("inversion %in% chord_type",
-"inversion_top_notes")`, or unquoted. It becomes a one-variable family, joins
+Two changes. A categorical variable the formula crosses with the declared structure
+is now folded into the cell factor automatically - nothing to declare, since the
+formula already said the conditions are the combinations of all three. Folding
+changes no fitted model: `cell + cell:x` and a cell factor over the enlarged design
+span the same space, verified by comparing projections. Where a combination is
+unrealized it is strictly better - on a ragged case the interaction form gave 20
+columns of rank 17, three of them aliased, against 17 clean cells. Left as
+covariates: a variable entering additively, whose effect is thereby declared common
+to every condition; a numeric one; and an ordered factor, whose contrasts say it is
+meant as a quantity.
+
+An entry with no `%in%` also names such a variable explicitly - `c("inversion %in%
+chord_type", "inversion_top_notes")`, or unquoted - which is how an additive or
+ordered one is folded in deliberately. It becomes a one-variable family, joins
 `cell_vars`, and everything downstream follows without further change - 20 realized
 cells rather than 10, a square full-rank effect basis, `estimand(m, top)` with
 policies and bounds, and the reorder check passing once `spec_nests()` was taught to

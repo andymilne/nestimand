@@ -53,17 +53,18 @@ c(inversion, X1) \%in\% chord_type
 inversion + X1 \%in\% chord_type
 c("inversion \%in\% chord_type", "X1 \%in\% chord_type")}
 
-A categorical variable that is nested in nothing - crossed with the whole
-structure - is declared by name alone, and joins the cell factor like any other:
+Only the nesting has to be declared. A categorical variable the formula crosses
+with the declared structure is part of the design and joins the cell factor by
+itself - \code{top_note} below needs no entry in \code{nests} - so it can be
+the target of an estimand like any other design variable:
 
 \preformatted{nesting_spec(dat, rating ~ chord_type * inversion * top_note,
-             c("inversion \%in\% chord_type", "top_note"))}
+             "inversion \%in\% chord_type")}
 
-The distinction that decides what a variable can be asked for is not nested
-against crossed but declared against not. The cell factor is the realized
-categorical design; a variable left out of the declaration enters as a covariate
-crossed with the cells, and a covariate has no conditions to average over, so it
-cannot be the target of an estimand.
+Three kinds of variable stay covariates: one entering additively, whose effect is
+thereby declared common to every condition; a numeric one; and an ordered factor,
+whose contrasts say it is meant as a quantity. Naming one in \code{nests} on its
+own folds it into the cell factor deliberately.
 
 The strata of a nested variable are its own ancestors, and a sibling is not one
 of them: \code{estimand(m, X1, contrast = "within")} compares the levels of

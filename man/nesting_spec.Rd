@@ -19,7 +19,7 @@ apply_sentinel(data, var, where = NULL, sentinel = "none")
 \arguments{
   \item{data}{a data frame containing the outcome, the nesting variables, and any covariates.}
   \item{formula}{the desired model, written freely in ordinary R syntax; crossed terms are welcome and are transformed rather than fitted as given. Random-effects terms may be written here in \code{lme4}/\code{brms} syntax.}
-  \item{nests}{the categorical design - which variable sits inside which, and which sit inside nothing. Quoted or bare: \code{"inversion \%in\% chord_type"}, or \code{c(inv \%in\% chord, doub \%in\% inv)} for a chain. A parent may hold several nested variables, declared one per entry or together as \code{c(inversion, X1) \%in\% chord_type}; \code{inversion + X1 \%in\% chord_type} and \code{(inversion + X1) \%in\% chord_type} read the same way, the brackets being optional since the left side is a list of names rather than a model term. Anything that is not a list of names - an interaction, say - is refused. Each variable is nested in exactly one parent, and \code{\%in\%} is not chained within one entry - \code{Z \%in\% inversion \%in\% chord_type} is two entries, since R would read it as \code{(Z \%in\% inversion) \%in\% chord_type}. An entry with no \%in\% names a categorical variable crossed with the rest of the structure rather than nested in it - \code{c("inversion \%in\% chord_type", "inversion_top_notes")} - and it joins the cell factor like any other design variable, so it can be the target of an estimand. A variable left out of the declaration is a covariate instead, which is a different thing to be.}
+  \item{nests}{the categorical design - which variable sits inside which, and which sit inside nothing. Quoted or bare: \code{"inversion \%in\% chord_type"}, or \code{c(inv \%in\% chord, doub \%in\% inv)} for a chain. A parent may hold several nested variables, declared one per entry or together as \code{c(inversion, X1) \%in\% chord_type}; \code{inversion + X1 \%in\% chord_type} and \code{(inversion + X1) \%in\% chord_type} read the same way, the brackets being optional since the left side is a list of names rather than a model term. Anything that is not a list of names - an interaction, say - is refused. Each variable is nested in exactly one parent, and \code{\%in\%} is not chained within one entry - \code{Z \%in\% inversion \%in\% chord_type} is two entries, since R would read it as \code{(Z \%in\% inversion) \%in\% chord_type}. Only the nesting has to be declared: a categorical variable the formula crosses with the declared structure - \code{chord_type * inversion * top_note} - is part of the design and joins the cell factor without being named here. An entry with no \code{\%in\%} folds one in deliberately, which is how an ordered factor or a variable entering additively is made a design variable rather than a covariate.}
   \item{fit}{the modelling engine, named for its fitting function: \code{"lm"}, \code{"glm"}, \code{"lmer"}, \code{"glmer"}, \code{"clm"}, \code{"clmm"}, \code{"brm"}. \code{"brms"} is accepted for the last, being the package's name rather than the function's.}
   \item{family}{family for the engines that need one, quoted or as a bare call, e.g. \code{cumulative("probit")}.}
   \item{random}{random-effects terms, if not written into \code{formula}.}
@@ -41,6 +41,17 @@ of those may hold further ones, to any depth. The strata of a nested variable ar
 own ancestors - a sibling is not one of them - so \code{inversion} and \code{X1}
 both inside \code{chord_type} are compared within chord type, not within
 chord type crossed with each other.
+
+The cell factor is the realized categorical design, and it is formed from the
+declared nesting variables together with every categorical variable the formula
+crosses with them. Folding those in changes no fitted model - \code{cell + cell:x}
+and a cell factor over the enlarged design span the same space - but it drops the
+columns of any combination the design does not realize, which the interaction form
+would carry as aliased coefficients, and it makes the variable a legal target of an
+estimand. Three kinds of variable are left as covariates: one entering additively,
+whose effect is thereby declared common to every condition; a numeric one; and an
+ordered factor, whose contrasts say it is meant as a quantity. Naming any of them in
+\code{nests} folds it in.
 
 A declared nesting variable that is \emph{numeric} is not part of the cell factor: a
 continuous nested variable enters as a slope within the realized cells,

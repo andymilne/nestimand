@@ -130,20 +130,32 @@ estimand <- function(model, target, policy = "equal", at = NULL,
     in_data <- miss[miss %in% names(spec$data)]
     categorical <- in_data[vapply(in_data, function(v)
       is.factor(spec$data[[v]]) || is.character(spec$data[[v]]), TRUE)]
+    ## A categorical variable the formula crosses with the structure is folded
+    ## into the cell factor without being declared, so one that is still a
+    ## covariate is either additive - its effect declared common to every
+    ## condition - or ordered, or numeric. Which it is decides the remedy.
+    additive <- categorical[vapply(categorical, function(v)
+      !any(vapply(strsplit(spec$term_labels, ":"), function(vs)
+        v %in% vs && any(spec$cell_vars %in% vs), TRUE)), TRUE)]
+    ordered_f <- setdiff(categorical[vapply(categorical, function(v)
+      is.ordered(spec$data[[v]]), TRUE)], additive)
     stop("`", paste(miss, collapse = "`, `"),
          "` is not among the declared categorical design ",
          "variables (", paste(spec$cell_vars, collapse = ", "), "), so it has ",
          "no conditions to average over and no policy to apply.",
-         if (length(categorical))
-           paste0(" `", paste(categorical, collapse = "`, `"),
-                  "` is a factor of the data, entering the model as a ",
-                  "covariate crossed with the cells. If it is part of the ",
-                  "categorical design rather than a covariate, declare it: a ",
-                  "variable nested in nothing is named on its own, ",
-                  "nests = c(\"", paste(spec_nests(spec), collapse = "\", \""),
-                  if (length(spec_nests(spec))) "\", \"" else "",
-                  categorical[1], "\"), which puts it in the cell factor and ",
-                  "makes it a target like any other.")
+         if (length(additive))
+           paste0(" `", paste(additive, collapse = "`, `"), "` enters ",
+                  "additively, which declares its effect common to every ",
+                  "condition; cross it with the structure in the formula - ",
+                  "`", spec$cell_vars[1], " * ", additive[1],
+                  "` - and it becomes part of the categorical design.")
+         else if (length(ordered_f))
+           paste0(" `", paste(ordered_f, collapse = "`, `"), "` is an ordered ",
+                  "factor, which is kept as a covariate because its contrasts ",
+                  "say it is meant as a quantity. Name it in `nests` - ",
+                  "nests = c(\"", paste(c(spec_nests(spec), ordered_f[1]),
+                                        collapse = "\", \""),
+                  "\") - to fold it into the cell factor instead.")
          else " Contrasts of a covariate do not cross the structural boundary and need no policy; compute them directly.")
   }
 

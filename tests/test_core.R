@@ -2696,13 +2696,27 @@ chk("crossed: declaring it both ways is refused",
     grepl("one position in the structure",
           err_of(nesting_spec(cross_dat, response ~ chord_type * inversion * top,
                               c("top %in% chord_type", "top")))))
-sp_undeclared <- nesting_spec(cross_dat, response ~ chord_type * inversion * top,
+chk("crossed: a factor crossed with the structure needs no declaration",
+    { sp <- suppressMessages(nesting_spec(cross_dat,
+              response ~ chord_type * inversion * top, "inversion %in% chord_type"))
+      identical(sp$cell_vars, c("chord_type", "inversion", "top")) &&
+        identical(sp$crossed, "top") })
+chk("crossed: and the fold is said aloud",
+    grepl("part of the categorical design",
+          paste(utils::capture.output(nesting_spec(cross_dat,
+            response ~ chord_type * inversion * top, "inversion %in% chord_type"),
+            type = "message"), collapse = " ")))
+chk("crossed: one entering additively is left as a covariate",
+    { sp <- nesting_spec(cross_dat, response ~ chord_type * inversion + top,
+                         "inversion %in% chord_type")
+      identical(sp$cell_vars, c("chord_type", "inversion")) &&
+        identical(sp$covariates, "top") })
+sp_undeclared <- nesting_spec(cross_dat, response ~ chord_type * inversion + top,
                               "inversion %in% chord_type")
 m_undeclared <- nest_fit(sp_undeclared)
-chk("target: an undeclared factor is told how to become a target",
+chk("target: an additive factor is told how to become a target",
     { e <- err_of(estimand(m_undeclared, top, policy = "equal"))
-      grepl("declare it", e, fixed = TRUE) &&
-        grepl('c("inversion %in% chord_type", "top")', e, fixed = TRUE) })
+      grepl("additively", e, fixed = TRUE) })
 
 ## `a * b * c` parses as `(a * b) * c`, so the operands have to be gathered
 ## through the nesting: reading the top call alone left `a * b` as a name.
@@ -2719,13 +2733,15 @@ chk("target: a * b still names two",
 ## found none of them, and every column fell through to the leftover block,
 ## where it was labelled a threshold.
 fac_dat <- local({ d <- dat; set.seed(14)
-  d$top <- factor(rep(c("t1", "t2"), length.out = nrow(d))); d })
+  ## ordered, so it stays a covariate: its contrasts say it is meant as a
+  ## quantity, and it is crossed with the cells rather than folded into them
+  d$top <- factor(rep(c("t1", "t2", "t3"), length.out = nrow(d)), ordered = TRUE); d })
 sp_fac <- nesting_spec(fac_dat, response ~ chord_type * inversion * top * training,
                        "inversion %in% chord_type")
 m_fac <- nest_fit(sp_fac)
 s_fac <- as.data.frame(nest_summary(m_fac))
 chk("summary: a factor covariate crossed with the cells is translated",
-    sum(grepl("slope on top", s_fac$meaning)) == nrow(sp_fac$cells))
+    sum(grepl("slope on top", s_fac$meaning)) == 2 * nrow(sp_fac$cells))
 chk("summary: and nothing of it is left over as a threshold",
     !any(grepl("threshold", s_fac$meaning)))
 chk("summary: a real threshold is still called one",
@@ -2740,26 +2756,26 @@ slope_dat <- local({
   d$participant <- factor(rep(1:8, length.out = nrow(d)))
   set.seed(13); d$GMSI <- rnorm(nrow(d)); d
 })
-sp_sl <- nesting_spec(slope_dat,
+sp_sl <- suppressMessages(nesting_spec(slope_dat,
   response ~ chord_type * inversion * X1 * GMSI +
-    (chord_type * inversion * X1 | participant),
-  "inversion %in% chord_type", fit = "lmer")
+    (chord_type * inversion * X1 * GMSI | participant),
+  "inversion %in% chord_type", fit = "lmer"))
 chk("covariates: a variable with a random slope keeps its fixed effect",
-    all(c("X1", "GMSI") %in% sp_sl$covariates))
+    "GMSI" %in% sp_sl$covariates)
 chk("covariates: the grouping factor is not one of them",
     !("participant" %in% sp_sl$covariates))
 chk("covariates: crossed with the structure on the fixed side",
-    { f <- paste(deparse(cell_formula(sp_sl)), collapse = " ")
-      grepl("cell:X1", f, fixed = TRUE) && grepl("cell:GMSI", f, fixed = TRUE) })
+    grepl("cell:GMSI", paste(deparse(cell_formula(sp_sl)), collapse = " "),
+          fixed = TRUE))
 chk("random: a covariate crossed with the structure keeps the crossing",
     identical(random_terms(sp_sl, "cells"),
-              "(0 + cell + cell:X1 | participant)"))
+              "(0 + cell + cell:GMSI | participant)"))
 chk("random: one left additive in the bar stays additive",
-    identical(random_terms(nesting_spec(slope_dat,
+    identical(random_terms(suppressMessages(nesting_spec(slope_dat,
         response ~ chord_type * inversion * X1 * GMSI +
-          (chord_type * inversion + X1 | participant),
-        "inversion %in% chord_type", fit = "lmer"), "cells"),
-      "(0 + cell + X1 | participant)"))
+          (chord_type * inversion * X1 + GMSI | participant),
+        "inversion %in% chord_type", fit = "lmer")), "cells"),
+      "(0 + cell + GMSI | participant)"))
 
 ## A numeric nested variable is a slope inside the cells, not a cell variable.
 ## It stays visible in the printed structure, since a variable whose values are
