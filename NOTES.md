@@ -560,6 +560,24 @@ translate a fit that needs no translation. `chain_priors()` derives 6 structural
 zeros and 6 identification constraints for the same design, which is what brms needs
 to fit it.
 
+### The constant(0) block is now derived rather than requested
+
+A restricted structure is fitted in the effects parameterization, which carries
+coefficients the data cannot inform: columns for conditions that do not exist, and one
+redundant column per stratum. `lm` drops them as aliased; brms cannot, and samples an
+improper posterior along them. The package knew this and said so - "chain_priors(spec)
+derives the constant(0) block; pass it as priors =" - which leaves the default fit
+wrong and the correct one an opt-in.
+
+`nest_fit()` now derives and applies the block itself on brms in effects mode, and
+reports what it did: how many coefficients, how many are structural zeros (conditions
+the design does not realize) and how many identification constraints (a coding choice,
+like a reference level, which leaves every estimand unchanged). A `class = "b"` prior
+supplied by the user becomes the prior on the remaining coefficients rather than being
+displaced, and appears once in the call; supplying `priors` replaces the block
+entirely. The emitted code reads `chain_prior_object(chain_priors(sp))`, so it stands
+on its own rather than referring to an object only the fitting environment held.
+
 ## Not yet implemented
 
 The prior translation and audit

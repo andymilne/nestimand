@@ -2976,6 +2976,46 @@ chk("restricted: the printed spec shows the formula that will be fitted",
     { txt <- paste(utils::capture.output(print(res_sp)), collapse = " ")
       grepl("effects parameterization", txt) && !grepl("0 \\+ cell", txt) })
 
+## brms cannot drop an uninformative column the way lm does, so a restricted
+## structure needs its constant(0) block or the posterior is improper along it.
+## The block is derived and applied rather than left for the user to discover.
+res_brm <- suppressMessages(nesting_spec(cross_dat,
+  response ~ chord_type * (inversion + top), "inversion %in% chord_type",
+  fit = "brm"))
+res_code <- function(...) attr(nest_fit(res_brm, dry_run = TRUE, ...),
+                               "nestimand_code")
+chk("constraints: the block is applied without being asked for",
+    { z <- character(0)
+      cd <- withCallingHandlers(res_code(),
+        message = function(m) { z <<- c(z, conditionMessage(m))
+                                invokeRestart("muffleMessage") })
+      any(grepl("chain_prior_object", cd)) &&
+        any(grepl("structural zero", z)) && any(grepl("identification", z)) })
+chk("constraints: the message counts them, by kind",
+    { z <- character(0)
+      withCallingHandlers(res_code(),
+        message = function(m) { z <<- c(z, conditionMessage(m))
+                                invokeRestart("muffleMessage") })
+      cp <- chain_priors(res_brm)
+      n <- c(sum(cp$table$kind == "structural zero"),
+             sum(cp$table$kind == "identification constraint"))
+      all(vapply(n, function(k) any(grepl(paste0("\\b", k, "\\b"), z)), TRUE)) })
+chk("constraints: the emitted code stands on its own",
+    any(grepl("chain_prior_object(chain_priors(res_brm))",
+              suppressMessages(res_code()), fixed = TRUE)))
+chk("constraints: a supplied class-b prior is kept, and named once",
+    { cd <- suppressMessages(res_code(
+        prior = brms::set_prior("normal(0, 1)", class = "b")))
+      call <- cd[length(cd)]
+      grepl("normal(0, 1)", call, fixed = TRUE) &&
+        lengths(regmatches(call, gregexpr("prior =", call))) == 1 })
+chk("constraints: a cell fit needs none of this",
+    { sp <- suppressMessages(nesting_spec(cross_dat,
+        response ~ chord_type * inversion * top, "inversion %in% chord_type",
+        fit = "brm"))
+      !any(grepl("chain_prior_object",
+                 attr(nest_fit(sp, dry_run = TRUE), "nestimand_code"))) })
+
 ## The effect basis reparameterizes the cell fit, which is saturated whatever
 ## the formula says, so the basis is saturated too: built from the declared
 ## terms it was smaller than the thing it is meant to translate, and

@@ -214,11 +214,6 @@ nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "
   } else {
     mode <- match.arg(mode, c("cells", "effects"))
     mode_note <- sprintf("## parameterization: %s (requested)", mode)
-    if (identical(mode, "effects") && identical(fit, "brm") && is.null(priors))
-      message("chain parameterization on brms without declarations: the design ",
-              "carries columns the data cannot inform, and the posterior will ",
-              "be improper along them. chain_priors(spec) derives the ",
-              "constant(0) block; pass it as priors =.")
   }
   f <- paste(deparse(cell_formula(spec, mode)), collapse = " ")
   if (identical(mode, "effects") && identical(random_structure, "cells"))
@@ -266,6 +261,32 @@ nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "
               "") else NULL
     dots$prior <- NULL
     user_prior <- split$other
+  }
+  ## The effects parameterization carries columns the data cannot inform, and
+  ## brms cannot drop them the way `lm` does: it samples them, and the posterior
+  ## is improper along them. They are known from the design, not chosen, so they
+  ## are held at zero rather than left for the user to discover from a
+  ## divergence. Which coefficients, and of which kind, is said aloud - passing
+  ## `priors` explicitly overrides this.
+  if (identical(fit, "brm") && identical(mode, "effects") && is.null(priors)) {
+    user_b <- inherits(user_prior, "brmsprior") && any(user_prior$class == "b")
+    cp <- chain_priors(spec, regularize = if (user_b) NULL else "normal(0, 5)")
+    if (nrow(cp$table)) {
+      n_str <- sum(cp$table$kind == "structural zero")
+      n_id  <- sum(cp$table$kind == "identification constraint")
+      message("the effects parameterization carries ", nrow(cp$table),
+              " coefficient(s) the data cannot inform, held at zero by ",
+              "constant(0) priors so that the posterior is proper: ", n_str,
+              " structural zero(s) - conditions the design does not realize - ",
+              "and ", n_id, " identification constraint(s) - a coding choice, ",
+              "like a reference level, which leaves every estimand unchanged. ",
+              "chain_priors(", spec_name, ") lists them and show_code() prints ",
+              "the block; the remaining coefficients take ",
+              if (user_b) "the prior you supplied" else "normal(0, 5)",
+              ", and passing `priors =` yourself replaces all of this.")
+      priors <- cp
+      prior_name <- sprintf("chain_priors(%s)", spec_name)
+    }
   }
   if (!is.null(priors) && !is.null(user_prior) && "prior" %in% names(dots))
     dots$prior <- NULL
@@ -362,8 +383,13 @@ nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "
                      nestimand_code = code))
   env <- new.env(parent = .env)
   assign(spec_name, spec, envir = env)
-  if (!is.null(priors)) assign(prior_name, priors, envir = env)
-  if (!is.null(priors_obj)) assign(prior_name, priors_obj, envir = env)
+  ## `prior_name` may be a call - `chain_priors(sp)` - so that the emitted code
+  ## stands on its own; there is then nothing to assign, the call being
+  ## evaluated where it stands.
+  if (grepl("^[.A-Za-z][.A-Za-z0-9._]*$", prior_name)) {
+    if (!is.null(priors)) assign(prior_name, priors, envir = env)
+    if (!is.null(priors_obj)) assign(prior_name, priors_obj, envir = env)
+  }
   if (!exists(data_name, envir = env, inherits = TRUE))
     assign(data_name, data, envir = env)
   m <- eval(parse(text = paste(c(code, "m"), collapse = "\n")), envir = env)

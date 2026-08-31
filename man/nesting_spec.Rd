@@ -69,9 +69,10 @@ effects parameterization instead, with each nested variable given its parent:
 top_note + chord_type:inversion + chord_type:top_note}, since \code{inversion} has no
 effect outside the strata in which it varies. \code{fitting_mode()} reports which
 parameterization a declaration leads to, and the printed spec shows the formula that
-will be fitted. On \pkg{brms} a restricted structure needs
-\code{\link{chain_priors}} to hold its uninformative columns at zero, as the chain
-form always does.
+will be fitted. On \pkg{brms} the uninformative columns such a structure carries are held at zero by
+\code{\link{chain_priors}} automatically - brms cannot drop them the way \code{lm}
+does, and would sample an improper posterior along them - and \code{nest_fit} says
+how many there are of each kind.
 }
 \value{
 \code{nesting_spec} returns an object of class \code{nesting_spec}: a list whose
