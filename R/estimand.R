@@ -175,10 +175,11 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   ## comparison against that level leaves the variable's own levels and compares
   ## strata instead - augmented chords against root-position triads, say, under
   ## an inversion label.
-  ## the restriction follows the deepest of the targets: an interaction exists
-  ## only where every one of them varies
+  ## an interaction exists only where every one of its variables varies, so the
+  ## restrictions of the targets are intersected rather than the deepest of them
+  ## taken as standing for the rest
   deg <- if (!identical(contrast, "within"))
-    degenerate_strata(spec, target[length(target)])
+    degenerate_strata_multi(spec, target)
   restricted <- !is.null(deg) && length(deg$drop)
   if (!restricted) deg <- NULL
 
@@ -1038,7 +1039,7 @@ estimand_values <- function(model, spec, target, policy, at, contrast, data,
     return(latent_estimand(model, target, contrast = "interaction",
                            data = data, spec = spec)$estimate)
   if (identical(contrast, "interaction")) {
-    deg <- degenerate_strata(spec, target[length(target)])
+    deg <- degenerate_strata_multi(spec, target)
     cells <- if (is.null(deg) || !length(deg$drop)) spec$cells else
       spec$cells[deg_key(spec$cells, deg$vars) %in% deg$keep, , drop = FALSE]
     pol <- nest_policy(spec, target[length(target)], "equal", NULL, spec$data,

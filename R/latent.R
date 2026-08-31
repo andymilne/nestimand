@@ -148,12 +148,12 @@ latent_contrast_matrix <- function(model, spec, target, policy = "equal",
                                    data = spec$data, cells = NULL,
                                    weights = NULL, route = "g_computation") {
   if (is.null(cells) && !identical(contrast, "interaction")) {
-    dg <- degenerate_strata(spec, target[length(target)])
+    dg <- degenerate_strata_multi(spec, target)
     cells <- if (is.null(dg) || !length(dg$drop)) spec$cells else
       spec$cells[deg_key(spec$cells, dg$vars) %in% dg$keep, , drop = FALSE]
   }
   if (identical(contrast, "interaction")) {
-    dg <- degenerate_strata(spec, target[length(target)])
+    dg <- degenerate_strata_multi(spec, target)
     cells <- if (is.null(dg) || !length(dg$drop)) spec$cells else
       spec$cells[deg_key(spec$cells, dg$vars) %in% dg$keep, , drop = FALSE]
     M <- cell_design_rows(spec, data, cells, model)

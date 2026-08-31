@@ -2780,6 +2780,17 @@ chk("interaction: `a * b * c` crosses, as a formula does",
       identical(names(e), c("chord_type", "inversion", "top",
                             "chord_type:inversion", "chord_type:top",
                             "inversion:top", "chord_type:inversion:top")) })
+chk("interaction: the sentinel never enters, whichever target is named last",
+    { e <- as.data.frame(estimand(m_i3, inversion:top, type = "eta",
+                                  bounds = FALSE, self_check = FALSE))
+      nrow(e) == 3 && !any(grepl("none", e$term)) })
+chk("interaction: the restriction is the targets' together, not the last one's",
+    { d <- degenerate_strata_multi(sp_i3, c("inversion", "top"))
+      !any(grepl("aug", d$keep)) && any(grepl("aug", d$drop)) })
+chk("interaction: a stratum keeps its place where every target does vary in it",
+    { e <- as.data.frame(estimand(m_i3, chord_type:top, type = "eta",
+                                  bounds = FALSE, self_check = FALSE))
+      nrow(e) == 6 && any(grepl("aug", e$term)) })
 chk("interaction: an interaction over some of the design variables averages over the rest",
     { ## the target names two of the three cell variables, so each combination
       ## covers two cells; the contrast is formed on their average, and taking

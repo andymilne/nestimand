@@ -460,6 +460,23 @@ of the targets, as the prediction route does by averaging predictions, and the t
 routes agree with the value computed by hand from the cell means. Two more
 `deg$vars[1]` stratum keys were fixed in the same function.
 
+### The sentinel reached an interaction contrast
+
+An interaction is computed only over the strata in which every one of its variables
+varies; the code took the restriction of `target[length(target)]` alone, on the
+reasoning that in a chain the deepest target's restriction implies the others'. That
+stopped being true as soon as a target could sit outside the chain. With
+`inversion:inversion_top_notes` the last target is the crossed variable, whose
+restriction is empty, so nothing was restricted and the augmented stratum stayed in:
+the output offered `(none - 0) x (t2 - t1)`, comparing the absence of an inversion
+against root position, which is the comparison the package exists to refuse.
+
+`degenerate_strata_multi()` intersects the restrictions of all the targets and
+returns them keyed over the union of their ancestors, so the existing plumbing - the
+emitted `subset()`, the restriction note - is unchanged. `inversion:top` now gives
+three contrasts and no sentinel; `chord_type:top` keeps the augmented stratum, which
+is right, since both variables vary there.
+
 ## Not yet implemented
 
 The prior translation and audit

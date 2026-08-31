@@ -40,6 +40,25 @@ degenerate_strata <- function(spec, target) {
   list(vars = above, keep = names(n)[n > 1], drop = names(n)[n == 1])
 }
 
+## The restriction for a set of targets. Each nested variable is compared only
+## where it varies, and an interaction exists only where every one of its
+## variables does, so the restrictions are intersected. With a chain the deepest
+## target's restriction implied the others', which is why taking it alone was
+## enough until a target could sit outside that chain - a variable crossed with
+## the structure, whose own restriction is empty, was being read as no
+## restriction at all, and the sentinel level of the nested target survived into
+## the comparison.
+degenerate_strata_multi <- function(spec, targets, cells = spec$cells) {
+  degs <- lapply(targets, function(v) degenerate_strata(spec, v))
+  degs <- Filter(function(d) !is.null(d) && length(d$drop), degs)
+  if (!length(degs)) return(NULL)
+  vars <- unique(unlist(lapply(degs, `[[`, "vars")))
+  keep_row <- rep(TRUE, nrow(cells))
+  for (d in degs) keep_row <- keep_row & (deg_key(cells, d$vars) %in% d$keep)
+  key <- deg_key(cells, vars)
+  list(vars = vars, keep = unique(key[keep_row]), drop = unique(key[!keep_row]))
+}
+
 ## The stratum key `degenerate_strata()` reports is composite - one part per
 ## ancestor - so a cell table is restricted by rebuilding that key, not by
 ## matching the first ancestor alone. With one ancestor the two coincide,
