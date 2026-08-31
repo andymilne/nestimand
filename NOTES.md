@@ -517,6 +517,25 @@ which had their own variant of the same regex. Checked on a bracketed left side,
 terms bracketed differently, a `diag()` wrapper, and a nested grouping factor
 `school:class`; the translation is identical however the left side is bracketed.
 
+### The effect basis followed the formula, which the fit does not
+
+`chain_terms()` built the effect basis from the declared term labels. The cell
+parameterization fits `~ 0 + cell` whatever the formula says - `nesting_spec()`
+already messaged as much - so a formula that restricts the structure left the basis
+smaller than the thing it is meant to reparameterize:
+`chord_type * (inversion + inversion_top_notes)` spans 14 of 20 realized cells, and
+`effect_basis()` refused a perfectly well formed spec with "not square and full rank
+(20 cells, 14 identified effects)". Reached through the prior translation, so a
+declared `class = "b"` prior on a restricted formula could not be fitted at all.
+
+The basis is now the saturated one over the realized cells, independent of the
+formula: every subset of the cell variables that is closed under ancestry, which is
+the same list the fully crossed formula used to produce. What the declared structure
+still decides is which terms may appear - a variable is named only alongside its own
+ancestors, so no term is a marginal effect the design cannot support. A chain still
+gives its prefix ladder, and more than twelve categorical design variables is refused
+rather than enumerated.
+
 ## Not yet implemented
 
 The prior translation and audit

@@ -89,21 +89,32 @@ cell_formula <- function(spec, mode = c("cells", "effects"), intercept = NULL) {
 ## effect-basis fitting mode and the emmeans engine both require the original
 ## factors as predictors (see `fitting_mode()`).
 chain_terms <- function(spec) {
+  vars <- spec$cell_vars
+  if (length(vars) > 12)
+    stop(length(vars), " categorical design variables is more structure than ",
+         "the effect basis enumerates. The cell parameterization is unaffected; ",
+         "it is the reading of the coefficients as effects that has no compact ",
+         "form at this size.")
   fams <- spec$cat_families
   rank_of <- function(v) { for (f in fams) if (v %in% f) return(match(v, f)); Inf }
-  path_of <- function(v) c(nest_ancestors(spec, v), v)
-  canon <- function(vars) { vars <- unique(vars); vars[order(vapply(vars, rank_of, 1), vars)] }
-  labs <- spec$term_labels
-  labs <- lapply(strsplit(labs, ":"), function(vs) vs[vs %in% spec$cell_vars])
-  labs <- labs[lengths(labs) > 0]
-  closed <- lapply(labs, function(vs) canon(unique(unlist(lapply(vs, path_of)))))
-  used <- unique(unlist(closed))
-  ## Each variable contributes its own ancestor path, so every stratum has an
-  ## intercept, and the whole family contributes the saturated term, so the
-  ## basis spans the realized cells however the family branches. On a chain
-  ## these are exactly the prefixes a > a:b > a:b:c.
-  for (f in fams) if (any(f %in% used))
-    closed <- c(closed, lapply(f, function(v) canon(path_of(v))), list(canon(f)))
+  canon <- function(vs) { vs <- unique(vs); vs[order(vapply(vs, rank_of, 1), vs)] }
+  ## The basis is the saturated one over the realized cells, and does not follow
+  ## the declared formula. Cells mode fits `~ 0 + cell` whatever the formula
+  ## says, so a basis built from the declared terms would be smaller than the
+  ## thing it is meant to reparameterize - `chord_type * (inversion + top)`
+  ## spans 14 of 20 cells, and the translation would have no basis for the other
+  ## six. What the structure does decide is which terms may appear: a variable
+  ## is named only alongside its own ancestors, so every term is an effect
+  ## within a stratum that exists, and a term naming a nested variable without
+  ## its parent - which would be a marginal effect the design cannot support -
+  ## never arises.
+  closed <- Filter(length, lapply(seq_len(2^length(vars)) - 1L, function(i) {
+    vs <- vars[bitwAnd(i, 2L^(seq_along(vars) - 1L)) > 0]
+    if (!length(vs)) return(NULL)
+    if (!all(unlist(lapply(vs, function(v) nest_ancestors(spec, v))) %in% vs))
+      return(NULL)                       # not closed under ancestry
+    canon(vs)
+  }))
   out <- unique(vapply(closed, paste, "", collapse = ":"))
   out[order(lengths(strsplit(out, ":")), out)]
 }

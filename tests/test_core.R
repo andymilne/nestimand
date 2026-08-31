@@ -2937,6 +2937,29 @@ chk("continuous nested: the printed structure still shows it",
                          c(inversion, X1n) %in% chord_type)))), collapse = " "),
           fixed = TRUE))
 
+## The effect basis reparameterizes the cell fit, which is saturated whatever
+## the formula says, so the basis is saturated too: built from the declared
+## terms it was smaller than the thing it is meant to translate, and
+## `effect_basis()` refused a spec that was perfectly well formed.
+chk("basis: a restricted formula still gives a square, full-rank basis",
+    { sp <- suppressMessages(nesting_spec(cross_dat,
+        response ~ chord_type * (inversion + top), "inversion %in% chord_type"))
+      A <- effect_basis(sp)
+      nrow(A) == nrow(sp$cells) && ncol(A) == nrow(A) && qr(A)$rank == nrow(A) })
+chk("basis: and the same one the fully crossed formula gives",
+    { r <- suppressMessages(nesting_spec(cross_dat,
+        response ~ chord_type * (inversion + top), "inversion %in% chord_type"))
+      x <- suppressMessages(nesting_spec(cross_dat,
+        response ~ chord_type * inversion * top, "inversion %in% chord_type"))
+      identical(chain_terms(r), chain_terms(x)) })
+chk("basis: no term names a nested variable without its parent",
+    { sp <- suppressMessages(nesting_spec(cross_dat,
+        response ~ chord_type * inversion * top, "inversion %in% chord_type"))
+      all(vapply(strsplit(chain_terms(sp), ":"), function(vs)
+        all(unlist(lapply(vs, function(v) nest_ancestors(sp, v))) %in% vs), TRUE)) })
+chk("basis: a chain is still the prefix ladder it always was",
+    identical(chain_terms(sp2d), c("chord", "chord:inv", "chord:inv:doub")))
+
 chk("saturation: a formula spanning less than the realized cells says so",
     grepl("saturated",
           paste(utils::capture.output(
