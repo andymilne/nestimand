@@ -477,6 +477,28 @@ emitted `subset()`, the restriction note - is unchanged. `inversion:top` now giv
 three contrasts and no sentinel; `chord_type:top` keeps the augmented stratum, which
 is right, since both variables vary there.
 
+### A p-value on a Bayesian coefficient table
+
+`nest_summary()` had no Bayesian branch. On a brms fit it took `fixef()` and
+`vcov()`, applied the linear map, and reported `2 * pnorm(-|est / se|)` - a Wald test
+against a normal approximation to the posterior, which answers a question about
+repeated sampling that the model was not fitted to ask, computed from a Gaussian
+stand-in for a posterior whose draws were sitting right there. The estimand side had
+known this since it was written; the coefficient table had simply never been given
+the same treatment.
+
+It now maps the draws through the same matrix and summarizes each row's posterior:
+mean, standard deviation, quantile interval, and probability of direction. No
+p-value, no test statistic. A row the parameterization holds at zero - the intercept
+under an ordinal family - gets `pd = NA` rather than a meaningless 0. The print method
+shows `pd` where a frequentist summary shows `p.value`. Frequentist fits are
+untouched, which the suite checks.
+
+`pd` is monotone in the Wald p-value for a symmetric posterior, so this does not add
+information so much as stop mislabelling it. A ROPE percentage or a Bayes factor
+would answer a different question, and both need a decision about what counts as
+negligible on the latent scale; neither is implemented.
+
 ## Not yet implemented
 
 The prior translation and audit

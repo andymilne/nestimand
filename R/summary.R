@@ -121,14 +121,27 @@ nest_summary <- function(model, space = c("effects", "cells"),
   }
   Tm <- do.call(rbind, lapply(rows, `[[`, "M"))
 
-  est <- as.numeric(Tm %*% b)
-  se  <- sqrt(quad_form_diag(Tm, V))      # diag(T V T') without forming it
-  z   <- stats::qnorm(1 - (1 - conf_level) / 2)
-  out <- data.frame(term = rownames(Tm), estimate = est, std.error = se,
-                    statistic = est / se,
-                    p.value = 2 * stats::pnorm(-abs(est / se)),
-                    conf.low = est - z * se, conf.high = est + z * se,
-                    row.names = NULL)
+  ## A Bayesian fit is summarized from its draws, as the estimand functions are.
+  ## Mapping the posterior covariance through the delta method would give a
+  ## normal approximation to the posterior, and a p-value computed from it has
+  ## no Bayesian reading: it answers a question about repeated sampling that the
+  ## model was not fitted to ask. The draws give the posterior of each row
+  ## directly - its mean, its standard deviation, a quantile interval, and the
+  ## probability of direction.
+  if (inherits(model, "brmsfit")) {
+    D <- as.matrix(brms::as_draws_matrix(model))
+    nm <- draw_names(colnames(Tm), colnames(D))
+    out <- draws_summary(D[, nm, drop = FALSE] %*% t(Tm), rownames(Tm), conf_level)
+  } else {
+    est <- as.numeric(Tm %*% b)
+    se  <- sqrt(quad_form_diag(Tm, V))    # diag(T V T') without forming it
+    z   <- stats::qnorm(1 - (1 - conf_level) / 2)
+    out <- data.frame(term = rownames(Tm), estimate = est, std.error = se,
+                      statistic = est / se,
+                      p.value = 2 * stats::pnorm(-abs(est / se)),
+                      conf.low = est - z * se, conf.high = est + z * se,
+                      row.names = NULL)
+  }
   out$meaning <- unlist(lapply(rows, function(r)
     block_meaning(spec, r$label, cells, A, space, rownames(r$M))))
   if (has_thresholds(spec) && nrow(out) && isTRUE(out$std.error[1] == 0))
@@ -148,6 +161,24 @@ nest_summary <- function(model, space = c("effects", "cells"),
     error = function(e) NULL)
   attr(out, "nestimand_map") <- Tm
   class(out) <- c("nestimand_summary", class(out))
+  out
+}
+
+## One row per column of `S`, the draws of that row's quantity: the posterior
+## mean, its standard deviation, a quantile interval, and the probability of
+## direction - the posterior mass on whichever side of zero holds more of it. A
+## row the parameterization holds at zero has no direction to report.
+draws_summary <- function(S, terms, conf_level = 0.95) {
+  lo <- (1 - conf_level) / 2
+  sdv <- apply(S, 2, stats::sd)
+  out <- data.frame(
+    term = terms, estimate = apply(S, 2, mean), std.error = sdv,
+    conf.low = apply(S, 2, stats::quantile, probs = lo),
+    conf.high = apply(S, 2, stats::quantile, probs = 1 - lo),
+    pd = ifelse(sdv == 0, NA_real_,
+                apply(S, 2, function(z) max(mean(z > 0), mean(z < 0)))),
+    row.names = NULL)
+  attr(out, "nestimand_draws") <- S
   out
 }
 
@@ -192,8 +223,13 @@ print.nestimand_summary <- function(x, digits = 4, ...) {
   d <- as.data.frame(x)
   d$estimate <- round(d$estimate, digits)
   d$std.error <- round(d$std.error, digits)
-  d$p.value <- format.pval(d$p.value, digits = max(2, digits - 1), eps = 10^-digits)
-  cols <- c("term", "estimate", "std.error", "p.value")
+  ## a posterior summary reports the probability of direction, a frequentist one
+  ## a p-value: the column shown is the one the fit can support
+  bayes <- "pd" %in% names(d)
+  if (bayes) d$pd <- round(d$pd, max(3, digits - 1))
+  else d$p.value <- format.pval(d$p.value, digits = max(2, digits - 1),
+                                eps = 10^-digits)
+  cols <- c("term", "estimate", "std.error", if (bayes) "pd" else "p.value")
   if (identical(space, "effects")) cols <- c(cols, "meaning")
   print_aligned(d[, cols])
   rc <- attr(x, "nestimand_random")

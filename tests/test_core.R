@@ -2749,6 +2749,38 @@ chk("summary: a real threshold is still called one",
 chk("summary: every row still translates one coefficient",
     nrow(s_fac) == length(coef(m_fac)))
 
+## A Bayesian fit is summarized from its draws: a p-value computed from a
+## normal approximation to the posterior answers a question the model was not
+## fitted to ask. The mapping is exercised here; the brms fit itself is in
+## tests/test_brms.R.
+set.seed(21)
+S_draws <- cbind(up = rnorm(4000, 1, 0.3), flat = rnorm(4000, 0, 1),
+                 held = rep(0, 4000))
+ds <- draws_summary(S_draws, colnames(S_draws), 0.9)
+chk("nest_summary posterior: the summary is the posterior's own, not an approximation",
+    { isTRUE(all.equal(unname(ds$estimate), unname(colMeans(S_draws)))) &&
+      isTRUE(all.equal(unname(ds$std.error), unname(apply(S_draws, 2, sd)))) })
+chk("nest_summary posterior: the interval is a quantile interval at the level asked for",
+    isTRUE(all.equal(c(ds$conf.low[1], ds$conf.high[1]),
+                     unname(quantile(S_draws[, "up"], c(0.05, 0.95))))))
+chk("nest_summary posterior: pd is the mass on the side of zero holding more of it",
+    { isTRUE(all.equal(ds$pd[1], mean(S_draws[, "up"] > 0))) &&
+      ds$pd[2] > 0.5 && ds$pd[2] < 0.6 })
+chk("nest_summary posterior: a row held at zero has no direction to report",
+    is.na(ds$pd[3]))
+chk("nest_summary posterior: no p-value or test statistic is offered",
+    !any(c("p.value", "statistic") %in% names(ds)))
+chk("nest_summary posterior: the printed table shows pd where a frequentist shows p",
+    { fake <- ds; class(fake) <- c("nestimand_summary", class(fake))
+      attr(fake, "nestimand_space") <- "effects"
+      attr(fake, "nestimand_fit") <- "brm"
+      fake$meaning <- c("a", "b", "c")
+      txt <- paste(utils::capture.output(print(fake)), collapse = " ")
+      grepl(" pd ", txt) && !grepl("p.value", txt, fixed = TRUE) })
+chk("nest_summary posterior: a frequentist fit still reports the p-value",
+    { d <- as.data.frame(nest_summary(mf))
+      "p.value" %in% names(d) && !("pd" %in% names(d)) })
+
 ## An interaction contrast over three variables: the corners are the eight
 ## conditions two levels of each variable define, and the sign is the product
 ## of the three simple contrasts. The matrix was written for two variables and
