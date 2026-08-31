@@ -287,6 +287,38 @@ second: `latent_draws()` assumes brms names cell coefficients `b_` followed by
 the cell label with non-alphanumeric characters removed, and cell labels contain
 full stops, so that assumption is the one most likely to be wrong.
 
+## Branching families and depth (added 2026-08-31, run and observed to work)
+
+A declared family is now a tree rather than a chain: one parent may hold several
+nested variables. `chain_of()` became `family_of()`, a depth-first walk, and the
+family vector is no longer ancestry — `nest_ancestors()` is. Four places had been
+reading a position in that vector as ancestry, and each is now asked: the sentinel
+search, `degenerate_strata()`, the `within` strata, and `spec_nests()`. The
+declaration accepts `c(inversion, X1) %in% chord_type` and the
+`inversion + X1 %in% chord_type` sugar (carried as text, since `%in%` binds tighter
+than `+`, so R's parse tree does not match the reading); a variable declared inside
+two parents, and `%in%` chained within one entry, are refused with the remedy named.
+
+Two bugs the one-level chain never exposed, both fixed and covered by
+`tests/test_core.R`: `degenerate_strata()` reports a composite stratum key, and
+three call sites restricted the cell table by its first variable only, so at depth
+three the pooled estimand of the deepest variable matched no cells and failed inside
+`combn()`; and `add_bounds()` and `estimand_values()` called `latent_estimand()`
+without `cells`, which errored at depth three and, at depth two, silently computed
+the bounds on the unrestricted cell table.
+
+Run here on a four-variable design — `chord_type > {inversion, X1}`,
+`inversion > Z` — with `lm`: 19 to 41 realized cells, effect basis square and full
+rank, no aliased coefficients, every target's estimand and its emitted script
+agreeing, and the reorder self-check passing at depth three. The whole suite is 487
+checks, 0 failures.
+
+One thing left as it was: `random_terms(structure = "chain")` builds its grouping
+chain from prefixes of the family vector, so with siblings the intermediate stratum
+is `chord_type:inversion` rather than anything symmetric between them. Every such
+prefix is still a valid coarsening of the cells, so the submodel is identified; it
+is simply not the only reasonable chain, and the cell form is unaffected.
+
 ## Not yet implemented
 
 The prior translation and audit

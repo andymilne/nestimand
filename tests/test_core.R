@@ -1205,7 +1205,7 @@ called <- unlist(lapply(seq_len(nrow(combo2)), function(i) {
   unlist(regmatches(cd, gregexpr("[A-Za-z._][A-Za-z0-9._]*(?=\\()", cd, perl = TRUE)))
 }))
 base_or_engine <- c("lm", "glm", "factor", "levels", "c", "subset", "library",
-                    "as.character", "avg_predictions", "function", "if")
+                    "as.character", "paste", "avg_predictions", "function", "if")
 missing_exports <- setdiff(setdiff(unique(called), base_or_engine), exported)
 missing_exports <- missing_exports[vapply(missing_exports, exists, TRUE)]
 chk("emitted code: every nestimand function it calls is exported",
@@ -2487,5 +2487,102 @@ chk("group draws: a coefficient with no group-level counterpart contributes noth
 chk("eta: a non-Bayesian fit still refuses the sampled-group request",
     grepl("ask for different things",
           err_of(estimand(mf, chord_type, type = "eta", re.form = NULL))))
+
+## ---- deeper and branching structures --------------------------------------
+## Two things the one-level chain never exercises: a stratum key with more than
+## one ancestor, and a parent holding two children. Both are places where a
+## position in the family vector was mistaken for ancestry.
+deep <- local({
+  rows <- list()
+  for (ct in c("aug", "dim", "min", "maj")) {
+    invs <- if (ct == "aug") "none" else c("0", "1", "2")
+    x1s  <- if (ct == "aug") "none" else c("a", "b")
+    for (iv in invs) for (x in x1s) {
+      zs <- if (iv %in% c("none", "2")) "none" else c("z1", "z2")
+      for (z in zs)
+        rows[[length(rows) + 1]] <-
+          data.frame(chord_type = ct, inversion = iv, X1 = x, Z = z)
+    }
+  }
+  g <- do.call(rbind, rows)
+  d <- g[rep(seq_len(nrow(g)), each = 12), ]
+  d$chord_type <- factor(d$chord_type, levels = c("aug", "dim", "min", "maj"))
+  d$inversion  <- factor(d$inversion,  levels = c("none", "0", "1", "2"))
+  d$X1 <- factor(d$X1, levels = c("none", "a", "b"))
+  d$Z  <- factor(d$Z,  levels = c("none", "z1", "z2"))
+  set.seed(11); d$response <- rnorm(nrow(d), 4)
+  d
+})
+sp_d <- nesting_spec(deep, response ~ chord_type * inversion * X1 * Z,
+                     c("inversion %in% chord_type", "X1 %in% chord_type",
+                       "Z %in% inversion"))
+m_d <- nest_fit(sp_d)
+chk("branching: a parent may hold two nested variables",
+    identical(unname(sp_d$parent[c("inversion", "X1", "Z")]),
+              c("chord_type", "chord_type", "inversion")))
+chk("branching: c(a, b) %in% parent declares them together",
+    identical(nesting_spec(deep, response ~ chord_type * inversion * X1,
+                           c(inversion, X1) %in% chord_type)$parent[c("inversion", "X1")],
+              c(inversion = "chord_type", X1 = "chord_type")))
+chk("branching: a + b %in% parent is the same declaration",
+    identical(nesting_spec(deep, response ~ chord_type * inversion * X1,
+                           inversion + X1 %in% chord_type)$parent[c("inversion", "X1")],
+              c(inversion = "chord_type", X1 = "chord_type")))
+chk("branching: a variable inside two parents is refused",
+    grepl("more than one",
+          err_of(nesting_spec(deep, response ~ chord_type * inversion * X1,
+                              c("X1 %in% chord_type", "X1 %in% inversion")))))
+chk("branching: chained %in% is refused with the one-level-per-entry remedy",
+    grepl("one level per", err_of(nesting_spec(deep, response ~ chord_type,
+                                               "Z %in% inversion %in% chord_type"))))
+chk("ancestry: the strata of a sibling are its own parents, not its siblings",
+    identical(nest_ancestors(sp_d, "X1"), "chord_type") &&
+    identical(nest_ancestors(sp_d, "Z"), c("chord_type", "inversion")))
+chk("ancestry: degenerate strata are keyed by every ancestor",
+    identical(degenerate_strata(sp_d, "X1")$vars, "chord_type") &&
+    identical(degenerate_strata(sp_d, "Z")$vars, c("chord_type", "inversion")))
+chk("depth: the effect basis is square and full rank over the realized cells",
+    { A <- effect_basis(sp_d)
+      nrow(A) == nrow(sp_d$cells) && qr(A)$rank == nrow(A) })
+chk("depth: the fit has one coefficient per realized cell, none aliased",
+    length(coef(m_d)) == nrow(sp_d$cells) && !anyNA(coef(m_d)))
+## The same structure without the sibling, small enough that the bounds are
+## enumerated rather than skipped: three levels of nesting is the point here.
+sp_z <- nesting_spec(subset(deep, X1 %in% c("none", "a")),
+                     response ~ chord_type * inversion * Z,
+                     c("inversion %in% chord_type", "Z %in% inversion"))
+m_z <- nest_fit(sp_z)
+chk("depth: the pooled estimand of the deepest variable runs, with bounds",
+    { e <- estimand(m_z, Z, policy = "equal")
+      b <- attr(e, "nestimand_bounds")
+      !is.null(b) && b$policy_low < b$estimate && b$estimate < b$policy_high })
+chk("depth: its emitted code runs on its own and gives the same estimate",
+    { e <- estimand(m_z, Z, policy = "equal")
+      cd <- attr(estimand(m_z, Z, policy = "equal", dry_run = TRUE),
+                 "nestimand_code")
+      en <- new.env(parent = globalenv())
+      assign("sp_z", sp_z, en); assign("m_z", m_z, en)
+      out <- eval(parse(text = paste(c(cd, "est"), collapse = "\n")), envir = en)
+      isTRUE(all.equal(as.data.frame(out)$estimate, as.data.frame(e)$estimate)) })
+chk("depth: the reorder self-check passes at depth three",
+    identical(attr(estimand(m_z, Z, policy = "equal"),
+                   "nestimand")$self_check$status, "passed"))
+chk("branching: within-stratum contrasts of a sibling are per parent stratum",
+    { w <- as.data.frame(estimand(m_d, X1, contrast = "within"))
+      setequal(w$stratum, c("dim", "min", "maj")) })
+chk("branching: the declaration round-trips through spec_nests()",
+    setequal(spec_nests(sp_d),
+             c("inversion %in% chord_type", "X1 %in% chord_type",
+               "Z %in% inversion")))
+chk("saturation: a formula spanning less than the realized cells says so",
+    grepl("saturated",
+          paste(utils::capture.output(
+            nesting_spec(dat, response ~ chord_type + inversion,
+                         "inversion %in% chord_type"), type = "message"),
+            collapse = " ")))
+chk("saturation: a formula that does span them is silent",
+    !length(utils::capture.output(
+      nesting_spec(dat, response ~ chord_type * inversion,
+                   "inversion %in% chord_type"), type = "message")))
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
