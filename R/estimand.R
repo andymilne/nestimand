@@ -58,7 +58,15 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   ## `a * b` expands as it does in a formula - a, b, and their interaction -
   ## and `a:b` names the interaction alone.
   if (is.call(tg) && as.character(tg[[1]]) %in% c("*", ":")) {
-    vs <- vapply(as.list(tg)[-1], function(z) paste(deparse(z), collapse = ""), "")
+    ## `a * b * c` parses as `(a * b) * c`, so the operands have to be gathered
+    ## through the nesting rather than read off the top call: taking the two
+    ## operands alone left `a * b` standing as though it were a variable name.
+    flatten_op <- function(e, op) {
+      if (is.call(e) && identical(as.character(e[[1]]), op))
+        return(unlist(lapply(as.list(e)[-1], flatten_op, op = op), use.names = FALSE))
+      paste(deparse(e), collapse = "")
+    }
+    vs <- flatten_op(tg, as.character(tg[[1]]))
     if (identical(as.character(tg[[1]]), ":")) {
       target <- vs
       contrast <- "interaction"

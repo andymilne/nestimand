@@ -58,16 +58,33 @@ nest_summary <- function(model, space = c("effects", "cells"),
   blocks <- list(list(label = character(0),
                       cols = intersect(c("(Intercept)", paste0(cn, cells)), names(b)),
                       order = c("(Intercept)", paste0(cn, cells))))
-  for (cv in spec$covariates) {
+  ## A numeric covariate contributes one column per cell, named `cell<k>:x`. A
+  ## factor covariate contributes one such set per non-reference level, named
+  ## `cell<k>:x<level>` - so the column name is the variable plus a suffix, and
+  ## matching the variable name exactly found none of them. Each level is its
+  ## own block, since each is a separate quantity per cell. Longer covariate
+  ## names are matched first, and a column already claimed is not re-used, so a
+  ## covariate whose name is a prefix of another does not swallow its columns.
+  claimed <- character(0)
+  for (cv in spec$covariates[order(-nchar(spec$covariates))]) {
     hit <- names(b)[grepl(paste0("(^|:)", cn), names(b)) &
-                    grepl(paste0("(^|:)", cv, "($|:)"), names(b))]
+                    grepl(paste0("(^|:)", cv, "[^:]*($|:)"), names(b))]
+    hit <- setdiff(hit, claimed)
     if (!length(hit)) next
-    ord <- vapply(cells, function(k) {
-      m <- hit[grepl(paste0(cn, k, "(:|$)"), hit, fixed = FALSE)]
-      if (length(m) == 1) m else NA_character_ }, "")
-    if (anyNA(ord)) next                    # not one slope per cell: leave alone
-    blocks[[length(blocks) + 1]] <- list(label = cv, cols = unname(ord),
-                                         order = unname(ord))
+    col_of <- vapply(hit, function(z) {
+      pieces <- strsplit(z, ":", fixed = TRUE)[[1]]
+      pieces <- pieces[startsWith(pieces, cv)]
+      if (length(pieces)) pieces[1] else NA_character_ }, "")
+    for (lv in unique(stats::na.omit(col_of))) {
+      h <- hit[!is.na(col_of) & col_of == lv]
+      ord <- vapply(cells, function(k) {
+        m <- h[grepl(paste0(cn, k, "(:|$)"), h, fixed = FALSE)]
+        if (length(m) == 1) m else NA_character_ }, "")
+      if (anyNA(ord)) next                  # not one slope per cell: leave alone
+      claimed <- c(claimed, unname(ord))
+      blocks[[length(blocks) + 1]] <- list(label = lv, cols = unname(ord),
+                                           order = unname(ord))
+    }
   }
   used <- unlist(lapply(blocks, `[[`, "cols"))
   extras <- setdiff(names(b), used)
@@ -137,11 +154,17 @@ nest_summary <- function(model, space = c("effects", "cells"),
 ## What each row equals, as a combination of realized conditions. For a slope
 ## block the same combination applies, of slopes rather than means.
 block_meaning <- function(spec, label, cells, A, space, rownames_M) {
-  if (length(label) && !is.null(label) && is.na(label))
-    ## coefficients that are not one quantity per cell: a covariate slope common
-    ## to every condition, or an ordinal threshold. The translation leaves them
-    ## as fitted, and their usual reading is unaffected.
-    return(ifelse(rownames_M %in% spec$covariates, "common slope", "threshold"))
+  if (length(label) && !is.null(label) && is.na(label)) {
+    ## Coefficients that are not one quantity per cell. The translation leaves
+    ## them as fitted, and their usual reading is unaffected - but only a
+    ## threshold may be called one: labelling whatever is left over as a
+    ## threshold turns an unrecognized coefficient into a confident wrong
+    ## answer, which is how a covariate crossed with the cells once read.
+    is_threshold <- grepl("^Intercept\\[[0-9]+\\]$", rownames_M) |
+      grepl("^[^|]+\\|[^|]+$", rownames_M)
+    return(ifelse(rownames_M %in% spec$covariates, "common slope",
+                  ifelse(is_threshold, "threshold", "as fitted, not translated")))
+  }
   suffix <- if (is.null(label) || !length(label)) ""
             else paste0(" (slope on ", label, ")")
   if (space == "cells")

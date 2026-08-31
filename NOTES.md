@@ -374,6 +374,23 @@ structure now keeps the crossing - `(0 + cell + cell:top | id)` rather than
 One left additive in the bar stays additive. The compound-symmetric submodel
 (`structure = "chain"`) crosses nothing, by design.
 
+### Two more from the same session (fixed 2026-08-31)
+
+`estimand(m, a * b * c)` refused. `a * b * c` parses as `(a * b) * c`, and the
+operands were read off the top call alone, so `a * b` stood as though it were a
+variable name. They are now gathered through the nesting.
+
+`nest_summary()` left a *factor* covariate crossed with the cells untranslated, and
+called every column of it a threshold. The columns are named `cell<k>:x<level>` -
+the variable plus a level suffix - and the block matcher required the name to end at
+the variable, so it found none of them; they fell to the leftover block, whose label
+was `ifelse(name %in% covariates, "common slope", "threshold")`. Each level is now
+its own block, matched allowing the suffix, longest covariate name first so a name
+that is a prefix of another does not swallow its columns. The leftover label no
+longer guesses: only `Intercept[k]` and `a|b` are called thresholds, and anything
+else says it was left as fitted. A wrong label is worse than an unhelpful one - these
+rows were being read as ordinal cut points.
+
 ## Not yet implemented
 
 The prior translation and audit

@@ -2650,6 +2650,35 @@ chk("random chain: an unbranched family still gives the prefix ladder",
 chk("random chain: the cells form is untouched by the branching",
     identical(random_terms(re_a, "cells"), "(0 + cell | participant)"))
 
+## `a * b * c` parses as `(a * b) * c`, so the operands have to be gathered
+## through the nesting: reading the top call alone left `a * b` as a name.
+chk("target: a * b * c names three targets, not two",
+    { e <- err_of(estimand(mf, chord_type * inversion * training,
+                           policy = "equal", bounds = FALSE, self_check = FALSE))
+      grepl("`training` is not among", e, fixed = TRUE) })
+chk("target: a * b still names two",
+    inherits(estimand(mf, chord_type * inversion, policy = "equal",
+                      bounds = FALSE, self_check = FALSE), "nestimand_estimands"))
+
+## A factor covariate crossed with the cells is named `cell<k>:x<level>`, one
+## set of columns per non-reference level. Matching the variable name exactly
+## found none of them, and every column fell through to the leftover block,
+## where it was labelled a threshold.
+fac_dat <- local({ d <- dat; set.seed(14)
+  d$top <- factor(rep(c("t1", "t2"), length.out = nrow(d))); d })
+sp_fac <- nesting_spec(fac_dat, response ~ chord_type * inversion * top * training,
+                       "inversion %in% chord_type")
+m_fac <- nest_fit(sp_fac)
+s_fac <- as.data.frame(nest_summary(m_fac))
+chk("summary: a factor covariate crossed with the cells is translated",
+    sum(grepl("slope on top", s_fac$meaning)) == nrow(sp_fac$cells))
+chk("summary: and nothing of it is left over as a threshold",
+    !any(grepl("threshold", s_fac$meaning)))
+chk("summary: a real threshold is still called one",
+    any(grepl("threshold", as.data.frame(nest_summary(mo))$meaning)))
+chk("summary: every row still translates one coefficient",
+    nrow(s_fac) == length(coef(m_fac)))
+
 ## A variable given a random slope keeps its fixed effect, and a covariate
 ## declared crossed with the structure keeps that crossing on both sides.
 slope_dat <- local({
