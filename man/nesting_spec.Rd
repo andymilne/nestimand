@@ -19,7 +19,7 @@ apply_sentinel(data, var, where = NULL, sentinel = "none")
 \arguments{
   \item{data}{a data frame containing the outcome, the nesting variables, and any covariates.}
   \item{formula}{the desired model, written freely in ordinary R syntax; crossed terms are welcome and are transformed rather than fitted as given. Random-effects terms may be written here in \code{lme4}/\code{brms} syntax.}
-  \item{nests}{the nesting links, quoted or bare: \code{"inversion \%in\% chord_type"}, or \code{c(inv \%in\% chord, doub \%in\% inv)} for a chain. A parent may hold several nested variables, declared one per entry or together as \code{c(inversion, X1) \%in\% chord_type}; \code{inversion + X1 \%in\% chord_type} reads the same way. Each variable is nested in exactly one parent, and \code{\%in\%} is not chained within one entry - \code{Z \%in\% inversion \%in\% chord_type} is two entries, since R would read it as \code{(Z \%in\% inversion) \%in\% chord_type}.}
+  \item{nests}{the nesting links, quoted or bare: \code{"inversion \%in\% chord_type"}, or \code{c(inv \%in\% chord, doub \%in\% inv)} for a chain. A parent may hold several nested variables, declared one per entry or together as \code{c(inversion, X1) \%in\% chord_type}; \code{inversion + X1 \%in\% chord_type} and \code{(inversion + X1) \%in\% chord_type} read the same way, the brackets being optional since the left side is a list of names rather than a model term. Anything that is not a list of names - an interaction, say - is refused. Each variable is nested in exactly one parent, and \code{\%in\%} is not chained within one entry - \code{Z \%in\% inversion \%in\% chord_type} is two entries, since R would read it as \code{(Z \%in\% inversion) \%in\% chord_type}.}
   \item{fit}{the modelling engine, named for its fitting function: \code{"lm"}, \code{"glm"}, \code{"lmer"}, \code{"glmer"}, \code{"clm"}, \code{"clmm"}, \code{"brm"}. \code{"brms"} is accepted for the last, being the package's name rather than the function's.}
   \item{family}{family for the engines that need one, quoted or as a bare call, e.g. \code{cumulative("probit")}.}
   \item{random}{random-effects terms, if not written into \code{formula}.}
@@ -41,6 +41,13 @@ of those may hold further ones, to any depth. The strata of a nested variable ar
 own ancestors - a sibling is not one of them - so \code{inversion} and \code{X1}
 both inside \code{chord_type} are compared within chord type, not within
 chord type crossed with each other.
+
+A declared nesting variable that is \emph{numeric} is not part of the cell factor: a
+continuous nested variable enters as a slope within the realized cells,
+\code{cell:x}, which is what nesting a quantity means. \code{nesting_spec} says so
+when it happens, and the printed structure marks the variable, since a variable whose
+values are labels is easily left numeric by accident - convert it to a factor first if
+that is what it is.
 
 The fitted mean structure is saturated over the realized cells whatever the formula
 says, since cells mode fits \code{~ 0 + cell}. A formula that spans fewer dimensions

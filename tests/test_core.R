@@ -2528,6 +2528,18 @@ chk("branching: a + b %in% parent is the same declaration",
     identical(nesting_spec(deep, response ~ chord_type * inversion * X1,
                            inversion + X1 %in% chord_type)$parent[c("inversion", "X1")],
               c(inversion = "chord_type", X1 = "chord_type")))
+chk("branching: the left of %in% may be bracketed for precedence",
+    identical(nesting_spec(deep, response ~ chord_type * inversion * X1,
+                           (inversion + X1) %in% chord_type)$parent[c("inversion", "X1")],
+              c(inversion = "chord_type", X1 = "chord_type")))
+chk("branching: nested brackets and c() mix freely on the left",
+    identical(nesting_spec(deep, response ~ chord_type * inversion * X1,
+                           c((inversion), X1) %in% chord_type)$parent[c("inversion", "X1")],
+              c(inversion = "chord_type", X1 = "chord_type")))
+chk("branching: an interaction on the left is refused, and named",
+    grepl("inversion:X1",
+          err_of(nesting_spec(deep, response ~ chord_type * inversion * X1,
+                              inversion:X1 %in% chord_type))))
 chk("branching: a variable inside two parents is refused",
     grepl("more than one",
           err_of(nesting_spec(deep, response ~ chord_type * inversion * X1,
@@ -2637,6 +2649,32 @@ chk("random chain: an unbranched family still gives the prefix ladder",
             "(1 | participant:chord_type:inversion)")))
 chk("random chain: the cells form is untouched by the branching",
     identical(random_terms(re_a, "cells"), "(0 + cell | participant)"))
+
+## A numeric nested variable is a slope inside the cells, not a cell variable.
+## It stays visible in the printed structure, since a variable whose values are
+## labels is easily left numeric by accident.
+cont_dat <- local({
+  d <- deep[deep$Z %in% c("none", "z1"), ]
+  d$X1n <- as.numeric(factor(d$X1)); d })
+chk("continuous nested: the declaration is said aloud rather than absorbed",
+    grepl("slope within the realized cells",
+          paste(utils::capture.output(
+            nesting_spec(cont_dat, response ~ chord_type * inversion * X1n,
+                         c(inversion, X1n) %in% chord_type),
+            type = "message"), collapse = " ")))
+chk("continuous nested: it is a covariate crossed with the cells, not a cell variable",
+    { sp_c <- suppressMessages(
+        nesting_spec(cont_dat, response ~ chord_type * inversion * X1n,
+                     c(inversion, X1n) %in% chord_type))
+      identical(sp_c$cell_vars, c("chord_type", "inversion")) &&
+        identical(unname(sp_c$cont_nested), "X1n") &&
+        grepl("cell:X1n", paste(deparse(cell_formula(sp_c)), collapse = " ")) })
+chk("continuous nested: the printed structure still shows it",
+    grepl("X1n (continuous)",
+          paste(utils::capture.output(print(suppressMessages(
+            nesting_spec(cont_dat, response ~ chord_type * inversion * X1n,
+                         c(inversion, X1n) %in% chord_type)))), collapse = " "),
+          fixed = TRUE))
 
 chk("saturation: a formula spanning less than the realized cells says so",
     grepl("saturated",

@@ -47,8 +47,9 @@ sp <- nesting_spec(dat, rating ~ chord_type * inversion * X1 * Z,
                    c("inversion \%in\% chord_type", "X1 \%in\% chord_type",
                      "Z \%in\% inversion"))
 
-## the two siblings, gathered - these three are the same declaration
+## the two siblings, gathered - these four are the same declaration
 c(inversion, X1) \%in\% chord_type
+(inversion + X1) \%in\% chord_type
 inversion + X1 \%in\% chord_type
 c("inversion \%in\% chord_type", "X1 \%in\% chord_type")}
 

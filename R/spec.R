@@ -7,6 +7,30 @@
 
 nestimand_build <- "2026-08-17.1"
 
+## The variables named on the left of `%in%`. Read from the parsed expression
+## rather than by splitting the text, so that `a + b`, `c(a, b)`, `(a + b)` and
+## any nesting of those mean the same thing - the parentheses a reader is
+## likely to add for the precedence of `%in%` among them. Anything that is not
+## a list of names is refused: an interaction is not nested in anything.
+nested_names <- function(txt, parent) {
+  refuse <- function(e)
+    stop("the left of `%in%` names the variables nested in `", parent,
+         "`, separated by `+`, gathered with `c()`, or bracketed; `",
+         paste(deparse(e), collapse = " "), "` is not a variable name. An ",
+         "interaction is not nested in anything - declare each variable of ",
+         "it separately.")
+  walk <- function(e) {
+    if (is.name(e)) return(as.character(e))
+    if (is.call(e) && as.character(e[[1]]) %in% c("(", "c", "+"))
+      return(unlist(lapply(as.list(e)[-1], walk), use.names = FALSE))
+    refuse(e)
+  }
+  e <- tryCatch(str2lang(trimws(txt)),
+                error = function(err) stop("`", trimws(txt), "` on the left of ",
+                  "`%in%` is not an R expression."))
+  unique(walk(e))
+}
+
 nesting_spec <- function(data, formula, nests,
                          fit = c("lm", "glm", "lmer", "glmer", "clm", "clmm", "brm"),
                          family = NULL, random = NULL,
@@ -59,15 +83,7 @@ nesting_spec <- function(data, formula, nests,
     if (length(p) != 2)
       stop("a nesting declaration reads `child %in% parent`; `", trimws(s),
            "` has no `%in%`.")
-    kids <- trimws(strsplit(sub("^c\\((.*)\\)$", "\\1", p[1]), "[+,]")[[1]])
-    kids <- kids[nzchar(kids)]
-    bad <- kids[!grepl("^[A-Za-z.][A-Za-z0-9._]*$", kids)]
-    if (length(bad))
-      stop("the left of `%in%` names the variables nested in `", p[2],
-           "`, separated by `+` or gathered with `c()`; `",
-           paste(bad, collapse = "`, `"), "` is not a variable name. An ",
-           "interaction is not nested in anything - declare each variable of ",
-           "it separately.")
+    kids <- nested_names(p[1], p[2])
     stats::setNames(rep(p[2], length(kids)), kids)    # child -> parent
   }
   parent <- do.call(c, lapply(nests, parse1))
@@ -219,6 +235,19 @@ nesting_spec <- function(data, formula, nests,
               "restricted mean structure as a prior, or read the fit as ",
               "saturated.")
   }
+  ## A numeric nested variable is not part of the cell factor: it enters as a
+  ## slope within the realized cells, which is what a continuous nesting means.
+  ## The difference from a factor is large enough to be worth stating, since a
+  ## variable whose values are labels is easily left numeric by accident.
+  if (length(cont_nested))
+    message("`", paste(cont_nested, collapse = "`, `"), "` ",
+            if (length(cont_nested) > 1) "are numeric" else "is numeric",
+            ", so ", if (length(cont_nested) > 1) "they are " else "it is ",
+            "not part of the cell factor: a continuous nested variable enters ",
+            "as a slope within the realized cells - `", cell_name, ":",
+            cont_nested[1], "` - which is what nesting a quantity means. If ",
+            "its values are labels rather than quantities, make it a factor ",
+            "before declaring it.")
   counts <- table(data[[cell_name]])
   if (all(counts == 1))
     message("every realized cell contains a single observation: the model will be ",
@@ -253,15 +282,17 @@ nest_ancestors <- function(spec, v) {
 ## A family reads as `a > b > c` while each variable holds at most one child,
 ## and as its declarations otherwise, which stays unambiguous when it branches.
 family_label <- function(x, fam) {
+  mark <- function(v) if (v %in% x$cont_nested) paste0(v, " (continuous)") else v
   kids <- vapply(fam, function(v) sum(x$parent == v), 1L)
-  if (all(kids <= 1)) return(paste(fam, collapse = " > "))
+  if (all(kids <= 1))
+    return(paste(vapply(fam, mark, ""), collapse = " > "))
   paste(vapply(fam[-1], function(v)
-    paste(unname(x$parent[[v]]), ">", v), ""), collapse = ", ")
+    paste(unname(x$parent[[v]]), ">", mark(v)), ""), collapse = ", ")
 }
 
 print.nesting_spec <- function(x, ...) {
   for (i in seq_along(x$cat_families)) {
-    cat("Nesting:", family_label(x, x$cat_families[[i]]), "\n")
+    cat("Nesting:", family_label(x, x$families[[i]]), "\n")
     cat("  realized cells:", nrow(x$cells_by_family[[i]]), "of",
         prod(vapply(x$cat_families[[i]],
                     function(v) length(unique(x$data[[v]])), 1L)),
