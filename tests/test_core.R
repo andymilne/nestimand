@@ -2971,7 +2971,7 @@ chk("restricted: estimands run, and the two routes agree",
 chk("restricted: nest_summary reports the coefficients rather than refusing",
     { d <- as.data.frame(nest_summary(res_m))
       nrow(d) == sum(!is.na(coef(res_m))) &&
-        all(grepl("as declared", d$meaning)) })
+        all(d$meaning == "as fitted" | grepl("held at zero", d$meaning)) })
 chk("restricted: the printed spec shows the formula that will be fitted",
     { txt <- paste(utils::capture.output(print(res_sp)), collapse = " ")
       grepl("effects parameterization", txt) && !grepl("0 \\+ cell", txt) })
@@ -3064,6 +3064,52 @@ chk("constraints: a cell fit needs none of this",
         fit = "brm"))
       !any(grepl("chain_prior_object",
                  attr(nest_fit(sp, dry_run = TRUE), "nestimand_code"))) })
+
+## ---- one invariant, across every parameterization the package can fit -----
+## Each of the last few faults was the same shape: a design matrix built one way
+## and coefficients fitted another. The routes were checked separately, and on
+## data whose sentinel happened to be the first factor level, so the coding the
+## effects form imposes was never contradicted. This checks the invariant
+## instead of the instances - the design a route builds must match the
+## coefficients the fit has - over both parameterizations, both routes, a
+## restricted and a saturated declaration, and both positions of the sentinel in
+## the level order. The last of those is what broke it: `nest_fit()` relevels
+## the sentinel to reference for an effects fit, and a grid coded from the data
+## as it stands then carries columns the fit does not have.
+for (.lev in list(c("none", "0", "1", "2"), c("0", "1", "2", "none"))) {
+  .tag <- if (.lev[1] == "none") "sentinel first" else "sentinel last"
+  .d <- cross_dat
+  .d$inversion <- factor(as.character(.d$inversion), levels = .lev)
+  set.seed(31); .d$GMSI <- rnorm(nrow(.d))
+  .sp_r <- suppressMessages(nesting_spec(.d,
+    response ~ chord_type * (inversion + top) * GMSI, "inversion %in% chord_type"))
+  .sp_s <- suppressMessages(nesting_spec(.d,
+    response ~ chord_type * inversion * top * GMSI, "inversion %in% chord_type"))
+  .m_r <- nest_fit(.sp_r)                       # restricted: effects
+  .m_c <- nest_fit(.sp_s)                       # saturated: cells
+  .m_e <- nest_fit(.sp_s, mode = "effects")     # saturated: effects
+  .est <- function(m, ...) as.data.frame(estimand(m, chord_type, policy = "equal",
+                            bounds = FALSE, self_check = FALSE, ...))$estimate
+  chk(paste0("parameterization (", .tag, "): a restricted fit answers on both routes"),
+      { a <- .est(.m_r); b <- .est(.m_r, type = "eta")
+        length(a) == 6 && isTRUE(all.equal(a, b)) })
+  chk(paste0("parameterization (", .tag, "): a cell fit answers on both routes"),
+      { a <- .est(.m_c); b <- .est(.m_c, type = "eta")
+        length(a) == 6 && isTRUE(all.equal(a, b)) })
+  chk(paste0("parameterization (", .tag, "): the two forms of one model agree"),
+      { isTRUE(all.equal(.est(.m_c), .est(.m_e))) &&
+        isTRUE(all.equal(.est(.m_c, type = "eta"), .est(.m_e, type = "eta"))) })
+  chk(paste0("parameterization (", .tag, "): the effects design carries no column the fit lacks"),
+      { g <- cell_grid(.sp_s, .sp_s$data)
+        X <- design_rows(.sp_s, g, "effects")
+        b <- coef_vector(.m_e)
+        all(colnames(X) %in% names(b)) })
+  chk(paste0("parameterization (", .tag, "): nest_summary works in both forms"),
+      { a <- as.data.frame(nest_summary(.m_c)); b <- as.data.frame(nest_summary(.m_e))
+        nrow(a) > 0 && nrow(b) > 0 &&
+          !grepl("structure(list", attr(nest_summary(.m_e), "nestimand_call"),
+                 fixed = TRUE) })
+}
 
 ## The effect basis reparameterizes the cell fit, which is saturated whatever
 ## the formula says, so the basis is saturated too: built from the declared

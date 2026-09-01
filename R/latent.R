@@ -41,9 +41,7 @@ policy_contrast_matrix <- function(spec, target, policy, data = spec$data,
            nrow(data), " rows: one weight per row is needed.")
     g$.w <- g$.w * wv[g$.row]
   }
-  rhs <- paste(deparse(cell_formula(spec, fit_mode(model))[[3]]), collapse = " ")
-  X <- stats::model.matrix(stats::as.formula(paste("~", rhs)), g)
-  if (colnames(X)[1] == "(Intercept)") X <- X[, -1, drop = FALSE]
+  X <- design_rows(spec, g, fit_mode(model))
   if (!is.null(model)) X <- align_design(X, model)
   w <- g$.w / sum(g$.w[!duplicated(g$.row)]) # per-row weights, normalized below
   lev <- as.character(g[[target]])
@@ -109,6 +107,19 @@ contrast_pairs <- function(levs, contrast = "pairwise") {
     stop("contrast must be pairwise, reference, or sequential here."))
 }
 
+## The design of a grid, in the parameterization the fit is in. The effects
+## form is fitted on data with the sentinel as reference level - `nest_fit()`
+## relevels it, and writes the relevel into the emitted code - so a grid coded
+## from the data as it stands would carry `inversionnone` columns the fit does
+## not have. The columns must be built the way the fit built them, or the map
+## between them is not a map at all.
+design_rows <- function(spec, g, mode = "cells") {
+  if (identical(mode, "effects")) g <- sentinel_first(spec, g)
+  rhs <- paste(deparse(cell_formula(spec, mode)[[3]]), collapse = " ")
+  X <- stats::model.matrix(stats::as.formula(paste("~", rhs)), g)
+  if (colnames(X)[1] == "(Intercept)") X[, -1, drop = FALSE] else X
+}
+
 ## Which parameterization a fit is in, so that the design rows built here match
 ## its coefficients. A fit from `nest_fit()` carries it; anything else is read
 ## as the cell form, which is what it was before a declaration could restrict
@@ -142,9 +153,7 @@ cell_design_rows <- function(spec, data, cells, model) {
   pol <- structure(list(kind = "uniform", target = NULL,
     p = NULL, at = NULL), class = "nestimand_policy")
   g <- counterfactual_grid(spec, data, cells = cells)
-  rhs <- paste(deparse(cell_formula(spec, fit_mode(model))[[3]]), collapse = " ")
-  X <- stats::model.matrix(stats::as.formula(paste("~", rhs)), g)
-  if (colnames(X)[1] == "(Intercept)") X <- X[, -1, drop = FALSE]
+  X <- design_rows(spec, g, fit_mode(model))
   b <- coef_vector(model)
   X <- X[, intersect(colnames(X), names(b)[!is.na(b)]), drop = FALSE]
   key <- as.character(g[[spec$cell_name]])

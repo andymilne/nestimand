@@ -600,6 +600,30 @@ the coefficients sit - the mean structure, then each grouping factor by name - a
 says outright that it counts coefficients rather than cells; the spec message says it
 counts cell means, and that the covariates and random terms multiply them.
 
+### Why these kept surfacing, and what was done about it
+
+Four faults in a row had one shape: a design matrix built one way and coefficients
+fitted another. The prior block re-derived with different arguments than the object it
+stood for; an interaction matrix built over the raw cell table against predictions
+aggregated over targets; design rows built in the cell parameterization for a fit in
+the effects one; and finally design rows built from the data as it stands for a fit
+whose data had been releveled.
+
+Two things let them through. The effects parameterization was until now a niche path,
+exercised almost entirely by dry runs - the code was checked as text rather than run -
+while the cell path had 500 executed checks. And every test used demonstration data in
+which the sentinel is already the first factor level, so the relevel `nest_fit()`
+applies for an effects fit changed nothing, and a grid coded without it agreed by
+accident. Real data ordered `0, 1, 2, none` does not.
+
+The remedy is an invariant rather than four more instances. `tests/test_core.R` now
+runs, for both positions of the sentinel in the level order: a restricted declaration
+(fitted as effects) and a saturated one (fitted as cells and, forced, as effects);
+every estimand route on each; the requirement that the two parameterizations of one
+model give the same numbers; and the requirement that a design built for a fit carries
+no column that fit lacks. Ten checks, and any of the four faults above would have
+failed one of them.
+
 ## Not yet implemented
 
 The prior translation and audit

@@ -193,11 +193,24 @@ effects_fit_summary <- function(model, spec, conf_level = 0.95, random = FALSE) 
                       conf.low = b - z * se, conf.high = b + z * se,
                       row.names = NULL)
   }
-  out$meaning <- "as declared (effects parameterization, not translated)"
+  ## A coefficient held at zero says which kind of constraint holds it, since a
+  ## row of zeros with no direction to report is otherwise unreadable.
+  held <- tryCatch({
+    tb <- chain_priors(spec)$table
+    stats::setNames(tb$kind[tb$part == "fixed"], tb$coef[tb$part == "fixed"])
+  }, error = function(e) character(0))
+  out$meaning <- ifelse(out$term %in% names(held),
+                        paste("held at zero:", held[out$term]), "as fitted")
   attr(out, "nestimand_space") <- "effects"
   attr(out, "nestimand_fit") <- spec$fit
-  attr(out, "nestimand_call") <- tryCatch(
-    paste(deparse(stats::formula(model)), collapse = " "), error = function(e) NULL)
+  ## a brmsformula deparses to its whole object; one more formula() call reduces
+  ## it to the formula a reader wants to see
+  attr(out, "nestimand_call") <- tryCatch({
+    fm <- stats::formula(model)
+    if (inherits(fm, "bform") || inherits(fm, "brmsformula"))
+      fm <- tryCatch(stats::formula(fm), error = function(e) fm)
+    paste(deparse(fm), collapse = " ")
+  }, error = function(e) NULL)
   if (isTRUE(random))
     attr(out, "nestimand_random") <-
       tryCatch(random_covariance(model, spec, "effects"),
