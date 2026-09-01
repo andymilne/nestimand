@@ -67,9 +67,10 @@ whose contrasts say it is meant as a quantity. Naming one in \code{nests} on its
 own folds it into the cell factor deliberately.
 
 The strata of a nested variable are its own ancestors, and a sibling is not one
-of them: \code{estimand(m, X1, contrast = "within")} compares the levels of
-\code{X1} within each chord type, while \code{estimand(m, Z, contrast =
-"within")} compares within each chord type and inversion. A variable declared
+of them: \code{estimand(m, X1, by = "chord_type")} compares the levels of
+\code{X1} within each chord type, while \code{estimand(m, Z,
+by = c("chord_type", "inversion"))} compares within each chord type and
+inversion. A variable declared
 inside two parents is refused, as is \code{\%in\%} chained within one entry -
 \code{Z \%in\% inversion \%in\% chord_type} is two declarations, since R reads
 it as \code{(Z \%in\% inversion) \%in\% chord_type}.

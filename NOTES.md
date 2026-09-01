@@ -941,3 +941,34 @@ to state the grouping directly.
 Worth generalizing from: a message that names an argument should name one the
 function has. `dev/check_calls.R` checks the package's own scripts against the
 signatures; nothing checks the prose in error messages.
+
+## `contrast = "within"` removed
+
+It grouped the estimand by the variables the target is nested within. `by =`
+does that, and does it for any grouping, and obeys `route` and `policy`, which
+`within` did not - it never reached the code that reads them. Two
+implementations of one idea, and they had drifted:
+
+    no covariate, balanced counts             max |diff| = 4.4e-16
+    no covariate, unbalanced `top` counts     max |diff| = 0.103
+    covariate, same distribution per stratum  max |diff| = 0.321
+    covariate, distribution differs by stratum max |diff| = 0.525
+
+The difference is not `route` - setting it made no difference to either, which
+is correct, since on a linear scale with covariates entering linearly
+g-computation and the cell route are the same number. It is *whose* covariate
+distribution the contrast is evaluated over: `by` standardizes to the whole
+sample, so the strata are comparable with each other, where `within` averaged
+over each stratum's own rows. Both are defensible; only one was documented, and
+which you got was decided by the contrast name you happened to type.
+
+Passing it now stops with the `by =` call it stood for, ancestors filled in.
+If the stratum-conditional quantity is ever wanted it should be a named option
+on `by =`, visible in the call, not a side effect of `contrast`.
+
+Removing it exposed a second fault it had been masking: the code view for a
+`by =` estimand emitted one block per group, each ending in `est`, so running
+the script returned the *last group's* table rather than the stacked result. The
+blocks now assign `est_1`, `est_2`, ... and the script ends by binding them with
+their group labels, so `show_code()` reproduces what `estimand()` returned. The
+round-trip check had only ever been run on the `within` path, which did stack.

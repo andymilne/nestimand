@@ -6,7 +6,7 @@
 ## marginaleffects, emmeans - unaltered, and appear in the saved code.
 
 estimand <- function(model, target, policy = "equal", at = NULL,
-                     contrast = c("pairwise", "reference", "sequential", "within",
+                     contrast = c("pairwise", "reference", "sequential",
                                   "interaction"),
                      route = c("g_computation", "cells"),
                      weights = NULL, type = NULL, subsample = NULL,
@@ -19,6 +19,36 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   recovered <- is.null(spec)
   spec <- resolve_spec(model, spec)
   check_model_spec(model, spec)
+  ## `contrast = "within"` grouped the estimand by the variables the target is
+  ## nested within, which is what `by =` does - for that grouping and any other,
+  ## and obeying `route` and `policy`, which this did not. Keeping both meant two
+  ## implementations of one idea, and they had drifted: `within` averaged over
+  ## the rows of each stratum where `by` standardizes to the whole sample, so
+  ## they disagreed whenever the strata differed in their covariates or in how
+  ## often other conditions occurred. The call it stood for is named here rather
+  ## than left to be worked out, and before match.arg(), which would otherwise
+  ## report nothing but a list of the values that remain.
+  if (length(contrast) == 1L && identical(contrast, "within")) {
+    tg0 <- substitute(target)
+    nm0 <- if (is.name(tg0)) deparse(tg0) else
+      tryCatch(if (is.character(target) && length(target) == 1L) target else
+               NA_character_, error = function(e) NA_character_)
+    anc <- if (!is.na(nm0))
+      tryCatch(nest_ancestors(spec, nm0), error = function(e) character(0)) else
+      character(0)
+    stop("`contrast = \"within\"` has been removed. It grouped the estimand by ",
+         "the variables the target is nested within, which `by =` does - along ",
+         "with every other grouping, and obeying `route` and `policy` as this ",
+         "did not. ",
+         if (length(anc))
+           paste0("For `", nm0, "`, write: by = ",
+                  if (length(anc) == 1) paste0("\"", anc, "\"")
+                  else paste0("c(", paste(sprintf('"%s"', anc), collapse = ", "), ")"))
+         else if (!is.na(nm0))
+           paste0("`", nm0, "` is not nested within anything, so it has no ",
+                  "strata of its own; name the grouping you want with `by =`.")
+         else "Name the grouping you want with `by =`.")
+  }
   contrast <- if (identical(contrast, "interaction")) "interaction"
               else match.arg(contrast)
   route <- match.arg(route)
@@ -167,8 +197,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   ## an interaction exists only where every one of its variables varies, so the
   ## restrictions of the targets are intersected rather than the deepest of them
   ## taken as standing for the rest
-  deg <- if (!identical(contrast, "within"))
-    degenerate_strata_multi(spec, target)
+  deg <- degenerate_strata_multi(spec, target)
   restricted <- !is.null(deg) && length(deg$drop)
   if (!restricted) deg <- NULL
   ## A recursive call from the `by` branch below carries the cells of its group.
@@ -178,9 +207,6 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   ## as it names the grouping of an average in marginaleffects: the target's
   ## contrasts are formed inside each group, with the policy weighted over that
   ## group's conditions alone, and the groups are returned stacked and labelled.
-  ## `contrast = "within"` is the same thing with the strata taken from a nested
-  ## target's own ancestors, which a variable crossed with the structure has
-  ## none of - hence naming them.
   bq <- substitute(by)
   byv <- if (is.null(bq)) character(0) else {
     bv <- tryCatch(eval(bq, .env), error = function(e) NULL)
@@ -229,10 +255,24 @@ estimand <- function(model, target, policy = "equal", at = NULL,
     })
     ## a dry run returns the scripts, one block per group, each of which stands
     ## on its own: the groups differ only in the cells they restrict to
-    code <- unlist(lapply(parts, function(z)
+    ## One block per group, each of which stands on its own - and then the
+    ## stacking, so that running the whole thing gives back what `estimand()`
+    ## returned. Without it the last group's table was the value of the script,
+    ## and the code view quietly failed to reproduce its own result.
+    lab_txt <- function(lab) paste(vapply(names(lab), function(v)
+      sprintf('%s = "%s"', v, as.character(lab[[v]][1])), ""), collapse = ", ")
+    code <- unlist(lapply(seq_along(parts), function(i) {
+      z <- parts[[i]]
       c(sprintf("## group: %s", z$g),
         if (inherits(z$e, "nestimand_code")) attr(z$e, "nestimand_code")
-        else attr(z$e, "nestimand")$code)))
+        else attr(z$e, "nestimand")$code,
+        sprintf("est_%d <- cbind(%s, as.data.frame(est), row.names = NULL)",
+                i, lab_txt(z$lab)))
+    }))
+    code <- c(code, "## the groups stacked, labelled by the grouping variables",
+              sprintf("est <- rbind(%s)",
+                      paste(sprintf("est_%d", seq_along(parts)), collapse = ", ")),
+              "est")
     if (isTRUE(dry_run))
       return(structure(paste(code, collapse = "\n"), class = "nestimand_code",
                        nestimand_code = code))
@@ -297,7 +337,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   ## not.
   linear_shortcut <- identical(type, "response") && identity_link &&
     all(dot_names %in% c("conf_level", "ndraws")) &&
-    !identical(contrast, "within") && linear_map_available(model, spec, data)
+    linear_map_available(model, spec, data)
   if (linear_shortcut) scale <- "latent"
   ## G-computation averages over the units in the data. Where that is too many
   ## to evaluate - a nonlinear scale multiplies the rows by the draws and the
@@ -836,39 +876,6 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
     "## would leave its own levels and compare strata instead.",
     sprintf("cells <- %s", cells_txt))
 
-  if (contrast == "within") {
-    if (!length(nest_ancestors(spec, target)))
-      stop("contrast = \"within\" gives the contrasts of a nested variable ",
-           "inside each stratum it varies in, and `", target, "` is not nested ",
-           "within anything, so it has no strata of its own. Every contrast of ",
-           "it crosses the structure and needs a policy: use `policy =`, or ",
-           "name the grouping yourself with `by =`.")
-    ## the strata of a nested variable are its ancestors, not everything
-    ## declared before it: a sibling is not one of its parents
-    parents <- nest_ancestors(spec, target)
-    if (identical(scale, "latent"))
-      return(c(hdr[1],
-        "## within-stratum contrasts: inside one stratum the levels are directly",
-        "## comparable, so no boundary is crossed and no policy applies. On the",
-        "## latent scale that is a contrast of averaged design rows, c'b.",
-        sprintf('est  <- latent_estimand(%s, "%s", contrast = "within", spec = %s, data = %s%s%s%s)',
-                model_name, target, spec_name, data_name, eta_re, dots_txt, draws_txt),
-        "est"))
-    return(c(hdr,
-      "## within-stratum contrasts: no boundary is crossed, so no policy applies",
-      sprintf('levs <- levels(factor(%s$%s))', data_name, target),
-      sprintf('parents <- c(%s)', paste(sprintf('"%s"', parents), collapse = ", ")),
-      sprintf('parts <- split(%s, interaction(%s[, parents, drop = FALSE], drop = TRUE))',
-              data_name, data_name),
-      'est <- do.call(rbind, lapply(names(parts), function(s) {',
-      '  d_s <- parts[[s]]',
-      sprintf('  if (length(unique(d_s$%s)) < 2) return(NULL)  # degenerate stratum', target),
-      sprintf('  cbind(stratum = s, mfx_canonical(as.data.frame('),
-      sprintf('    avg_predictions(%s, newdata = d_s, by = "%s",', model_name, target),
-      sprintf('                    hypothesis = %s%s)), levs))',
-              mfx_hypothesis_txt("pairwise"), dots_txt),
-      '}))', 'est'))
-  }
   if (identical(scale, "latent") && identical(contrast, "interaction")) {
     tv <- paste(sprintf('"%s"', target), collapse = ", ")
     return(c(hdr[1], restrict_note,
@@ -1176,20 +1183,7 @@ estimand_values <- function(model, spec, target, policy, at, contrast, data,
     return(as.data.frame(marginaleffects::avg_predictions(model, newdata = g,
              by = target, wts = g$.w, hypothesis = H))$estimate)
   }
-  if (contrast == "within") {
-    if (identical(scale, "latent"))
-      return(latent_estimand(model, target, contrast = "within",
-                             data = data, spec = spec)$estimate)
-    parents <- nest_ancestors(spec, target)
-    parts <- split(data, interaction(data[, parents, drop = FALSE], drop = TRUE))
-    return(unlist(lapply(parts, function(d_s) {
-      if (length(unique(d_s[[target]])) < 2) return(NULL)
-      mfx_canonical(as.data.frame(marginaleffects::avg_predictions(model,
-        newdata = d_s, by = target, hypothesis = mfx_hypothesis("pairwise"))),
-        levels(factor(data[[target]])))$estimate
-    })))
-  }
-  deg <- if (!identical(contrast, "within")) degenerate_strata(spec, target)
+  deg <- degenerate_strata(spec, target)
   cells <- if (is.null(deg) || !length(deg$drop)) spec$cells else
     spec$cells[deg_key(spec$cells, deg$vars) %in% deg$keep, , drop = FALSE]
   ## The policy describes the design - how often each version is realized -

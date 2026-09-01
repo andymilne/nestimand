@@ -273,17 +273,15 @@ e9 <- estimand(m, chord_type, spec = sp, bounds = FALSE, self_check = FALSE,
 chk("estimand: `...` passed through to marginaleffects",
     any(grepl("conf_level = 0.9", attr(e9, "nestimand")$code, fixed = TRUE)) &&
     as.data.frame(e9)$conf.low[1] > as.data.frame(e)$conf.low[1])
-## within-stratum contrasts
-ew <- estimand(m, inversion, spec = sp, contrast = "within", bounds = FALSE)
+## contrasts inside each stratum, which is `by =` naming the target's parent
+ew <- suppressMessages(estimand(m, inversion, spec = sp, by = "chord_type",
+                                bounds = FALSE))
 dw <- as.data.frame(ew)
-chk("estimand within: three strata x three contrasts, no sentinel",
+chk("estimand by parent: three strata x three contrasts, no sentinel",
     nrow(dw) == 9 && !any(grepl("none", dw$term)) &&
-    setequal(unique(dw$stratum), c("dim", "min", "maj")))
-chk("estimand within: passes the reorder check",
+    setequal(unique(dw$chord_type), c("dim", "min", "maj")))
+chk("estimand by parent: passes the reorder check",
     identical(attr(ew, "nestimand")$self_check$status, "passed"))
-chk("estimand within: refused on a root variable",
-    grepl("not nested within anything",
-          err_of(estimand(m, chord_type, spec = sp, contrast = "within"))))
 chk("estimand: a non-nesting target is refused",
     grepl("need no policy", err_of(estimand(m, training, spec = sp))))
 chk("estimand: supplied policy is written into the code verbatim",
@@ -377,26 +375,21 @@ chk("latent: the code view names the linear-map route",
 ## and it is a plain contrast of design rows - a linear map like any other. It
 ## used to be refused on the latent scale, with a message naming an argument
 ## `estimand()` does not have.
-chk("eta: within contrasts are available on the latent scale",
-    { e <- as.data.frame(estimand(m, inversion, spec = sp, contrast = "within",
-                                  type = "eta", bounds = FALSE, self_check = FALSE))
-      nrow(e) > 0 && "stratum" %in% names(e) && all(is.finite(e$estimate)) })
-chk("eta: and agree with the prediction route on an identity link",
-    { a <- as.data.frame(estimand(m, inversion, spec = sp, contrast = "within",
-                                  type = "eta", bounds = FALSE, self_check = FALSE))
-      b <- as.data.frame(estimand(m, inversion, spec = sp, contrast = "within",
-                                  type = "response", bounds = FALSE, self_check = FALSE))
-      nrow(a) == nrow(b) &&
-        isTRUE(all.equal(a$estimate, b$estimate, tolerance = 1e-8)) })
-chk("eta: the code view names the linear-map route for within too",
-    any(grepl("latent_estimand", attr(estimand(m, inversion, spec = sp,
-        contrast = "within", type = "eta", bounds = FALSE,
-        self_check = FALSE), "nestimand")$code)))
-chk("within: a target that is not nested is told what to use instead",
-    { e <- err_of(estimand(m, chord_type, spec = sp, contrast = "within",
-                           type = "eta"))
+## `contrast = "within"` grouped the estimand by the target's ancestors, which
+## is what `by =` does for any grouping. Two implementations of one idea, and
+## they had drifted: `within` averaged over each stratum's own rows where `by`
+## standardizes to the whole sample, so they disagreed whenever the strata
+## differed in their covariates or their counts.
+chk("within: removed, and the call it stood for is named",
+    { e <- err_of(estimand(m, inversion, spec = sp, contrast = "within"))
+      grepl("has been removed", e, fixed = TRUE) &&
+        grepl('by = "chord_type"', e, fixed = TRUE) })
+chk("within: for a target with no ancestors it says there are no strata",
+    { e <- err_of(estimand(m, chord_type, spec = sp, contrast = "within"))
       grepl("not nested within anything", e, fixed = TRUE) &&
         grepl("`by =`", e, fixed = TRUE) })
+chk("within: and it is no longer a value `contrast` accepts",
+    !("within" %in% eval(formals(estimand)$contrast)))
 chk("latent: draw-wise translation refuses a frequentist fit",
     grepl("needs a posterior", err_of(latent_draws(m, "chord_type", spec = sp))))
 chk("latent: a model not fitted from this spec is refused",
@@ -500,9 +493,9 @@ chk("show_code: the normalization is part of the saved code, not applied after",
               attr(estimand(m, chord_type, spec = sp, bounds = FALSE,
                             self_check = FALSE, p_adjust = "none"),
                    "nestimand")$code)))
-chk("show_code: within-contrast code re-runs and reproduces its estimand",
-    { ew2 <- estimand(m, inversion, spec = sp, contrast = "within", bounds = FALSE,
-                      self_check = FALSE)
+chk("show_code: grouped-contrast code re-runs and reproduces its estimand",
+    { ew2 <- suppressMessages(estimand(m, inversion, spec = sp, by = "chord_type",
+                      bounds = FALSE, self_check = FALSE))
       env2 <- new.env(); assign("m", m, env2); assign("sp", sp, env2)
       rr <- eval(parse(text = paste(attr(ew2, "nestimand")$code, collapse = "\n")),
                  envir = env2)
@@ -876,9 +869,9 @@ chk("nested target: the restriction is stated in the emitted code",
 chk("nested target: it passes the reorder check",
     identical(attr(estimand(mf, inversion, bounds = FALSE),
                    "nestimand")$self_check$status, "passed"))
-chk("nested target: within contrasts are unaffected",
-    nrow(as.data.frame(estimand(mf, inversion, contrast = "within",
-                                bounds = FALSE, self_check = FALSE))) == 9)
+chk("nested target: contrasts inside each parent stratum are unaffected",
+    nrow(as.data.frame(suppressMessages(estimand(mf, inversion, by = "chord_type",
+                                bounds = FALSE, self_check = FALSE)))) == 9)
 chk("root target: no restriction applies, and the estimand is unchanged",
     is.null(degenerate_strata(sp, "chord_type")) &&
     abs(as.data.frame(estimand(mf, chord_type, bounds = FALSE,
@@ -2599,9 +2592,10 @@ chk("depth: its emitted code runs on its own and gives the same estimate",
 chk("depth: the reorder self-check passes at depth three",
     identical(attr(estimand(m_z, Z, policy = "equal"),
                    "nestimand")$self_check$status, "passed"))
-chk("branching: within-stratum contrasts of a sibling are per parent stratum",
-    { w <- as.data.frame(estimand(m_d, X1, contrast = "within"))
-      setequal(w$stratum, c("dim", "min", "maj")) })
+chk("branching: contrasts of a sibling group by its own parent, not its sibling",
+    { w <- as.data.frame(suppressMessages(estimand(m_d, X1, by = "chord_type",
+                                                   bounds = FALSE)))
+      setequal(w$chord_type, c("dim", "min", "maj")) })
 chk("branching: the declaration round-trips through spec_nests()",
     setequal(spec_nests(sp_d),
              c("inversion %in% chord_type", "X1 %in% chord_type",
@@ -3278,10 +3272,9 @@ chk("dots: the message names the vocabulary that does exist",
 ## ---- `by`: the estimand within each level of something --------------------
 ## As marginaleffects groups an average, `by` groups an estimand: the target's
 ## contrasts are formed inside each group, the policy weighted over that group's
-## conditions alone. `contrast = "within"` is the same thing with the strata
-## taken from a nested target's ancestors, so the two must agree where both
-## apply - and `by` also works for a crossed target, which has no ancestors to
-## take them from.
+## conditions alone. It is the only way to group an estimand: `contrast =
+## "within"` used to do the same thing for a nested target, from its ancestors,
+## and was removed - two implementations of one idea that had drifted apart.
 by_e <- suppressMessages(estimand(m_i3, top, by = chord_type, policy = "proportional",
                                   bounds = FALSE, self_check = FALSE))
 chk("by: one row per group, labelled by the grouping variable",
@@ -3304,12 +3297,10 @@ chk("by: the two routes agree on it",
              policy = "proportional", type = "eta", bounds = FALSE,
              self_check = FALSE)))
       isTRUE(all.equal(a$estimate, b$estimate)) })
-chk("by: on a nested target it is `contrast = \"within\"` by another name",
+chk("by: on a nested target it groups by the parent, as `within` used to",
     { a <- as.data.frame(suppressMessages(estimand(m_i3, inversion, by = chord_type,
              bounds = FALSE, self_check = FALSE)))
-      b <- as.data.frame(estimand(m_i3, inversion, contrast = "within",
-             bounds = FALSE, self_check = FALSE))
-      nrow(a) == nrow(b) && isTRUE(all.equal(sort(a$estimate), sort(b$estimate))) })
+      nrow(a) == 9 && setequal(a$chord_type, c("dim", "min", "maj")) })
 chk("by: several grouping variables give one row per realized combination",
     { d <- as.data.frame(suppressMessages(estimand(m_i3, top,
              by = c(chord_type, inversion), bounds = FALSE, self_check = FALSE)))
