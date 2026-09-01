@@ -93,10 +93,10 @@ chk("latent_draws() finds the cell coefficients among the draws",
 if (is.data.frame(dr)) {
   le <- latent_estimand(mb, "chord_type", "equal", spec = spb)
   cat(sprintf("  posterior mean %.4f (sd %.4f) vs point estimate %.4f (se %.4f)\n",
-              mean(dr[["aug - maj"]]), sd(dr[["aug - maj"]]),
-              le$estimate[le$term == "aug - maj"], le$std.error[le$term == "aug - maj"]))
+              mean(dr[["maj - aug"]]), sd(dr[["maj - aug"]]),
+              le$estimate[le$term == "maj - aug"], le$std.error[le$term == "maj - aug"]))
   chk("posterior mean agrees with the point estimate to Monte Carlo error",
-      abs(mean(dr[["aug - maj"]]) - le$estimate[le$term == "aug - maj"]) < 0.05)
+      abs(mean(dr[["maj - aug"]]) - le$estimate[le$term == "maj - aug"]) < 0.05)
 }
 
 ## ---- 3. the translated prior samples, and matches its audit table
@@ -117,17 +117,17 @@ mp <- nest_fit(spb, priors = pri, sample_prior = "only",
 dp <- latent_draws(mp, "chord_type", "equal", spec = spb)
 cat("  prior draws:", nrow(dp), "\n")
 want <- prior_for_estimand(pri, "chord_type", "equal")
-cat(sprintf("  aug - maj: stated sd %.3f, sampled sd %.3f\n",
-            want$sd[want$parameter == "aug - maj"], sd(dp[["aug - maj"]])))
+cat(sprintf("  maj - aug: stated sd %.3f, sampled sd %.3f\n",
+            want$sd[want$parameter == "maj - aug"], sd(dp[["maj - aug"]])))
 cat(sprintf("  ratio sampled/stated: %.4f (Monte Carlo error about %.4f)\n",
-            sd(dp[["aug - maj"]]) / want$sd[want$parameter == "aug - maj"],
+            sd(dp[["maj - aug"]]) / want$sd[want$parameter == "maj - aug"],
             1 / sqrt(2 * nrow(dp))))
 chk("the sampled prior reproduces the audit table (within 5%)",
-    abs(sd(dp[["aug - maj"]]) / want$sd[want$parameter == "aug - maj"] - 1) < 0.05)
-cat(sprintf("  dim - maj: stated sd %.3f, sampled sd %.3f\n",
-            want$sd[want$parameter == "dim - maj"], sd(dp[["dim - maj"]])))
+    abs(sd(dp[["maj - aug"]]) / want$sd[want$parameter == "maj - aug"] - 1) < 0.05)
+cat(sprintf("  maj - dim: stated sd %.3f, sampled sd %.3f\n",
+            want$sd[want$parameter == "maj - dim"], sd(dp[["maj - dim"]])))
 chk("a within-family contrast prior also reproduces (within 5%)",
-    abs(sd(dp[["dim - maj"]]) / want$sd[want$parameter == "dim - maj"] - 1) < 0.05)
+    abs(sd(dp[["maj - dim"]]) / want$sd[want$parameter == "maj - dim"] - 1) < 0.05)
 ## The two ratios come from the same draws and so move together; a common
 ## factor across all contrasts would indicate a systematic error in A D A',
 ## whereas a common factor near one indicates only Monte Carlo noise.
@@ -136,15 +136,15 @@ rat <- vapply(want$parameter, function(k)
 cat("  ratios across all six contrasts:",
     paste(sprintf("%.3f", rat), collapse = " "), "\n")
 if (requireNamespace("posterior", quietly = TRUE))
-  cat(sprintf("  effective sample size on aug - maj: %.0f of %d draws\n",
-              posterior::ess_basic(dp[["aug - maj"]]), nrow(dp)))
+  cat(sprintf("  effective sample size on maj - aug: %.0f of %d draws\n",
+              posterior::ess_basic(dp[["maj - aug"]]), nrow(dp)))
 chk("no systematic scale error common to every contrast",
     abs(mean(rat) - 1) < 0.05)
-cat(sprintf("  prior mean on aug - maj: stated %.3f, sampled %.3f\n",
-            want$mean[want$parameter == "aug - maj"], mean(dp[["aug - maj"]])))
+cat(sprintf("  prior mean on maj - aug: stated %.3f, sampled %.3f\n",
+            want$mean[want$parameter == "maj - aug"], mean(dp[["maj - aug"]])))
 chk("the prior mean on the contrast is centred where stated",
-    abs(mean(dp[["aug - maj"]]) - want$mean[want$parameter == "aug - maj"]) <
-      3 * sd(dp[["aug - maj"]]) / sqrt(nrow(dp)) + 0.05)
+    abs(mean(dp[["maj - aug"]]) - want$mean[want$parameter == "maj - aug"]) <
+      3 * sd(dp[["maj - aug"]]) / sqrt(nrow(dp)) + 0.05)
 
 ## ---- 4. brms needs its own spelling for conditional predictions
 ## Frequentist and Bayesian engines disagree on how random effects are excluded,
@@ -175,7 +175,7 @@ mc <- nest_fit(spb, mode = "effects", priors = cp,
                chains = 2, iter = 1000, warmup = 500, seed = 4, refresh = 0)
 chk("the declared chain model samples", inherits(mc, "brmsfit"))
 fx <- brms::fixef(mc)
-zeroed <- rownames(fx) %in% gsub(":", ":", cp$table$coef[cp$table$part == "fixed"])
+zeroed <- rownames(fx) %in% cp$table$coef[cp$table$part == "fixed"]
 chk("the declared coefficients are exactly zero in every draw",
     all(abs(fx[zeroed, "Estimate"]) < 1e-12) && all(fx[zeroed, "Est.Error"] < 1e-12))
 e_chain <- as.data.frame(marginaleffects::avg_predictions(
@@ -185,10 +185,10 @@ e_chain <- as.data.frame(marginaleffects::avg_predictions(
         nest_policy(spb, "chord_type", "equal"))$.w,
   hypothesis = mfx_hypothesis("pairwise")))
 e_chain <- mfx_canonical(e_chain, levels(factor(dat$chord_type)))
-e_cell <- as.data.frame(estimand(mb, spb, chord_type, policy = "equal",
+e_cell <- as.data.frame(estimand(mb, chord_type, policy = "equal",
                                  bounds = FALSE, self_check = FALSE))
-v <- function(d) d$estimate[d$term == "aug - maj"]
-cat(sprintf("  aug - maj: chain %.4f, cell %.4f\n", v(e_chain), v(e_cell)))
+v <- function(d) d$estimate[d$term == "maj - aug"]
+cat(sprintf("  maj - aug: chain %.4f, cell %.4f\n", v(e_chain), v(e_cell)))
 chk("chain and cell estimands agree to Monte Carlo error",
     abs(v(e_chain) - v(e_cell)) < 0.05)
 

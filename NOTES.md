@@ -791,3 +791,28 @@ This is the standing gap rather than a fault in the code: `test_core.R` runs
 everywhere and is the reason the frequentist paths hold, while `test_brms.R`
 runs only on a machine with a working Stan toolchain, so it drifts silently
 between runs. It is worth running after any change to the latent route.
+
+## `dev/check_calls.R`: what can be checked without running anything
+
+Three separate faults in `tests/test_brms.R` were found by a user running it
+rather than by anything here - a spec passed positionally into `target` in five
+places, a `weights` that was not an argument, and contrast labels
+(`aug - maj`) from a superseded direction convention. The file only runs where
+Stan compiles, so it drifts against the signatures while the rest of the suite
+keeps pace.
+
+`dev/check_calls.R` closes part of that gap statically. It parses every file in
+`tests/` and `dev/`, matches each call to a nestimand function against that
+function's formals, and reports a named argument the function does not have, a
+call with more positional arguments than free formals, and - the useful one -
+a positional argument that would land in the wrong slot. It knows which of a
+file's own symbols hold a declaration and which hold a fit, because it can see
+what they are assigned, so a `nesting_spec` reaching any formal but `spec`, or a
+fit reaching any but `model`, is reported with its file and line. That is what
+caught `estimand(mb, spb, chord_type, ...)`, which R would not have complained
+about at all: it would have taken `chord_type` as `at` and failed elsewhere.
+
+Argument *order* in general is beyond static analysis, and stale string
+literals - a contrast label from an old convention - are beyond it entirely.
+`check_target()` catches the important case of the first at runtime. Run
+`check_calls.R` beside `check_docs.R` after any signature change.
