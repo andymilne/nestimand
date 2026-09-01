@@ -972,3 +972,28 @@ the script returned the *last group's* table rather than the stacked result. The
 blocks now assign `est_1`, `est_2`, ... and the script ends by binding them with
 their group labels, so `show_code()` reproduces what `estimand()` returned. The
 round-trip check had only ever been run on the `within` path, which did stack.
+
+## `contrast = "interaction"` removed
+
+It said what the target already says. Beside a `:` target it was inert -
+`estimand(m, a:b, contrast = "interaction")` and `estimand(m, a:b)` returned
+identical tables - and without one it was refused, its own error naming the
+target form as the thing to write. So there was one way to ask for an
+interaction, spelled two ways.
+
+`contrast` now decides one thing: which comparisons are formed among the
+target's levels - all pairs, each against the first, each against the one
+before. What is contrasted comes from the target, where an interaction is a `:`;
+where the contrasts are formed comes from `by`.
+
+The interaction *mode* remains, set from the shape of the target, and
+`latent_contrast_matrix()` and `latent_estimand()` still take
+`contrast = "interaction"` as internal API. The one place that used to set it
+across a re-entrant call - the `a * b` expansion, which computes each part by
+calling `estimand()` again - now passes `str2lang("a:b")` as the target instead,
+so the shape of the target is the only thing that ever says interaction.
+
+Three removals in a row, all the same shape: `within` was `by` with a second
+implementation, `interaction` was a second spelling of the target, and before
+them the ancestry closure was a second opinion about the formula. The test worth
+applying to any new argument: is there already a way to say this?

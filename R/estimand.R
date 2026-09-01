@@ -6,8 +6,7 @@
 ## marginaleffects, emmeans - unaltered, and appear in the saved code.
 
 estimand <- function(model, target, policy = "equal", at = NULL,
-                     contrast = c("pairwise", "reference", "sequential",
-                                  "interaction"),
+                     contrast = c("pairwise", "reference", "sequential"),
                      route = c("g_computation", "cells"),
                      weights = NULL, type = NULL, subsample = NULL,
                      data = NULL, bounds = TRUE, self_check = TRUE,
@@ -49,8 +48,25 @@ estimand <- function(model, target, policy = "equal", at = NULL,
                   "strata of its own; name the grouping you want with `by =`.")
          else "Name the grouping you want with `by =`.")
   }
-  contrast <- if (identical(contrast, "interaction")) "interaction"
-              else match.arg(contrast)
+  ## `contrast = "interaction"` said what the target already says: an
+  ## interaction contrast is what `estimand(m, a:b)` means, and passing the
+  ## argument alongside such a target changed nothing, while passing it without
+  ## one was refused. A second way to say one thing, so it is gone; `contrast`
+  ## now means only which comparisons are formed among a target's levels.
+  ## The mode itself remains, set from the shape of the target below.
+  if (length(contrast) == 1L && identical(contrast, "interaction")) {
+    tg0 <- substitute(target)
+    txt <- if (is.call(tg0) || is.name(tg0))
+      gsub(" ", "", paste(deparse(tg0), collapse = "")) else
+      tryCatch(paste(target, collapse = ":"), error = function(e) "a:b")
+    stop("`contrast = \"interaction\"` has been removed: the target says it. ",
+         "An interaction contrast is what a `:` target means, so write ",
+         "estimand(model, ", if (grepl(":", txt, fixed = TRUE)) txt else
+           paste0(txt, ":<other>"), ") - which is what this call already did. ",
+         "`estimand(model, a * b)` gives the two marginal contrasts and the ",
+         "interaction together.")
+  }
+  contrast <- match.arg(contrast)
   route <- match.arg(route)
   wq <- substitute(weights)
   ## One argument names the quantity, in the engines' own vocabulary; which
@@ -128,9 +144,11 @@ estimand <- function(model, target, policy = "equal", at = NULL,
               "does: ", length(labs), " results - ",
               paste(labs, collapse = ", "),
               if (length(parts)) paste0(": ", paste(parts, collapse = "; ")), ".")
+      ## the interaction parts are re-entered as `a:b` targets rather than by
+      ## setting a contrast: the shape of the target is what says interaction,
+      ## and there is only the one way to say it
       out <- c(out, lapply(inter, function(k)
-        once({ c2 <- cl; c2$target <- k
-               c2$contrast <- "interaction"
+        once({ c2 <- cl; c2$target <- str2lang(paste(k, collapse = ":"))
                c2$hypothesis <- NULL; eval(c2, .env) })))
       names(out) <- c(vs, vapply(inter, paste, "", collapse = ":"))
       return(collect_estimands(out))
@@ -575,7 +593,9 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   if (identical(contrast, "interaction")) {
     if (length(target) < 2)
       stop("an interaction contrast needs at least two targets, e.g. ",
-           "estimand(model, chord_type:inversion).")
+           "estimand(model, chord_type:inversion). This is a bug in nestimand: ",
+           "the mode is set from the shape of the target, so it should not be ",
+           "reachable with one.")
     ## A policy weights the versions of a compound condition. An interaction
     ## uses only cells that exist, so it crosses no boundary and there is
     ## nothing for a policy to weight. Rather than refuse the call - which would
@@ -602,8 +622,9 @@ estimand <- function(model, target, policy = "equal", at = NULL,
     if ("hypothesis" %in% names(dots))
       stop("the linear predictor gives one value per condition, so there are ",
            "no groups to compare within and a `hypothesis` cannot be applied ",
-           "here: the comparisons come from `contrast` - pairwise, reference, ",
-           "sequential, or interaction. A grouped hypothesis such as ",
+           "here: the comparisons come from `contrast` - pairwise, reference ",
+           "or sequential - and from the target, a `:` target being an ",
+           "interaction. A grouped hypothesis such as ",
            "~ pairwise | group belongs with a quantity that is grouped, which ",
            "on an ordinal fit means type = \"response\".")
     ## eta is the contrast with the group deviations at zero. Asking for the
@@ -671,18 +692,18 @@ estimand <- function(model, target, policy = "equal", at = NULL,
                  " of estimand() or of marginaleffects::avg_predictions",
                  paste(vapply(unknown, near, ""), collapse = ""), ". "),
         "`conf_level` and `ndraws` work on either route; the estimand's own ",
-        "vocabulary is `contrast` for which comparisons are formed - including ",
-        "contrast = \"within\", the per-stratum contrasts of a nested ",
-        "variable - and `by` for the levels an estimand is computed within.")
+        "vocabulary is `contrast` for which comparisons are formed among the ",
+        "target's levels, `by` for the levels an estimand is computed within, ",
+        "and a `:` target for an interaction.")
     }
   }
   user_hyp <- "hypothesis" %in% names(dots)
   if (user_hyp) {
     if (identical(contrast, "interaction"))
-      stop("`hypothesis` and contrast = \"interaction\" both define which ",
+      stop("`hypothesis` and an interaction target both define which ",
            "comparisons are formed. The interaction is built as a matrix of ",
-           "differences of differences; supply your own hypothesis instead, or ",
-           "drop it and let the interaction stand.")
+           "differences of differences; supply your own hypothesis against a ",
+           "single target instead, or drop it and let the interaction stand.")
     if (!in_star())
     message("using your `hypothesis` instead of contrast = \"", contrast,
             "\". The comparisons, their names, and which way round each ",

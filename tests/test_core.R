@@ -1300,9 +1300,26 @@ chk("interaction: the emitted code re-runs",
       r <- eval(parse(text = paste(attr(ei, "nestimand")$code, collapse = "\n")),
                 envir = env)
       isTRUE(all.equal(as.data.frame(r)$estimate, di$estimate)) })
-chk("interaction: a single target is refused",
-    grepl("needs at least two targets",
-          err_of(estimand(mf, chord_type, contrast = "interaction"))))
+## `contrast = "interaction"` said what the target already says: it was inert
+## beside a `:` target and refused without one, so there was only ever one way
+## to ask for an interaction, spelled two ways.
+chk("interaction: `contrast = \"interaction\"` is removed, and the target named",
+    { e <- err_of(estimand(mf, chord_type, contrast = "interaction"))
+      grepl("has been removed: the target says it", e, fixed = TRUE) &&
+        grepl("chord_type:<other>", e, fixed = TRUE) })
+chk("interaction: and it is no longer a value `contrast` accepts",
+    !("interaction" %in% eval(formals(estimand)$contrast)))
+chk("interaction: a `:` target still gives it, unchanged",
+    { a <- as.data.frame(estimand(mf, chord_type:inversion, bounds = FALSE,
+                                  self_check = FALSE))
+      nrow(a) == nrow(di) && isTRUE(all.equal(a$estimate, di$estimate)) })
+chk("interaction: a `*` target still gives the marginals and it together",
+    { b <- suppressMessages(estimand(mf, chord_type * inversion, bounds = FALSE,
+                                     self_check = FALSE))
+      length(b) == 3 &&
+        identical(names(b), c("chord_type", "inversion", "chord_type:inversion")) &&
+        isTRUE(all.equal(as.data.frame(b[["chord_type:inversion"]])$estimate,
+                         di$estimate)) })
 
 ## ---- the bounds follow the route they were asked for -----------------------
 ## They are the same estimand under other policies, so computing them on a
@@ -3267,7 +3284,8 @@ chk("dots: a name close to nothing draws no guess",
            fixed = TRUE))
 chk("dots: the message names the vocabulary that does exist",
     { e <- err_of(estimand(m_i3, top, type = "eta", method = "within"))
-      grepl("contrast = \"within\"", e, fixed = TRUE) && grepl("`by`", e, fixed = TRUE) })
+      grepl("`contrast`", e, fixed = TRUE) && grepl("`by`", e, fixed = TRUE) &&
+        grepl("`:` target", e, fixed = TRUE) })
 
 ## ---- `by`: the estimand within each level of something --------------------
 ## As marginaleffects groups an average, `by` groups an estimand: the target's

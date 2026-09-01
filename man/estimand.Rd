@@ -16,7 +16,7 @@ so \code{show_code} returns the code that ran rather than a reconstruction of it
 }
 \usage{
 estimand(model, target, policy = "equal", at = NULL, contrast = c("pairwise", 
-         "reference", "sequential", "interaction"), route = c("g_computation",
+         "reference", "sequential"), route = c("g_computation",
          "cells"), weights = NULL, type = NULL, subsample = NULL,
          data = NULL, bounds = TRUE, self_check = TRUE, dry_run = FALSE,
          by = NULL, ..., spec = NULL, .env = parent.frame(), .restrict = NULL)
@@ -56,7 +56,7 @@ spelling for it is resolved against the model, since it differs between classes
 and releases.}
   \item{route}{over which rows the model is evaluated. \code{"g_computation"} crosses every observed row with every realized cell, so each condition is averaged over the same covariate distribution, giving the population-averaged effect. \code{"cells"} uses one row per realized cell with covariates at their means: the conditional effect at an average covariate value.}
   \item{weights}{unit weights, as a column name or a numeric vector of one weight per row. Where the policy weights the versions of a condition, these weight the rows, standardizing the estimand to a population other than the sample: survey weights, or post-stratification to a target distribution of the covariates. Not available on the \code{"cells"} route, which evaluates one row per condition and so has no units to weight.}
-  \item{contrast}{which comparisons to form among the target's levels: all pairs, each against the first, or each against the one before. \code{"interaction"} gives a difference of differences over two or more targets, which crosses no structural boundary and so takes no policy. To group the contrasts inside the levels of something else, use \code{by}.}
+  \item{contrast}{which comparisons to form among the target's levels: all pairs, each against the first, or each against the one before. That is all it decides. An interaction - a difference of differences - is asked for by the shape of the target, \code{estimand(m, a:b)}, which crosses no structural boundary and so takes no policy; and the levels an estimand is computed within are named by \code{by}. \code{contrast = "interaction"} and \code{contrast = "within"} were removed, each having been a second way to say one of those.}
   \item{bounds}{attach the partial-identification region. It is computed on the same route as the estimand, one evaluation per single-version policy, so its cost grows with the number of versions: on a design admitting many, \code{bounds = FALSE} is the way to skip it.}
   \item{self_check}{re-run the estimand with nested factor levels permuted, and warn if it moves. For a mixed or Bayesian fit the check runs on the fixed-effects shadow model - the same cell formula without the random terms - because order instability is a fixed-effects phenomenon, and refitting a large random structure is both expensive and liable to settle on a different optimum, which would report a failure having nothing to do with level order.}
   \item{dry_run}{return the code without computing anything. \code{show_code()} prints the code of a result that has already been computed, since the inner call is evaluated first; this is the way to see the code beforehand.}
