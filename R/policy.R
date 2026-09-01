@@ -8,10 +8,33 @@
 policy_aliases <- c("equal", "proportional", "hierarchical",
                     "nominated", "standardized", "within")
 
+## `target` names one categorical design variable. Every route to a policy runs
+## through `versions_of()`, so the argument is checked there rather than in each
+## caller. The mistake worth naming is positional: these functions take the model
+## first and the target second, because a fit from `nest_fit()` carries its own
+## declaration, and a spec passed in second lands in `target` and fails several
+## frames later on something that does not mention the argument at all.
+check_target <- function(spec, target) {
+  if (inherits(target, "nesting_spec"))
+    stop("`target` names the variable the estimand is about, and a nesting_spec ",
+         "was passed in its place. The declaration is not a positional argument ",
+         "here: a model fitted by nest_fit() carries it, so the call is ",
+         "f(model, \"", spec$cell_vars[1], "\", \"equal\"). A spec is passed by ",
+         "name, as spec = , and only for a model nest_fit() did not produce.")
+  if (!is.character(target) || length(target) != 1L || is.na(target))
+    stop("`target` names one categorical design variable, as a single string. ",
+         "What was passed is ", paste(class(target), collapse = "/"),
+         " of length ", length(target), ". One variable at a time here; ",
+         "estimand() is the function that takes several, written as a formula ",
+         "would write them.")
+  invisible(TRUE)
+}
+
 ## Versions of the compound condition within each stratum of `target`.
 ## The stratum is a level of `target`; the versions are the realized
 ## combinations of the variables nested below it in the same family.
 versions_of <- function(spec, target, cells = spec$cells) {
+  check_target(spec, target)
   fam <- NULL
   for (f in spec$cat_families) if (target %in% f) fam <- f
   if (is.null(fam))

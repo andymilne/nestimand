@@ -3078,6 +3078,33 @@ chk("constraints: a cell fit needs none of this",
       !any(grepl("chain_prior_object",
                  attr(nest_fit(sp, dry_run = TRUE), "nestimand_code"))) })
 
+## The declaration is carried by the fit, so these functions take the model first
+## and the target second. A spec passed positionally lands in `target` and used
+## to fail several frames later on `if (target %in% f)`, which mentions neither
+## argument. Every route to a policy runs through versions_of(), so the check
+## sits there and each entry point inherits it.
+chk("target: a spec in the target slot is named as one",
+    { e <- err_of(nest_policy(res_sp, res_sp))
+      grepl("nesting_spec was passed in its place", e, fixed = TRUE) &&
+        grepl("spec = ", e, fixed = TRUE) })
+chk("target: and reported before the engine is looked at",
+    { e <- err_of(latent_draws(res_m, res_sp))
+      grepl("nesting_spec was passed in its place", e, fixed = TRUE) })
+chk("target: several variables are refused with the function that takes them",
+    { e <- err_of(nest_policy(res_sp, c("chord_type", "top")))
+      grepl("of length 2", e, fixed = TRUE) && grepl("estimand()", e, fixed = TRUE) })
+chk("target: a non-string says what it was",
+    grepl("numeric of length 1", err_of(nest_policy(res_sp, 3)), fixed = TRUE))
+## `latent_draws()` left the cells unresolved and passed NULL on, where
+## `latent_estimand()` dropped the strata in which the target does not vary. One
+## function decides it now, so the two routes are over the same cells.
+chk("cells: one function decides which cells an estimand is over",
+    { a <- estimand_cells(res_sp, "top")
+      b <- estimand_cells(res_sp, "inversion")
+      nrow(a) == nrow(res_sp$cells) && nrow(b) < nrow(res_sp$cells) &&
+        identical(estimand_cells(res_sp, "top", res_sp$cells[1:2, ]),
+                  res_sp$cells[1:2, ]) })
+
 ## An argument the coefficient route cannot take is one thing; an argument that
 ## is nothing's is another. Reporting the second as the first sends the reader
 ## to the wrong documentation - `method` was described as an argument of

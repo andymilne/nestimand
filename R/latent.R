@@ -181,19 +181,25 @@ cell_design_rows <- function(spec, data, cells, model) {
 ## The contrast matrix C, one row per reported contrast, columns the model's
 ## coefficients: the whole estimand is C b, whether that is evaluated at the
 ## coefficients or draw by draw.
+## Which realized cells an estimand of `target` is taken over: all of them,
+## less any stratum in which the target does not vary, since such a stratum
+## offers no version to weight and would enter the average as a constant. One
+## function decides it, so that every route to a contrast is over the same
+## cells - `latent_draws()` used to leave the choice unmade and pass NULL on.
+estimand_cells <- function(spec, target, cells = NULL) {
+  if (!is.null(cells)) return(cells)
+  dg <- degenerate_strata_multi(spec, target)
+  if (is.null(dg) || !length(dg$drop)) spec$cells else
+    spec$cells[deg_key(spec$cells, dg$vars) %in% dg$keep, , drop = FALSE]
+}
+
 latent_contrast_matrix <- function(model, spec, target, policy = "equal",
                                    at = NULL, contrast = "pairwise",
                                    data = spec$data, cells = NULL,
                                    weights = NULL, route = "g_computation") {
-  if (is.null(cells) && !identical(contrast, "interaction")) {
-    dg <- degenerate_strata_multi(spec, target)
-    cells <- if (is.null(dg) || !length(dg$drop)) spec$cells else
-      spec$cells[deg_key(spec$cells, dg$vars) %in% dg$keep, , drop = FALSE]
-  }
+  if (!identical(contrast, "interaction")) cells <- estimand_cells(spec, target, cells)
   if (identical(contrast, "interaction")) {
-    dg <- degenerate_strata_multi(spec, target)
-    cells <- if (is.null(dg) || !length(dg$drop)) spec$cells else
-      spec$cells[deg_key(spec$cells, dg$vars) %in% dg$keep, , drop = FALSE]
+    cells <- estimand_cells(spec, target)
     M <- cell_design_rows(spec, data, cells, model)
     ## Several cells can share one combination of the targets, whenever the
     ## design holds a variable the interaction does not name. The contrast is
@@ -215,8 +221,9 @@ latent_contrast_matrix <- function(model, spec, target, policy = "equal",
     return(C)
   }
   if (is.null(cells)) cells <- spec$cells
+  cells <- estimand_cells(spec, target, cells)
   pol <- if (inherits(policy, "nestimand_policy")) policy
-         else nest_policy(spec, target, policy, at, spec$data, cells = cells)
+         else nest_policy(spec, target, policy, at, data, cells = cells)
   M <- policy_contrast_matrix(spec, target, pol, data, model, cells = cells,
                               weights = weights, route = route)
   levs <- rownames(M)
@@ -310,16 +317,21 @@ latent_estimand <- function(model, target, policy = "equal", at = NULL,
 ## a posterior rather than a delta-method interval.
 latent_draws <- function(model, target, policy = "equal", at = NULL,
                          contrast = "pairwise", data = NULL, spec = NULL,
-                         cells = NULL) {
+                         cells = NULL, weights = NULL,
+                         route = "g_computation") {
   spec <- resolve_spec(model, spec)
+  ## before the engine check, so that a misplaced argument is reported as one
+  ## rather than as whatever the engine happens to be
+  check_target(spec, target)
   if (is.null(data)) data <- spec$data
   if (!inherits(model, "brmsfit"))
     stop("draw-wise translation needs a posterior; this is a frequentist fit. ",
          "Use latent_estimand() for the delta-method interval.")
+  cells <- estimand_cells(spec, target, cells)
   pol <- if (inherits(policy, "nestimand_policy")) policy
-         else nest_policy(spec, target, policy, at, spec$data, cells = cells)
+         else nest_policy(spec, target, policy, at, data, cells = cells)
   M <- policy_contrast_matrix(spec, target, pol, data, model, cells = cells,
-                              weights = weights)
+                              weights = weights, route = route)
   D <- as.matrix(brms::as_draws_matrix(model))
   nm <- draw_names(colnames(M), colnames(D))
   B <- D[, nm, drop = FALSE]

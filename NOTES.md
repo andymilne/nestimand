@@ -756,3 +756,24 @@ The claim is checked rather than assumed: for both positions of the sentinel in
 the level order, the reduced fit must drop nothing, must have the same fitted
 values and residual degrees of freedom as the effects fit of the same
 declaration, and must give the same estimands on both routes.
+
+## `target` is checked where every route to a policy passes
+
+A `nesting_spec` passed in the `target` slot - these functions take the model
+first and the target second, since a fit from `nest_fit()` carries its own
+declaration - failed several frames later inside `versions_of()`, on
+`if (target %in% f)`, an error naming neither argument. The check now sits in
+`versions_of()` itself, which every route to a policy runs through, and
+`latent_draws()` runs it before the engine check so that a misplaced argument is
+reported as one rather than as whatever engine happens to be in hand.
+
+Two defects surfaced beside it, both in `latent_draws()` and both of the same
+shape - a second implementation of something `latent_estimand()` already did:
+
+- it passed `weights = weights` to `policy_contrast_matrix()` without having a
+  `weights` argument of its own, so any path that forced the promise failed on a
+  missing object. `weights` and `route` are now arguments, as they are on
+  `latent_estimand()`.
+- it left `cells` unresolved and passed `NULL` on, where `latent_estimand()`
+  dropped the strata in which the target does not vary. `estimand_cells()` now
+  makes that choice for both, so the two routes are over the same cells.

@@ -16,7 +16,8 @@ latent_estimand(model, target, policy = "equal", at = NULL, contrast = "pairwise
                 ndraws = NULL, weights = NULL, route = "g_computation", re_formula = NA)
 
 latent_draws(model, target, policy = "equal", at = NULL, contrast = "pairwise", 
-             data = NULL, spec = NULL, cells = NULL)
+             data = NULL, spec = NULL, cells = NULL, weights = NULL, 
+             route = "g_computation")
 
 policy_contrast_matrix(spec, target, policy, data = spec$data, model = NULL, 
                        cells = spec$cells, weights = NULL, route = "g_computation")
