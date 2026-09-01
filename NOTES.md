@@ -658,11 +658,22 @@ With that, a per-stratum estimand can be assembled from exported functions:
       cbind(chord_type = k, as.data.frame(e))
     }))
 
-`estimand()` has no argument for it. `contrast = "within"` does this for a *nested*
-variable, taking the strata from its ancestors; a crossed variable has none, and
-naming the strata is not currently possible. `by` is not the answer as it stands: it
-is marginaleffects' own argument, `estimand()` already passes `by = target` to
-`avg_predictions()`, and the coefficient route makes no such call at all.
+`estimand()` now has `by` for it, in the sense marginaleffects gives the word: the
+target's contrasts are formed inside each group, with the policy weighted over that
+group's conditions alone, and the groups come back stacked and labelled. It could not
+simply be passed through - `estimand()` already gives `by = target` to
+`avg_predictions()`, and the coefficient route makes no such call - so it is
+implemented as a restriction of the cells, one group at a time, over the same
+machinery that restricts them when a nested target does not vary everywhere. Both
+routes, every scale, several grouping variables, bounds per group, and one runnable
+script per group from `show_code()`.
+
+`contrast = "within"` is the same estimand with the strata taken from a nested
+target's ancestors, and the two agree where both apply - checked, since they are
+computed by different paths. What `by` adds is naming the strata, which is what a
+variable crossed with the structure needs, having no ancestors to take them from. A
+group in which the target does not vary is dropped and said; a covariate cannot group
+an estimand, having no conditions; nor can the target group itself.
 
 ## Not yet implemented
 

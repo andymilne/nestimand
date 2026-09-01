@@ -11,7 +11,8 @@ estimand <- function(model, target, policy = "equal", at = NULL,
                      route = c("g_computation", "cells"),
                      weights = NULL, type = NULL, subsample = NULL,
                      data = NULL, bounds = TRUE, self_check = TRUE,
-                     dry_run = FALSE, ..., spec = NULL, .env = parent.frame()) {
+                     dry_run = FALSE, by = NULL, ..., spec = NULL,
+                     .env = parent.frame(), .restrict = NULL) {
   ## The declaration travels with a fit from nest_fit(); `spec` is needed only
   ## for a model fitted by calling the engine directly.
   spec_expr <- substitute(spec)
@@ -173,6 +174,96 @@ estimand <- function(model, target, policy = "equal", at = NULL,
     degenerate_strata_multi(spec, target)
   restricted <- !is.null(deg) && length(deg$drop)
   if (!restricted) deg <- NULL
+  ## A recursive call from the `by` branch below carries the cells of its group.
+  if (!is.null(.restrict)) deg <- .restrict
+
+  ## `by` names design variables whose levels the estimand is computed within,
+  ## as it names the grouping of an average in marginaleffects: the target's
+  ## contrasts are formed inside each group, with the policy weighted over that
+  ## group's conditions alone, and the groups are returned stacked and labelled.
+  ## `contrast = "within"` is the same thing with the strata taken from a nested
+  ## target's own ancestors, which a variable crossed with the structure has
+  ## none of - hence naming them.
+  bq <- substitute(by)
+  byv <- if (is.null(bq)) character(0) else {
+    bv <- tryCatch(eval(bq, .env), error = function(e) NULL)
+    if (is.character(bv)) bv else all.vars(bq)
+  }
+  if (length(byv)) {
+    bad <- setdiff(byv, spec$cell_vars)
+    if (length(bad))
+      stop("`by` groups the estimand by declared design variables; `",
+           paste(bad, collapse = "`, `"), "` is not one (the design has ",
+           paste(spec$cell_vars, collapse = ", "), "). A covariate has no ",
+           "conditions to group by; cross it with the structure, or declare it.")
+    if (length(intersect(byv, target)))
+      stop("`by` names `", paste(intersect(byv, target), collapse = "`, `"),
+           "`, which is also the target: a variable cannot be contrasted within ",
+           "its own levels. For the two together, name them as one target - ",
+           "`", paste(unique(c(target, byv)), collapse = " * "), "`.")
+    base <- if (is.null(deg)) spec$cells else
+      spec$cells[deg_key(spec$cells, deg$vars) %in% deg$keep, , drop = FALSE]
+    gkey <- deg_key(base, byv)
+    tgv <- as.character(base[[target[length(target)]]])
+    groups <- unique(gkey)
+    varies <- vapply(groups, function(g)
+      length(unique(tgv[gkey == g])) > 1, TRUE)
+    if (!any(varies))
+      stop("`", target[length(target)], "` takes one level in every group of `",
+           paste(byv, collapse = "`, `"), "`, so there is no contrast to form ",
+           "in any of them.")
+    if (any(!varies))
+      message("`", target[length(target)], "` does not vary in ",
+              sum(!varies), " group(s) - ", paste(groups[!varies], collapse = ", "),
+              " - which are left out: a comparison there would leave the ",
+              "variable's own levels.")
+    cl <- match.call()
+    parts <- lapply(groups[varies], function(g) {
+      c2 <- cl
+      c2$target <- target
+      c2$by <- NULL
+      vars_g <- union(if (is.null(deg)) character(0) else deg$vars, byv)
+      c2$.restrict <- list(
+        vars = vars_g,
+        keep = unique(deg_key(base[gkey == g, , drop = FALSE], vars_g)),
+        drop = "", by = byv, group = g)
+      e <- eval(c2, .env)
+      list(g = g, e = e, lab = base[gkey == g, byv, drop = FALSE][1, , drop = FALSE])
+    })
+    ## a dry run returns the scripts, one block per group, each of which stands
+    ## on its own: the groups differ only in the cells they restrict to
+    code <- unlist(lapply(parts, function(z)
+      c(sprintf("## group: %s", z$g),
+        if (inherits(z$e, "nestimand_code")) attr(z$e, "nestimand_code")
+        else attr(z$e, "nestimand")$code)))
+    if (isTRUE(dry_run))
+      return(structure(paste(code, collapse = "\n"), class = "nestimand_code",
+                       nestimand_code = code))
+    res <- do.call(rbind, lapply(parts, function(z) {
+      d <- as.data.frame(z$e)
+      cbind(z$lab[rep(1L, nrow(d)), , drop = FALSE], d, row.names = NULL)
+    }))
+    m1 <- attr(parts[[1]]$e, "nestimand")
+    bnd <- lapply(parts, function(z) {
+      b <- attr(z$e, "nestimand")$bounds
+      if (is.null(b)) NULL else
+        cbind(z$lab[rep(1L, nrow(b)), , drop = FALSE], b, row.names = NULL)
+    })
+    bnd <- if (any(vapply(bnd, is.null, TRUE))) NULL else do.call(rbind, bnd)
+    st <- vapply(parts, function(z)
+      attr(z$e, "nestimand")$self_check$status %||% NA_character_, "")
+    return(structure(res,
+      nestimand = list(build = nestimand_build, target = target, by = byv,
+                       policy = policy, at = at, contrast = contrast,
+                       scale = m1$scale, type = m1$type, route = route,
+                       groups = groups[varies], bounds = bnd,
+                       self_check = if (all(is.na(st))) NULL else
+                         list(status = if (all(st %in% "passed")) "passed"
+                              else paste(unique(st[!is.na(st)]), collapse = "/")),
+                       code = code),
+      nestimand_bounds = bnd,
+      class = c("nestimand_estimand", class(res))))
+  }
 
   ## The model and the declaration may be supplied as expressions rather than
   ## as named objects - estimand(nest_fit(sp), ...) - and an expression cannot
@@ -706,7 +797,11 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
     sprintf('subset(%s$cells, paste(%s, sep = ".") %%in%% c(%s))', spec_name,
             paste(deg$vars, collapse = ", "),
             paste(sprintf('"%s"', deg$keep), collapse = ", "))
-  restrict_note <- if (is.null(deg)) NULL else c(
+  restrict_note <- if (is.null(deg)) NULL else if (length(deg$by)) c(
+    sprintf("## within `%s` = %s: the contrast is formed over that group's",
+            paste(deg$by, collapse = "`, `"), deg$group),
+    "## conditions alone, and the policy is weighted over them.",
+    sprintf("cells <- %s", cells_txt)) else c(
     sprintf("## `%s` does not vary in every stratum. The contrast is pooled over", target),
     sprintf("## the strata in which it does - %s - since elsewhere a comparison",
             paste(deg$keep, collapse = ", ")),
@@ -1122,7 +1217,7 @@ print.nestimand_estimand <- function(x, digits = 4, ...) {
   d <- as.data.frame(x)
   ## `group` carries the outcome category on a grouped fit: without it the
   ## rows cannot be told apart
-  keep <- intersect(c("stratum", "group", "term", "estimate", "std.error",
+  keep <- intersect(c(meta$by, "stratum", "group", "term", "estimate", "std.error",
                       "conf.low", "conf.high", "statistic", "p.value", "pd"),
                     names(d))
   d <- d[, keep, drop = FALSE]
@@ -1145,6 +1240,10 @@ print.nestimand_estimand <- function(x, digits = 4, ...) {
     bt <- data.frame(term = b$term, estimate = round(b$estimate, digits),
                      low = round(b$policy_low, digits),
                      high = round(b$policy_high, digits))
+    ## a grouped estimand has one set of bounds per group, and they are not
+    ## readable without the group beside them
+    if (length(intersect(meta$by, names(b))))
+      bt <- cbind(b[, intersect(meta$by, names(b)), drop = FALSE], bt)
     print_aligned(bt)
   }
   cat("Code: show_code() prints the ", length(meta$code),

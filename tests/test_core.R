@@ -3065,6 +3065,80 @@ chk("constraints: a cell fit needs none of this",
       !any(grepl("chain_prior_object",
                  attr(nest_fit(sp, dry_run = TRUE), "nestimand_code"))) })
 
+## ---- `by`: the estimand within each level of something --------------------
+## As marginaleffects groups an average, `by` groups an estimand: the target's
+## contrasts are formed inside each group, the policy weighted over that group's
+## conditions alone. `contrast = "within"` is the same thing with the strata
+## taken from a nested target's ancestors, so the two must agree where both
+## apply - and `by` also works for a crossed target, which has no ancestors to
+## take them from.
+by_e <- suppressMessages(estimand(m_i3, top, by = chord_type, policy = "proportional",
+                                  bounds = FALSE, self_check = FALSE))
+chk("by: one row per group, labelled by the grouping variable",
+    { d <- as.data.frame(by_e)
+      "chord_type" %in% names(d) && nrow(d) == 4 &&
+        setequal(d$chord_type, c("aug", "dim", "min", "maj")) })
+chk("by: each group is the estimand computed over that group's cells",
+    { d <- as.data.frame(by_e)
+      hand <- vapply(c("aug", "dim", "min", "maj"), function(k) {
+        cs <- sp_i3$cells[sp_i3$cells$chord_type == k, , drop = FALSE]
+        pol <- nest_policy(sp_i3, "top", "proportional", cells = cs)
+        as.data.frame(latent_estimand(m_i3, "top", pol, spec = sp_i3,
+                                      cells = cs))$estimate }, 1)
+      isTRUE(all.equal(d$estimate[match(names(hand), d$chord_type)],
+                       unname(hand))) })
+chk("by: the two routes agree on it",
+    { a <- as.data.frame(suppressMessages(estimand(m_i3, top, by = chord_type,
+             policy = "proportional", bounds = FALSE, self_check = FALSE)))
+      b <- as.data.frame(suppressMessages(estimand(m_i3, top, by = chord_type,
+             policy = "proportional", type = "eta", bounds = FALSE,
+             self_check = FALSE)))
+      isTRUE(all.equal(a$estimate, b$estimate)) })
+chk("by: on a nested target it is `contrast = \"within\"` by another name",
+    { a <- as.data.frame(suppressMessages(estimand(m_i3, inversion, by = chord_type,
+             bounds = FALSE, self_check = FALSE)))
+      b <- as.data.frame(estimand(m_i3, inversion, contrast = "within",
+             bounds = FALSE, self_check = FALSE))
+      nrow(a) == nrow(b) && isTRUE(all.equal(sort(a$estimate), sort(b$estimate))) })
+chk("by: several grouping variables give one row per realized combination",
+    { d <- as.data.frame(suppressMessages(estimand(m_i3, top,
+             by = c(chord_type, inversion), bounds = FALSE, self_check = FALSE)))
+      all(c("chord_type", "inversion") %in% names(d)) &&
+        nrow(d) == nrow(unique(sp_i3$cells[, c("chord_type", "inversion")])) })
+chk("by: a nested target's own restriction still applies inside the grouping",
+    { d <- as.data.frame(suppressMessages(estimand(m_i3, inversion,
+             by = chord_type, bounds = FALSE, self_check = FALSE)))
+      !("aug" %in% as.character(d$chord_type)) })
+chk("by: a group in which the target does not vary is left out, and said",
+    { ## `top` is t1 only within aug, so aug has no top contrast to form
+      d2 <- cross_dat[!(cross_dat$chord_type == "aug" & cross_dat$top == "t2"), ]
+      sp2 <- suppressMessages(nesting_spec(d2, response ~ chord_type * inversion * top,
+                                           "inversion %in% chord_type"))
+      m2 <- nest_fit(sp2)
+      z <- character(0)
+      d <- as.data.frame(withCallingHandlers(
+        estimand(m2, top, by = chord_type, bounds = FALSE, self_check = FALSE),
+        message = function(m) { z <<- c(z, conditionMessage(m))
+                                invokeRestart("muffleMessage") }))
+      !("aug" %in% as.character(d$chord_type)) &&
+        any(grepl("does not vary", z)) })
+chk("by: the bounds are reported per group",
+    { e <- suppressMessages(estimand(m_i3, top, by = chord_type,
+             policy = "proportional"))
+      b <- attr(e, "nestimand")$bounds
+      !is.null(b) && "chord_type" %in% names(b) && nrow(b) == 4 })
+chk("by: a covariate cannot group an estimand",
+    grepl("not one", err_of(estimand(m_i3, top, by = response))))
+chk("by: nor can the target group itself",
+    grepl("also the target", err_of(estimand(m_i3, top, by = top))))
+chk("by: the emitted code is one runnable block per group",
+    { cd <- attr(suppressMessages(estimand(m_i3, top, by = chord_type,
+             bounds = FALSE, self_check = FALSE, dry_run = TRUE)),
+             "nestimand_code")
+      sum(grepl("^## group:", cd)) == 4 &&
+        !inherits(try(parse(text = paste(cd, collapse = "\n")), silent = TRUE),
+                  "try-error") })
+
 ## ---- the target is expanded by the formula machinery ----------------------
 ## A hand-rolled walk over the target expression handled `a * b`, then `a * b *
 ## c` once it was taught to recurse, then failed on `a * (b + c)`. R already

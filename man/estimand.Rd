@@ -19,7 +19,7 @@ estimand(model, target, policy = "equal", at = NULL, contrast = c("pairwise",
          "reference", "sequential", "within", "interaction"), route = c("g_computation",
          "cells"), weights = NULL, type = NULL, subsample = NULL,
          data = NULL, bounds = TRUE, self_check = TRUE, dry_run = FALSE,
-         ..., spec = NULL, .env = parent.frame())
+         by = NULL, ..., spec = NULL, .env = parent.frame(), .restrict = NULL)
 
 add_bounds(est, model, spec, target, contrast = "pairwise", scale = c("response", 
            "latent"), cells = spec$cells, route = c("g_computation",
@@ -33,6 +33,8 @@ engine_types(model = NULL)
   \item{model}{a fitted model, ideally from \code{\link{nest_fit}}.}
   \item{spec}{a \code{nesting_spec} object, needed only for a model fitted by calling the engine directly: a fit from \code{\link{nest_fit}} carries its own.}
   \item{target}{the variable whose levels are contrasted, quoted or bare. Several may be named at once, and the formula operators carry their usual meaning: \code{c(chord_type, inversion)} computes each in turn, \code{chord_type:inversion} gives the interaction alone, and \code{chord_type * inversion} gives both variables and their interaction, as in a model formula. The target is expanded as a formula expands its right-hand side, by the formula machinery itself, so any combination of operators and brackets means what it would mean there: \code{chord_type * inversion * top_note} returns the three variables, the three two-variable interactions and the three-variable one, and \code{chord_type * (inversion + top_note)} returns the three variables and the two interactions with \code{chord_type}, but not \code{inversion:top_note}. The results are named for the terms, in the order a formula writes them. An interaction naming only some of the design variables is formed on conditions averaged over the rest.}
+  \item{by}{design variables whose levels the estimand is computed within, quoted or bare, as \code{by} groups an average in \pkg{marginaleffects}: the target's contrasts are formed inside each group, with the policy weighted over that group's conditions alone, and the groups are returned stacked and labelled by the grouping variables. \code{contrast = "within"} is the same thing with the strata taken from a nested target's own ancestors; \code{by} names them, which is what a variable crossed with the structure needs, having none. A group in which the target does not vary is left out and said. Both routes and every scale accept it.}
+  \item{.restrict}{internal: the cells one group of a \code{by} call is computed over.}
   \item{policy}{a distribution over the versions of a compound condition: one of \code{"equal"}, \code{"proportional"}, \code{"hierarchical"}, \code{"nominated"}, or a named numeric vector of masses.}
   \item{at}{for \code{policy = "nominated"}, a named vector giving the version: one level for every variable nested below the target, so \code{c(inversion = "0")} at depth one and \code{c(inversion = "0", X1 = "a", Z = "z1")} where the target has three variables below it.}
   \item{data}{data over which the estimand is averaged; for \code{add_bounds}, the data the bounds are computed over.}
@@ -199,6 +201,9 @@ sp2 <- nesting_spec(dat, response ~ chord_type * inversion * X1 * Z,
                       "Z %in% inversion"))
 m2 <- nest_fit(sp2)
 estimand(m2, X1, contrast = "within")             # one contrast per chord type
+estimand(m2, top_note, by = chord_type)           # the same, strata named, for a
+                                                  # variable that has no ancestors
+estimand(m2, top_note, by = c(chord_type, inversion))
 estimand(m2, Z,  contrast = "within")             # per chord type and inversion
 estimand(m2, Z,  policy = "equal")                # pooled, and so needs a policy
 estimand(m2, chord_type, policy = "nominated",
