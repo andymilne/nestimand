@@ -777,3 +777,17 @@ shape - a second implementation of something `latent_estimand()` already did:
 - it left `cells` unresolved and passed `NULL` on, where `latent_estimand()`
   dropped the strata in which the target does not vary. `estimand_cells()` now
   makes that choice for both, so the two routes are over the same cells.
+
+## The brms test file had gone stale against its own package
+
+`tests/test_brms.R` called `latent_draws(mb, spb, "chord_type", "equal")` and
+three others in the same shape: the argument order these functions had before
+the fit began carrying its own declaration. Nothing caught it, because the file
+cannot run anywhere Stan cannot compile, and the rest of the suite had long since
+been updated. The calls are now `f(model, "chord_type", "equal", spec = spb)`,
+which is what the current signature takes.
+
+This is the standing gap rather than a fault in the code: `test_core.R` runs
+everywhere and is the reason the frequentist paths hold, while `test_brms.R`
+runs only on a machine with a working Stan toolchain, so it drifts silently
+between runs. It is worth running after any change to the latent route.

@@ -220,8 +220,6 @@ latent_contrast_matrix <- function(model, spec, target, policy = "equal",
     rownames(C) <- colnames(H)
     return(C)
   }
-  if (is.null(cells)) cells <- spec$cells
-  cells <- estimand_cells(spec, target, cells)
   pol <- if (inherits(policy, "nestimand_policy")) policy
          else nest_policy(spec, target, policy, at, data, cells = cells)
   M <- policy_contrast_matrix(spec, target, pol, data, model, cells = cells,

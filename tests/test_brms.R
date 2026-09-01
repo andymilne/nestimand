@@ -87,11 +87,11 @@ chk("the fitted call travels with the model",
 cat("\n[2/7] draw-wise translation\n")
 cat("  brms coefficient names:", paste(head(rownames(brms::fixef(mb)), 4),
                                        collapse = ", "), "\n")
-dr <- try(latent_draws(mb, spb, "chord_type", "equal"), silent = TRUE)
+dr <- try(latent_draws(mb, "chord_type", "equal", spec = spb), silent = TRUE)
 chk("latent_draws() finds the cell coefficients among the draws",
     is.data.frame(dr) && ncol(dr) == 6 && nrow(dr) > 100)
 if (is.data.frame(dr)) {
-  le <- latent_estimand(mb, spb, "chord_type", "equal")
+  le <- latent_estimand(mb, "chord_type", "equal", spec = spb)
   cat(sprintf("  posterior mean %.4f (sd %.4f) vs point estimate %.4f (se %.4f)\n",
               mean(dr[["aug - maj"]]), sd(dr[["aug - maj"]]),
               le$estimate[le$term == "aug - maj"], le$std.error[le$term == "aug - maj"]))
@@ -114,7 +114,7 @@ cat("  prior spans", length(pri$full_mean), "coefficients:",
 ## make a real 5% discrepancy indistinguishable from chance.
 mp <- nest_fit(spb, priors = pri, sample_prior = "only",
                chains = 4, iter = 3000, warmup = 500, seed = 2, refresh = 0)
-dp <- latent_draws(mp, spb, "chord_type", "equal")
+dp <- latent_draws(mp, "chord_type", "equal", spec = spb)
 cat("  prior draws:", nrow(dp), "\n")
 want <- prior_for_estimand(pri, "chord_type", "equal")
 cat(sprintf("  aug - maj: stated sd %.3f, sampled sd %.3f\n",
@@ -156,7 +156,7 @@ spm <- nesting_spec(dat3, response ~ chord_type * inversion + training +
                     (1 | participant), "inversion %in% chord_type",
                     fit = "brm")
 mm <- nest_fit(spm, chains = 2, iter = 1000, warmup = 500, seed = 3, refresh = 0)
-e_re  <- latent_estimand(mm, spm, "chord_type", "equal")
+e_re  <- latent_estimand(mm, "chord_type", "equal", spec = spm)
 chk("the latent route is unaffected by random effects (fixed effects only)",
     is.finite(e_re$estimate[3]))
 cat("  NOTE: compare against marginaleffects with re_formula = NA, which is the\n")
