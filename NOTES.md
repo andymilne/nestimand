@@ -742,7 +742,8 @@ saturated special case. So there is now one construction rather than two:
   the data, and `counterfactual_grid()` recomputes them for every grid, since a
   column copied across with a row would still describe the cell the row came
   from.
-- Column names are syntactic (`z_` prefix, `:` written `.`) so that every engine
+- Column names are syntactic (`dm_` prefix - they are design-matrix columns and
+  nothing more - with `:` written `.`, so that every engine
   carries them unaltered; `nest_summary()` reports the effect, not the column.
 - A covariate crossed with the structure gets one slope per column *and* one for
   the intercept the design does not carry - the reference condition. Without that

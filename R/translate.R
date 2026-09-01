@@ -191,7 +191,7 @@ reduced_design <- function(spec) {
 ## The readable name of a reduced column, for reporting. Unknown names - the
 ## covariate crossings the fitting formula forms, and anything the engine adds -
 ## are returned with the prefix removed and the separator restored, which is
-## right for `z_a.b:x` and harmless otherwise.
+## right for `dm_a.b:x` and harmless otherwise.
 reduced_labels <- function(spec, terms) {
   map <- attr(reduced_design(spec), "effect_names")
   vapply(terms, function(z) {
@@ -200,9 +200,14 @@ reduced_labels <- function(spec, terms) {
   }, "", USE.NAMES = FALSE)
 }
 
+## The column names the design is carried under. `:` becomes `.` because a colon
+## in a variable name would be read as an interaction operator, and the `dm_`
+## prefix keeps a generated column from colliding with one already in the data -
+## `with_reduced()` refuses rather than overwriting if it would. It stands for
+## design matrix, which is all these columns are: nothing is centred or scaled.
 reduced_names <- function(x)
   ifelse(x == "(Intercept)", "(Intercept)",
-         paste0("z_", gsub("[^A-Za-z0-9._]", ".", x)))
+         paste0("dm_", gsub("[^A-Za-z0-9._]", ".", x)))
 
 ## The data with the reduced design carried alongside it, one column per
 ## identified effect, looked up by the cell each row belongs to.

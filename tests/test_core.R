@@ -3272,7 +3272,7 @@ for (.lev in list(c("none", "0", "1", "2"), c("0", "1", "2", "none"))) {
   chk(paste0("parameterization (", .tag, "): its columns are named for the effects they carry"),
       { d <- as.data.frame(nest_summary(.m_r))
         nrow(d) == length(coef(.m_r)) && all(d$meaning == "as fitted") &&
-          any(d$term == "chord_typedim:inversion0") && !any(grepl("^z_", d$term)) })
+          any(d$term == "chord_typedim:inversion0") && !any(grepl("^dm_", d$term)) })
   chk(paste0("parameterization (", .tag, "): a saturated declaration stays in cells"),
       identical(attr(.m_c, "nestimand_mode"), "cells"))
   chk(paste0("parameterization (", .tag, "): a cell fit answers on both routes"),

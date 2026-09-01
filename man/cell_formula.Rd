@@ -53,8 +53,11 @@ fitting_mode(spec, engine = "marginaleffects", priors = NULL)
 }
 \value{
 \code{cell_formula} a formula; \code{chain_terms} a character vector of terms;
-\code{reduced_design} a matrix with one row per realized cell, whose
-\code{effect_names} attribute names the effect each column stands for;
+\code{reduced_design} a matrix with one row per realized cell, whose columns are
+named \code{dm_} plus the design-matrix column they came from, with \code{:}
+written \code{.} so that the name is ordinary in a formula, and whose
+\code{effect_names} attribute names the effect each column stands for - which is
+what \code{\link{nest_summary}} reports;
 \code{with_reduced} the data frame with those columns appended;
 \code{add_cells} the grid with the cell factor added and the number of dropped rows in
 the \code{nestimand_dropped} attribute; \code{cell_grid} a data frame with one row per
