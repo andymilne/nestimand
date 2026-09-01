@@ -125,6 +125,10 @@ design_rows <- function(spec, g, mode = "cells") {
   for (v in intersect(names(g), names(ref)))
     if (is.factor(ref[[v]]) || is.character(ref[[v]]))
       g[[v]] <- factor(as.character(g[[v]]), levels = levels(factor(ref[[v]])))
+  ## The reduced form's predictors are columns of the design, not the original
+  ## factors, so the grid carries them the same way the fitted data does: looked
+  ## up by the cell each row belongs to.
+  if (identical(mode, "reduced")) g <- reduced_augment(spec, g)
   rhs <- paste(deparse(cell_formula(spec, mode)[[3]]), collapse = " ")
   X <- stats::model.matrix(stats::as.formula(paste("~", rhs)), g)
   if (colnames(X)[1] == "(Intercept)") X[, -1, drop = FALSE] else X

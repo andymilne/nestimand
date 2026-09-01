@@ -212,10 +212,27 @@ nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "
     mode <- as.character(fm)
     mode_note <- sprintf("## parameterization: %s (%s)", mode, attr(fm, "reason"))
   } else {
-    mode <- match.arg(mode, c("cells", "effects"))
+    mode <- match.arg(mode, c("cells", "reduced", "effects"))
     mode_note <- sprintf("## parameterization: %s (requested)", mode)
   }
   f <- paste(deparse(cell_formula(spec, mode)), collapse = " ")
+  ## The reduced form states the declared structure as one column per identified
+  ## effect, computed once per realized cell and looked up by cell. It is the
+  ## same kind of object the cell factor is - a design the data can inform in
+  ## full - so nothing has to be held at zero, and the columns are ordinary
+  ## numeric variables that every engine treats alike.
+  aug_code <- NULL
+  if (identical(mode, "reduced")) {
+    raw_data_name <- data_name
+    raw_data <- data
+    data <- with_reduced(spec, data)
+    data_name <- ".nestimand_data"
+    aug_code <- c(
+      "## one column per identified effect of the declared structure, looked up",
+      "## by realized cell. reduced_design(spec) shows the columns and the",
+      "## effect each one stands for.",
+      sprintf("%s <- with_reduced(%s, %s)", data_name, spec_name, raw_data_name))
+  }
   if (identical(mode, "effects") && identical(random_structure, "cells"))
     random_structure <- "chain_slope"   # match the random side to the fixed side
   re <- if (fit %in% c("lmer", "glmer", "clmm")) random_terms(spec, random_structure)
@@ -399,7 +416,7 @@ nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "
   relevel_code <- if (identical(mode, "effects"))
     sentinel_relevel_code(spec, data_name)
   code <- c(sprintf("## nestimand %s -- fit", nestimand_build), lib, mode_note,
-            relevel_code, re_note, prior_note,
+            relevel_code, aug_code, re_note, prior_note,
             sprintf("m <- %s(%s%s, data = %s%s%s)", fn, f, fam, data_name,
                     prior_txt, dots_txt))
   if (isTRUE(dry_run))
@@ -416,6 +433,11 @@ nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "
   }
   if (!exists(data_name, envir = env, inherits = TRUE))
     assign(data_name, data, envir = env)
+  ## the reduced form builds its data in the emitted code, so the frame it
+  ## builds it from has to be reachable there too
+  if (identical(mode, "reduced") && grepl("^[.A-Za-z][.A-Za-z0-9._]*$", raw_data_name) &&
+      !exists(raw_data_name, envir = env, inherits = TRUE))
+    assign(raw_data_name, raw_data, envir = env)
   m <- eval(parse(text = paste(c(code, "m"), collapse = "\n")), envir = env)
   attr(m, "nestimand_code") <- code
   attr(m, "nestimand_mode") <- mode
@@ -466,6 +488,13 @@ check_model_spec <- function(model, spec) {
   if (!length(v)) v <- NULL
   if (is.null(v)) return(invisible(TRUE))          # engine without a formula
   if (spec$cell_name %in% v) return(invisible(TRUE))
+  ## The reduced form names the design's own columns rather than the original
+  ## factors, and each is a fixed function of the cell, so the fit does respond
+  ## to the declared structure - by construction, and in exactly the terms the
+  ## declaration asked for.
+  if (identical(attr(model, "nestimand_mode"), "reduced") &&
+      all(setdiff(colnames(reduced_design(spec)), "(Intercept)") %in% v))
+    return(invisible(TRUE))
   miss <- setdiff(spec$cell_vars, v)
   if (length(miss))
     stop("the model does not contain `", paste(miss, collapse = "`, `"),

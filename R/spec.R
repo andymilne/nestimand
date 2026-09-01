@@ -377,8 +377,16 @@ print.nesting_spec <- function(x, ...) {
   ## the formula that will actually be fitted, which is the effects one when the
   ## declaration asks for less than the saturated structure
   md <- tryCatch(as.character(fitting_mode(x)), error = function(e) "cells")
-  cat("Fitting formula:",
-      paste(deparse(cell_formula(x, md)), collapse = " "), "\n")
+  ## The reduced form's own formula names one column per identified effect and
+  ## is unreadable at any size; what a reader wants is the structure those
+  ## columns encode, which is the declaration itself.
+  shown <- if (identical(md, "reduced")) cell_formula(x, "effects") else
+    cell_formula(x, md)
+  cat("Fitting formula:", paste(deparse(shown), collapse = " "), "\n")
+  if (identical(md, "reduced"))
+    cat("  (the declaration asks for less than the saturated structure, so it",
+        "is\n   fitted as one column per identified effect rather than as cell",
+        "means:\n   reduced_design() shows the columns)\n")
   if (identical(md, "effects"))
     cat("  (effects parameterization: the declaration asks for less than the",
         "saturated structure)\n")

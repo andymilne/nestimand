@@ -280,6 +280,11 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   data_name <- if (missing(data)) paste0(spec_name, "$data")
                else paste(deparse(substitute(data)), collapse = " ")
   if (is.null(data)) { data <- spec$data; data_name <- paste0(spec_name, "$data") }
+  ## A fit in the reduced form has the design's own columns as predictors, so
+  ## any frame handed to the engine must carry them - the data as well as the
+  ## grids built from it.
+  if (identical(fit_mode(model), "reduced"))
+    data <- reduced_augment(spec, add_cells(spec, data))
   ## Under an identity link the response scale and the linear predictor are the
   ## same quantity, so the contrast can be taken from the coefficients: the
   ## averaging may be done on the design matrix rather than on one prediction

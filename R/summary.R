@@ -48,8 +48,9 @@ nest_summary <- function(model, space = c("effects", "cells"),
     ## coefficients are already the effects this function exists to produce.
     ## That happens when the declaration asks for less than the saturated
     ## structure, which the cell factor cannot express.
-    if (identical(attr(model, "nestimand_mode"), "effects"))
-      return(effects_fit_summary(model, spec, conf_level, random))
+    md <- attr(model, "nestimand_mode")
+    if (identical(md, "effects") || identical(md, "reduced"))
+      return(effects_fit_summary(model, spec, conf_level, random, space = md))
     stop("nest_summary() reads the cell coefficients, and this model has none: ",
          "it was not fitted in the cell parameterization, and does not carry ",
          "the declaration that says it was fitted as effects. Refit with ",
@@ -156,7 +157,9 @@ nest_summary <- function(model, space = c("effects", "cells"),
     out$meaning[1] <- paste0(out$meaning[1], " (fixed at 0: absorbed into the thresholds)")
   if (isTRUE(random))
     attr(out, "nestimand_random") <-
-      tryCatch(random_covariance(model, spec, space),
+      ## the reduced form leaves the random side in the cell parameterization
+      tryCatch(random_covariance(model, spec,
+                                 if (identical(space, "reduced")) "cells" else space),
                error = function(e) structure(list(), note = conditionMessage(e)))
   attr(out, "nestimand_space") <- space
   ## which engine produced the coefficients being translated: the same table
@@ -175,7 +178,8 @@ nest_summary <- function(model, space = c("effects", "cells"),
 ## A fit whose coefficients are already effects. Nothing is translated: the
 ## aliased columns the chain form carries are dropped, since they are held at
 ## zero and say nothing, and each row is labelled with the term it belongs to.
-effects_fit_summary <- function(model, spec, conf_level = 0.95, random = FALSE) {
+effects_fit_summary <- function(model, spec, conf_level = 0.95, random = FALSE,
+                               space = "effects") {
   b <- coef_vector(model)
   keep <- names(b)[!is.na(b)]
   V <- vcov_beta(model, keep)
@@ -195,13 +199,18 @@ effects_fit_summary <- function(model, spec, conf_level = 0.95, random = FALSE) 
   }
   ## A coefficient held at zero says which kind of constraint holds it, since a
   ## row of zeros with no direction to report is otherwise unreadable.
-  held <- tryCatch({
+  held <- if (identical(space, "reduced")) character(0) else tryCatch({
     tb <- chain_priors(spec)$table
     stats::setNames(tb$kind[tb$part == "fixed"], tb$coef[tb$part == "fixed"])
   }, error = function(e) character(0))
   out$meaning <- ifelse(out$term %in% names(held),
                         paste("held at zero:", held[out$term]), "as fitted")
-  attr(out, "nestimand_space") <- "effects"
+  ## the reduced form's columns are named syntactically so that every engine
+  ## carries them unaltered; the report names the effect each one stands for
+  if (identical(space, "reduced"))
+    out$term <- tryCatch(reduced_labels(spec, out$term),
+                         error = function(e) out$term)
+  attr(out, "nestimand_space") <- space
   attr(out, "nestimand_fit") <- spec$fit
   ## a brmsformula deparses to its whole object; one more formula() call reduces
   ## it to the formula a reader wants to see
@@ -213,7 +222,9 @@ effects_fit_summary <- function(model, spec, conf_level = 0.95, random = FALSE) 
   }, error = function(e) NULL)
   if (isTRUE(random))
     attr(out, "nestimand_random") <-
-      tryCatch(random_covariance(model, spec, "effects"),
+      ## the reduced form leaves the random side in the cell parameterization
+      tryCatch(random_covariance(model, spec,
+                                 if (identical(space, "reduced")) "cells" else space),
                error = function(e) structure(list(), note = conditionMessage(e)))
   class(out) <- c("nestimand_summary", class(out))
   out

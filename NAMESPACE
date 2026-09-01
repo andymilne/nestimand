@@ -1,6 +1,8 @@
 export(nesting_spec)
 export(apply_sentinel)
 export(cell_formula)
+export(reduced_design)
+export(with_reduced)
 export(chain_terms)
 export(add_cells)
 export(cell_grid)

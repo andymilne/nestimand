@@ -214,6 +214,9 @@ counterfactual_grid <- function(spec, data = spec$data, policy = NULL,
   g[[".row"]] <- rep(seq_len(nrow(data)), each = nrow(cells))
   rownames(g) <- NULL
   if (!is.null(policy)) g[[".w"]] <- policy_weights(spec, g, policy)
+  ## a restricted declaration is fitted on the design's own columns, so the grid
+  ## carries them too, recomputed from the cell each row has been moved to
+  if (is_reduced(spec)) g <- reduced_augment(spec, g)
   g
 }
 

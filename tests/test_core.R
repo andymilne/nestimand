@@ -2951,7 +2951,7 @@ chk("restricted: they span less than the cells, and the mode follows",
     { sp_full <- suppressMessages(nesting_spec(cross_dat,
         response ~ chord_type * inversion * top, "inversion %in% chord_type"))
       term_span(res_sp, declared_terms(res_sp)) < nrow(res_sp$cells) &&
-        identical(as.character(fitting_mode(res_sp)), "effects") &&
+        identical(as.character(fitting_mode(res_sp)), "reduced") &&
         identical(as.character(fitting_mode(sp_full)), "cells") })
 chk("restricted: the fit is the model the formula names, not the saturated one",
     { hand <- lm(response ~ chord_type + top + chord_type:inversion +
@@ -2974,16 +2974,29 @@ chk("restricted: nest_summary reports the coefficients rather than refusing",
         all(d$meaning == "as fitted" | grepl("held at zero", d$meaning)) })
 chk("restricted: the printed spec shows the formula that will be fitted",
     { txt <- paste(utils::capture.output(print(res_sp)), collapse = " ")
-      grepl("effects parameterization", txt) && !grepl("0 \\+ cell", txt) })
+      grepl("one column per identified effect", txt) &&
+        !grepl("0 \\+ cell", txt) })
 
-## brms cannot drop an uninformative column the way lm does, so a restricted
-## structure needs its constant(0) block or the posterior is improper along it.
-## The block is derived and applied rather than left for the user to discover.
+## brms cannot drop an uninformative column the way lm does, so the effects
+## parameterization needs its constant(0) block or the posterior is improper
+## along it. That form is now reached only when something asks for it - the
+## emmeans engine, or a prior stated coordinate-wise in effect space - since a
+## restricted declaration goes to the reduced form, which carries no such
+## column. The block is derived and applied rather than left to be discovered.
 res_brm <- suppressMessages(nesting_spec(cross_dat,
   response ~ chord_type * (inversion + top), "inversion %in% chord_type",
   fit = "brm"))
-res_code <- function(...) attr(nest_fit(res_brm, dry_run = TRUE, ...),
+res_code <- function(...) attr(nest_fit(res_brm, dry_run = TRUE,
+                                        mode = "effects", ...),
                                "nestimand_code")
+chk("reduced: a restricted brms fit needs nothing held at zero",
+    { z <- character(0)
+      cd <- withCallingHandlers(attr(nest_fit(res_brm, dry_run = TRUE),
+                                     "nestimand_code"),
+        message = function(m) { z <<- c(z, conditionMessage(m))
+                                invokeRestart("muffleMessage") })
+      !any(grepl("chain_prior_object", cd)) && !any(grepl("constant\\(0\\)", z)) &&
+        any(grepl("with_reduced", cd)) })
 chk("constraints: the block is applied without being asked for",
     { z <- character(0)
       cd <- withCallingHandlers(res_code(),
@@ -3044,7 +3057,7 @@ chk("constraints: a random structure is counted against its grouping factor",
           (chord_type * (inversion + X1) | participant),
         "inversion %in% chord_type", fit = "brm"))
       z <- character(0)
-      withCallingHandlers(nest_fit(sp, dry_run = TRUE),
+      withCallingHandlers(nest_fit(sp, dry_run = TRUE, mode = "effects"),
         message = function(m) { z <<- c(z, conditionMessage(m))
                                 invokeRestart("muffleMessage") })
       cp <- chain_priors(sp)
@@ -3214,6 +3227,27 @@ for (.lev in list(c("none", "0", "1", "2"), c("0", "1", "2", "none"))) {
   chk(paste0("parameterization (", .tag, "): a restricted fit answers on both routes"),
       { a <- .est(.m_r); b <- .est(.m_r, type = "eta")
         length(a) == 6 && isTRUE(all.equal(a, b)) })
+  ## The reduced form and the effects form are two coordinate systems for the
+  ## same restricted model: same fit, same estimands, and the reduced one with
+  ## nothing dropped and nothing held. That is the whole claim, so it is checked
+  ## rather than assumed.
+  .m_re <- nest_fit(.sp_r, mode = "effects")
+  chk(paste0("parameterization (", .tag, "): the reduced form drops nothing"),
+      { identical(attr(.m_r, "nestimand_mode"), "reduced") &&
+          !anyNA(coef(.m_r)) && anyNA(coef(.m_re)) &&
+          length(coef(.m_r)) == sum(!is.na(coef(.m_re))) })
+  chk(paste0("parameterization (", .tag, "): it is the same fitted model"),
+      { isTRUE(all.equal(unname(fitted(.m_r)), unname(fitted(.m_re)))) &&
+          isTRUE(all.equal(df.residual(.m_r), df.residual(.m_re))) })
+  chk(paste0("parameterization (", .tag, "): and gives the same estimands"),
+      { isTRUE(all.equal(.est(.m_r), .est(.m_re))) &&
+          isTRUE(all.equal(.est(.m_r, type = "eta"), .est(.m_re, type = "eta"))) })
+  chk(paste0("parameterization (", .tag, "): its columns are named for the effects they carry"),
+      { d <- as.data.frame(nest_summary(.m_r))
+        nrow(d) == length(coef(.m_r)) && all(d$meaning == "as fitted") &&
+          any(d$term == "chord_typedim:inversion0") && !any(grepl("^z_", d$term)) })
+  chk(paste0("parameterization (", .tag, "): a saturated declaration stays in cells"),
+      identical(attr(.m_c, "nestimand_mode"), "cells"))
   chk(paste0("parameterization (", .tag, "): a cell fit answers on both routes"),
       { a <- .est(.m_c); b <- .est(.m_c, type = "eta")
         length(a) == 6 && isTRUE(all.equal(a, b)) })

@@ -69,10 +69,20 @@ has_thresholds <- function(spec)
   (identical(spec$fit, "brm") && !is.null(spec$family) &&
      grepl("cumulative|sratio|cratio|acat", spec$family))
 
-cell_formula <- function(spec, mode = c("cells", "effects"), intercept = NULL) {
+cell_formula <- function(spec, mode = c("cells", "reduced", "effects"),
+                         intercept = NULL) {
   mode <- match.arg(mode)
   if (is.null(intercept)) intercept <- has_thresholds(spec)
-  rhs <- if (mode == "cells") {
+  rhs <- if (mode == "reduced") {
+    z <- setdiff(colnames(reduced_design(spec)), "(Intercept)")
+    ## A covariate crossed with the structure has one slope per column of the
+    ## design *and* one for the column the design does not carry - its intercept,
+    ## which is the reference condition. Without that term the crossing would be
+    ## one slope short of the structure it is crossed with.
+    cov_terms <- unlist(lapply(spec$covariates, function(cv)
+      if (isTRUE(spec$cov_by_cell[[cv]])) c(cv, paste0(z, ":", cv)) else cv))
+    paste(c(z, cov_terms), collapse = " + ")
+  } else if (mode == "cells") {
     cn <- spec$cell_name
     cov_terms <- unlist(lapply(spec$covariates, function(cv)
       if (isTRUE(spec$cov_by_cell[[cv]])) paste0(cn, ":", cv) else cv))
@@ -150,6 +160,83 @@ chain_terms <- function(spec) {
   out <- unique(vapply(closed, paste, "", collapse = ":"))
   out[order(lengths(strsplit(out, ":")), out)]
 }
+
+## --- the reduced design ----------------------------------------------------
+## A declaration that asks for less than the saturated structure cannot be
+## written on the cell factor, but it does not need the chain form either. Its
+## design over the realized cells, with the columns the data cannot inform
+## removed - identically zero, then redundant - is full rank by construction and
+## needs nothing held at zero. It is the same object the cell factor is: one row
+## per realized condition, computed once and carried in the data. The cell
+## factor is its special case, the saturated structure coded as indicators.
+##
+## Column names are the effects they stand for, with `:` written `.` so that
+## they are ordinary names in a formula and survive every engine unaltered.
+reduced_design <- function(spec) {
+  tab <- sentinel_first(spec, spec$cells)
+  f <- stats::as.formula(paste("~", paste(declared_terms(spec), collapse = " + ")))
+  X <- stats::model.matrix(f, tab)
+  X <- X[, colSums(X != 0) > 0, drop = FALSE]          # conditions that do not exist
+  q <- qr(X)
+  X <- X[, sort(q$pivot[seq_len(q$rank)]), drop = FALSE]  # and the redundant ones
+  eff <- colnames(X)
+  colnames(X) <- reduced_names(eff)
+  rownames(X) <- as.character(spec$cells[[spec$cell_name]])
+  ## the effect each column stands for, kept verbatim so that reporting can
+  ## name it as the user wrote it rather than as the syntactic column name
+  attr(X, "effect_names") <- stats::setNames(eff, colnames(X))
+  X
+}
+
+## The readable name of a reduced column, for reporting. Unknown names - the
+## covariate crossings the fitting formula forms, and anything the engine adds -
+## are returned with the prefix removed and the separator restored, which is
+## right for `z_a.b:x` and harmless otherwise.
+reduced_labels <- function(spec, terms) {
+  map <- attr(reduced_design(spec), "effect_names")
+  vapply(terms, function(z) {
+    parts <- strsplit(z, ":", fixed = TRUE)[[1]]
+    paste(ifelse(parts %in% names(map), map[parts], parts), collapse = ":")
+  }, "", USE.NAMES = FALSE)
+}
+
+reduced_names <- function(x)
+  ifelse(x == "(Intercept)", "(Intercept)",
+         paste0("z_", gsub("[^A-Za-z0-9._]", ".", x)))
+
+## The data with the reduced design carried alongside it, one column per
+## identified effect, looked up by the cell each row belongs to.
+with_reduced <- function(spec, data = spec$data) {
+  keep <- setdiff(colnames(reduced_design(spec)), "(Intercept)")
+  clash <- intersect(keep, names(data))
+  if (length(clash))
+    stop("the reduced design would overwrite the column(s) `",
+         paste(clash, collapse = "`, `"), "` of the data. Rename them.")
+  reduced_augment(spec, data)
+}
+
+## The same columns written onto a frame that may already carry them, and may
+## carry them wrongly: a counterfactual grid is built by moving rows to other
+## cells, and a column copied across with the row would still describe the cell
+## the row came from. They are a function of the cell and are recomputed from
+## it, every time, wherever a grid is formed.
+reduced_augment <- function(spec, data) {
+  if (!spec$cell_name %in% names(data))
+    stop("the reduced design is looked up by realized cell, and this frame has ",
+         "no `", spec$cell_name, "` column. Grids are translated with ",
+         "add_cells() before the design is written onto them.")
+  X <- reduced_design(spec)
+  keep <- setdiff(colnames(X), "(Intercept)")
+  data[keep] <- as.data.frame(X[as.character(data[[spec$cell_name]]), keep,
+                                drop = FALSE], check.names = FALSE)
+  data
+}
+
+## Does this declaration need the reduced form at all? Asked of the spec rather
+## than of a fit, so that a grid can be built the same way wherever it is built.
+is_reduced <- function(spec)
+  isTRUE(tryCatch(term_span(spec, declared_terms(spec)) < nrow(spec$cells),
+                  error = function(e) FALSE))
 
 ## --- grid translation ------------------------------------------------------
 
@@ -301,10 +388,11 @@ fitting_mode <- function(spec, engine = "marginaleffects", priors = NULL) {
   ## wrote. The cell form is kept wherever the two agree, which is whenever the
   ## formula crosses the structure fully.
   if (term_span(spec, declared_terms(spec)) < nrow(spec$cells))
-    return(structure("effects", reason = paste(
+    return(structure("reduced", reason = paste(
       "the declared structure spans", term_span(spec, declared_terms(spec)),
-      "of the", nrow(spec$cells), "realized cells, and a restriction cannot be",
-      "written on the cell factor")))
+      "of the", nrow(spec$cells), "realized cells: the cell factor is saturated",
+      "and cannot express that, so the design is carried per cell with the",
+      "columns the data cannot inform removed")))
   structure("cells", reason = "default: estimation is unconditionally well posed")
 }
 

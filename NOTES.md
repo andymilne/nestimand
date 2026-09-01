@@ -717,3 +717,42 @@ structure, and the emmeans effect-basis path.
    for `brms` fits, where a refit doubles sampling time. Under the cell
    parameterization order instability is impossible by construction, so the check
    now verifies the translation layer rather than the fit.
+
+## One parameterization: the reduced design
+
+A declaration that asks for less than the saturated structure could not be
+written on the cell factor - the factor is saturated by construction - so it was
+fitted on the original factors, in the effects parameterization. That form
+carries columns the data cannot inform: `lm` drops them as aliased, and brms
+cannot, so every such fit needed a derived block of `constant(0)` priors. Two
+parameterizations, two ways of building a design, and each of the last few faults
+was the same shape - a design matrix built one way against coefficients fitted
+another.
+
+The restriction can be carried per cell after all. The declared structure's
+design over the realized cells, with the identically-zero columns and then the
+redundant ones removed, is full rank by construction: same fitted values, same
+residual degrees of freedom, nothing aliased, nothing held at zero, on any
+engine. It is the same kind of object the cell factor is - one row per realized
+condition, computed once and looked up by cell - and the cell factor is its
+saturated special case. So there is now one construction rather than two:
+
+- `reduced_design(spec)` is the matrix, its `effect_names` attribute naming the
+  effect each column stands for; `with_reduced()` carries the columns alongside
+  the data, and `counterfactual_grid()` recomputes them for every grid, since a
+  column copied across with a row would still describe the cell the row came
+  from.
+- Column names are syntactic (`z_` prefix, `:` written `.`) so that every engine
+  carries them unaltered; `nest_summary()` reports the effect, not the column.
+- A covariate crossed with the structure gets one slope per column *and* one for
+  the intercept the design does not carry - the reference condition. Without that
+  term the crossing is one slope short of the structure it is crossed with.
+- `mode = "effects"` remains, but nothing reaches it by default: only
+  `engine = "emmeans"`, which is formula-driven, and priors stated
+  coordinate-wise in effect space. The `constant(0)` block belongs to that form
+  alone.
+
+The claim is checked rather than assumed: for both positions of the sentinel in
+the level order, the reduced fit must drop nothing, must have the same fitted
+values and residual degrees of freedom as the effects fit of the same
+declaration, and must give the same estimands on both routes.

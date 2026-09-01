@@ -62,17 +62,21 @@ that is what it is.
 
 A formula that spans fewer dimensions than there are realized cells - \code{+}
 between two variables the design admits an interaction between - asks for a
-restricted mean structure, and is fitted as written. The cell factor is saturated by
-construction and cannot express a restriction, so such a declaration is fitted in the
-effects parameterization instead, with each nested variable given its parent:
-\code{chord_type * (inversion + top_note)} is fitted as \code{chord_type +
+restricted mean structure, and is fitted as written, with each nested variable given
+its parent: \code{chord_type * (inversion + top_note)} is fitted as \code{chord_type +
 top_note + chord_type:inversion + chord_type:top_note}, since \code{inversion} has no
-effect outside the strata in which it varies. \code{fitting_mode()} reports which
-parameterization a declaration leads to, and the printed spec shows the formula that
-will be fitted. On \pkg{brms} the uninformative columns such a structure carries are held at zero by
-\code{\link{chain_priors}} automatically - brms cannot drop them the way \code{lm}
-does, and would sample an improper posterior along them - and \code{nest_fit} says
-how many there are of each kind.
+effect outside the strata in which it varies.
+
+The cell factor is saturated by construction and cannot express a restriction, so such
+a declaration is carried per realized cell instead: one column for each identified
+effect of the declared structure, with the columns the data cannot inform - conditions
+that do not exist, then the redundant ones - removed. That design is full rank, so the
+model fitted is the one the formula names, no coefficient is aliased, and nothing has
+to be held at zero on any engine, \pkg{brms} included. It is the same kind of object
+the cell factor is, and the cell factor is its saturated special case, so there is one
+parameterization rather than two. \code{fitting_mode()} reports which a declaration
+leads to, \code{\link{reduced_design}} shows the columns and the effect each stands
+for, and the printed spec shows the structure that will be fitted.
 }
 \value{
 \code{nesting_spec} returns an object of class \code{nesting_spec}: a list whose
