@@ -18,54 +18,9 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   recovered <- is.null(spec)
   spec <- resolve_spec(model, spec)
   check_model_spec(model, spec)
-  ## `contrast = "within"` grouped the estimand by the variables the target is
-  ## nested within, which is what `by =` does - for that grouping and any other,
-  ## and obeying `route` and `policy`, which this did not. Keeping both meant two
-  ## implementations of one idea, and they had drifted: `within` averaged over
-  ## the rows of each stratum where `by` standardizes to the whole sample, so
-  ## they disagreed whenever the strata differed in their covariates or in how
-  ## often other conditions occurred. The call it stood for is named here rather
-  ## than left to be worked out, and before match.arg(), which would otherwise
-  ## report nothing but a list of the values that remain.
-  if (length(contrast) == 1L && identical(contrast, "within")) {
-    tg0 <- substitute(target)
-    nm0 <- if (is.name(tg0)) deparse(tg0) else
-      tryCatch(if (is.character(target) && length(target) == 1L) target else
-               NA_character_, error = function(e) NA_character_)
-    anc <- if (!is.na(nm0))
-      tryCatch(nest_ancestors(spec, nm0), error = function(e) character(0)) else
-      character(0)
-    stop("`contrast = \"within\"` has been removed. It grouped the estimand by ",
-         "the variables the target is nested within, which `by =` does - along ",
-         "with every other grouping, and obeying `route` and `policy` as this ",
-         "did not. ",
-         if (length(anc))
-           paste0("For `", nm0, "`, write: by = ",
-                  if (length(anc) == 1) paste0("\"", anc, "\"")
-                  else paste0("c(", paste(sprintf('"%s"', anc), collapse = ", "), ")"))
-         else if (!is.na(nm0))
-           paste0("`", nm0, "` is not nested within anything, so it has no ",
-                  "strata of its own; name the grouping you want with `by =`.")
-         else "Name the grouping you want with `by =`.")
-  }
-  ## `contrast = "interaction"` said what the target already says: an
-  ## interaction contrast is what `estimand(m, a:b)` means, and passing the
-  ## argument alongside such a target changed nothing, while passing it without
-  ## one was refused. A second way to say one thing, so it is gone; `contrast`
-  ## now means only which comparisons are formed among a target's levels.
-  ## The mode itself remains, set from the shape of the target below.
-  if (length(contrast) == 1L && identical(contrast, "interaction")) {
-    tg0 <- substitute(target)
-    txt <- if (is.call(tg0) || is.name(tg0))
-      gsub(" ", "", paste(deparse(tg0), collapse = "")) else
-      tryCatch(paste(target, collapse = ":"), error = function(e) "a:b")
-    stop("`contrast = \"interaction\"` has been removed: the target says it. ",
-         "An interaction contrast is what a `:` target means, so write ",
-         "estimand(model, ", if (grepl(":", txt, fixed = TRUE)) txt else
-           paste0(txt, ":<other>"), ") - which is what this call already did. ",
-         "`estimand(model, a * b)` gives the two marginal contrasts and the ",
-         "interaction together.")
-  }
+  ## `contrast` decides one thing: which comparisons are formed among the
+  ## target's levels. What is contrasted comes from the target - a `:` target is
+  ## an interaction - and where the contrasts are formed comes from `by`.
   contrast <- match.arg(contrast)
   route <- match.arg(route)
   wq <- substitute(weights)

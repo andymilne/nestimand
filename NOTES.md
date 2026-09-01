@@ -962,7 +962,6 @@ sample, so the strata are comparable with each other, where `within` averaged
 over each stratum's own rows. Both are defensible; only one was documented, and
 which you got was decided by the contrast name you happened to type.
 
-Passing it now stops with the `by =` call it stood for, ancestors filled in.
 If the stratum-conditional quantity is ever wanted it should be a named option
 on `by =`, visible in the call, not a side effect of `contrast`.
 
@@ -980,6 +979,11 @@ It said what the target already says. Beside a `:` target it was inert -
 identical tables - and without one it was refused, its own error naming the
 target form as the thing to write. So there was one way to ask for an
 interaction, spelled two ways.
+
+Neither removal leaves a message behind. The package has not been released, so
+there is nobody holding code that uses the old spelling, and an error explaining
+an argument that never shipped is cruft that outlives its reason. `match.arg()`
+lists what `contrast` does take, which is the whole of what a reader needs.
 
 `contrast` now decides one thing: which comparisons are formed among the
 target's levels - all pairs, each against the first, each against the one

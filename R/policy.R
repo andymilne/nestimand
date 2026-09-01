@@ -6,7 +6,7 @@
 ## approximation to an atomic contrast.
 
 policy_aliases <- c("equal", "proportional", "hierarchical",
-                    "nominated", "standardized", "within")
+                    "nominated", "standardized")
 
 ## `target` names one categorical design variable. Every route to a policy runs
 ## through `versions_of()`, so the argument is checked there rather than in each
@@ -101,11 +101,6 @@ nest_policy <- function(spec, target, policy = "equal", at = NULL, data = spec$d
            "policy = \"proportional\"; for the grid on which the model is ",
            "evaluated use route = \"g_computation\", which is the default.")
     kind <- match.arg(policy, policy_aliases)
-    if (kind == "within")
-      stop("`within` is not a policy: it named per-stratum contrasts, which do ",
-           "not cross the structural boundary and so require no distribution ",
-           "over versions. Group the estimand instead: estimand(..., by = ) ",
-           "names the variables whose levels the contrasts are formed inside.")
     if (kind == "nominated" && is.null(at))
       stop("policy = \"nominated\" places all mass on one version and needs it ",
            "named, e.g. at = c(inversion = \"0\").")

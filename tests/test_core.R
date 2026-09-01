@@ -190,8 +190,6 @@ chk("policy nominated: `at` required",
     grepl("needs it named", err_of(nest_policy(sp, "chord_type", "nominated"))))
 chk("policy standardized: p must be supplied, not aliased",
     grepl("supply it directly", err_of(nest_policy(sp, "chord_type", "standardized"))))
-chk("policy within: refused as a policy, redirected",
-    grepl("not a policy", err_of(nest_policy(sp, "chord_type", "within"))))
 chk("policy: bounds are the range of the vertices",
     abs(max(vert) - 1.0479) < 1e-4 && abs(min(vert) - 0.2452) < 1e-4)
 
@@ -375,21 +373,12 @@ chk("latent: the code view names the linear-map route",
 ## and it is a plain contrast of design rows - a linear map like any other. It
 ## used to be refused on the latent scale, with a message naming an argument
 ## `estimand()` does not have.
-## `contrast = "within"` grouped the estimand by the target's ancestors, which
-## is what `by =` does for any grouping. Two implementations of one idea, and
-## they had drifted: `within` averaged over each stratum's own rows where `by`
-## standardizes to the whole sample, so they disagreed whenever the strata
-## differed in their covariates or their counts.
-chk("within: removed, and the call it stood for is named",
-    { e <- err_of(estimand(m, inversion, spec = sp, contrast = "within"))
-      grepl("has been removed", e, fixed = TRUE) &&
-        grepl('by = "chord_type"', e, fixed = TRUE) })
-chk("within: for a target with no ancestors it says there are no strata",
-    { e <- err_of(estimand(m, chord_type, spec = sp, contrast = "within"))
-      grepl("not nested within anything", e, fixed = TRUE) &&
-        grepl("`by =`", e, fixed = TRUE) })
-chk("within: and it is no longer a value `contrast` accepts",
-    !("within" %in% eval(formals(estimand)$contrast)))
+## `contrast` decides one thing: which comparisons are formed among the target's
+## levels. Grouping is `by`, and an interaction is a `:` target. `"within"` was
+## the first spelled two ways, `"interaction"` the second.
+chk("contrast: it offers the three comparison sets and nothing else",
+    identical(eval(formals(estimand)$contrast),
+              c("pairwise", "reference", "sequential")))
 chk("latent: draw-wise translation refuses a frequentist fit",
     grepl("needs a posterior", err_of(latent_draws(m, "chord_type", spec = sp))))
 chk("latent: a model not fitted from this spec is refused",
@@ -1300,20 +1289,11 @@ chk("interaction: the emitted code re-runs",
       r <- eval(parse(text = paste(attr(ei, "nestimand")$code, collapse = "\n")),
                 envir = env)
       isTRUE(all.equal(as.data.frame(r)$estimate, di$estimate)) })
-## `contrast = "interaction"` said what the target already says: it was inert
-## beside a `:` target and refused without one, so there was only ever one way
-## to ask for an interaction, spelled two ways.
-chk("interaction: `contrast = \"interaction\"` is removed, and the target named",
-    { e <- err_of(estimand(mf, chord_type, contrast = "interaction"))
-      grepl("has been removed: the target says it", e, fixed = TRUE) &&
-        grepl("chord_type:<other>", e, fixed = TRUE) })
-chk("interaction: and it is no longer a value `contrast` accepts",
-    !("interaction" %in% eval(formals(estimand)$contrast)))
-chk("interaction: a `:` target still gives it, unchanged",
+chk("interaction: a `:` target is how it is asked for",
     { a <- as.data.frame(estimand(mf, chord_type:inversion, bounds = FALSE,
                                   self_check = FALSE))
       nrow(a) == nrow(di) && isTRUE(all.equal(a$estimate, di$estimate)) })
-chk("interaction: a `*` target still gives the marginals and it together",
+chk("interaction: a `*` target gives the marginals and it together",
     { b <- suppressMessages(estimand(mf, chord_type * inversion, bounds = FALSE,
                                      self_check = FALSE))
       length(b) == 3 &&
@@ -3290,9 +3270,7 @@ chk("dots: the message names the vocabulary that does exist",
 ## ---- `by`: the estimand within each level of something --------------------
 ## As marginaleffects groups an average, `by` groups an estimand: the target's
 ## contrasts are formed inside each group, the policy weighted over that group's
-## conditions alone. It is the only way to group an estimand: `contrast =
-## "within"` used to do the same thing for a nested target, from its ancestors,
-## and was removed - two implementations of one idea that had drifted apart.
+## conditions alone. It is the only way to group an estimand.
 by_e <- suppressMessages(estimand(m_i3, top, by = chord_type, policy = "proportional",
                                   bounds = FALSE, self_check = FALSE))
 chk("by: one row per group, labelled by the grouping variable",
