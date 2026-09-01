@@ -1782,7 +1782,7 @@ chk("targets: a * b with a hypothesis returns all three, and says how they divid
            message = function(m) { z <<- c(z, conditionMessage(m))
                                    invokeRestart("muffleMessage") })
       identical(names(r), c("chord_type", "inversion", "chord_type:inversion")) &&
-      any(grepl("crosses, as a formula does: 3 results", z)) })
+      any(grepl("expands as a formula does: 3 results", z)) })
 chk("targets: without a hypothesis all three parts come back",
     { r <- estimand(mf, chord_type * inversion, bounds = FALSE,
                     self_check = FALSE)
@@ -1793,7 +1793,7 @@ chk("messages: a note is said once, not once per part",
         hypothesis = "reference", bounds = FALSE, self_check = FALSE),
         message = function(m) { z <<- c(z, conditionMessage(m))
                                 invokeRestart("muffleMessage") })
-      sum(grepl("crosses, as a formula does", z)) == 1 &&
+      sum(grepl("expands as a formula does", z)) == 1 &&
       !any(grepl("using your `hypothesis`", z)) })
 chk("messages: the ordinal note does not fire on a gaussian fit",
     { z <- character(0)
@@ -2014,7 +2014,7 @@ chk("messages: a star call says once what its parts would each repeat",
         self_check = FALSE),
         message = function(m) { z <<- c(z, conditionMessage(m))
                                 invokeRestart("muffleMessage") })
-      length(z) == 1 && grepl("crosses, as a formula does: 3 results", z) &&
+      length(z) == 1 && grepl("expands as a formula does: 3 results", z) &&
       grepl("hypothesis", z) && grepl("policy", z) })
 chk("messages: a single target still explains itself",
     { z <- character(0)
@@ -3064,6 +3064,30 @@ chk("constraints: a cell fit needs none of this",
         fit = "brm"))
       !any(grepl("chain_prior_object",
                  attr(nest_fit(sp, dry_run = TRUE), "nestimand_code"))) })
+
+## ---- the target is expanded by the formula machinery ----------------------
+## A hand-rolled walk over the target expression handled `a * b`, then `a * b *
+## c` once it was taught to recurse, then failed on `a * (b + c)`. R already
+## knows how to expand a right-hand side; the results must be its term labels,
+## whatever the bracketing.
+for (.tg in list(quote(chord_type * inversion),
+                 quote(chord_type * inversion * top),
+                 quote(chord_type * (inversion + top)),
+                 quote((chord_type + inversion) * top),
+                 quote(chord_type + top))) {
+  .labs <- attr(stats::terms(stats::as.formula(
+    paste("~", paste(deparse(.tg), collapse = " ")))), "term.labels")
+  chk(paste0("target `", paste(deparse(.tg), collapse = " "),
+             "` gives the formula's terms"),
+      { e <- suppressMessages(eval(bquote(estimand(m_i3, .(.tg), policy = "equal",
+               bounds = FALSE, self_check = FALSE))))
+        identical(names(e), .labs) })
+}
+chk("target: a bare interaction is still one result, not a list",
+    { e <- suppressMessages(estimand(m_i3, chord_type:inversion, bounds = FALSE,
+                                     self_check = FALSE))
+      !inherits(e, "nestimand_estimands") &&
+        identical(attr(e, "nestimand")$contrast, "interaction") })
 
 ## ---- one invariant, across every parameterization the package can fit -----
 ## Each of the last few faults was the same shape: a design matrix built one way

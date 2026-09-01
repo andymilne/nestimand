@@ -55,20 +55,19 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   ## turn and returned together, so one call covers a table of estimands.
   tg <- substitute(target)
   multi <- NULL
-  ## `a * b` expands as it does in a formula - a, b, and their interaction -
-  ## and `a:b` names the interaction alone.
-  if (is.call(tg) && as.character(tg[[1]]) %in% c("*", ":")) {
-    ## `a * b * c` parses as `(a * b) * c`, so the operands have to be gathered
-    ## through the nesting rather than read off the top call: taking the two
-    ## operands alone left `a * b` standing as though it were a variable name.
-    flatten_op <- function(e, op) {
-      if (is.call(e) && identical(as.character(e[[1]]), op))
-        return(unlist(lapply(as.list(e)[-1], flatten_op, op = op), use.names = FALSE))
-      paste(deparse(e), collapse = "")
-    }
-    vs <- flatten_op(tg, as.character(tg[[1]]))
-    if (identical(as.character(tg[[1]]), ":")) {
-      target <- vs
+  ## The target is expanded as a formula expands its right-hand side, by the
+  ## formula machinery itself rather than by walking the parse tree here: `a * b`
+  ## is a, b, a:b; `a * (b + c)` is a, b, c, a:b, a:c; `a:b` is the interaction
+  ## alone. Every bracketing and combination of operators then comes out right
+  ## because R settles it, which a hand-rolled walk kept failing to do.
+  if (is.call(tg) && as.character(tg[[1]]) %in% c("*", ":", "+", "(")) {
+    labs <- attr(stats::terms(stats::as.formula(
+      paste("~", paste(deparse(tg), collapse = " ")))), "term.labels")
+    vs <- labs[!grepl(":", labs, fixed = TRUE)]
+    inter <- lapply(labs[grepl(":", labs, fixed = TRUE)],
+                    function(z) strsplit(z, ":", fixed = TRUE)[[1]])
+    if (!length(vs) && length(inter) == 1L) {
+      target <- inter[[1]]
       contrast <- "interaction"
       tg <- NULL
     } else {
@@ -85,13 +84,6 @@ estimand <- function(model, target, policy = "equal", at = NULL,
       assign("star", TRUE, envir = nestimand_env)
       on.exit(assign("star", FALSE, envir = nestimand_env), add = TRUE)
       out <- lapply(vs, function(k) { c2 <- cl; c2$target <- k; once(eval(c2, .env)) })
-      names(out) <- vs
-      ## `*` crosses, as in a formula: every variable on its own and every
-      ## interaction among them, `a * b * c` giving a, b, c, a:b, a:c, b:c and
-      ## a:b:c. Interactions are taken in order of the number of variables, so
-      ## the table reads from the simplest comparison to the most specific.
-      subsets <- unlist(lapply(2:length(vs), function(k)
-        utils::combn(vs, k, simplify = FALSE)), recursive = FALSE)
       ## The interactions are defined by their own comparison matrices, so a
       ## `hypothesis` meant for the marginal contrasts does not apply to them -
       ## but it need not be dropped either: on grouped output an interaction
@@ -100,20 +92,19 @@ estimand <- function(model, target, policy = "equal", at = NULL,
       parts <- c(
         if (has_hyp)
           "your `hypothesis` sets the comparisons for the marginal contrasts, and their labels and direction come from marginaleffects",
-        if (!identical(policy, "equal"))
+        if (!identical(policy, "equal") && length(inter))
           "the policy weights the marginal contrasts and not the interactions, which use only cells that exist",
-        "each interaction has its own comparison matrix, formed within each group where the output is grouped")
-      message("`", paste(vs, collapse = " * "), "` crosses, as a formula does: ",
-              length(vs) + length(subsets), " results - each variable on its ",
-              "own, then ", if (length(subsets) == 1L) "their interaction"
-              else paste("every interaction among them, from the",
-                         "two-variable ones to the whole set"), ": ",
-              paste(parts, collapse = "; "), ".")
-      out <- c(out, lapply(subsets, function(k)
+        if (length(inter))
+          "each interaction has its own comparison matrix, formed within each group where the output is grouped")
+      message("`", paste(deparse(tg), collapse = " "), "` expands as a formula ",
+              "does: ", length(labs), " results - ",
+              paste(labs, collapse = ", "),
+              if (length(parts)) paste0(": ", paste(parts, collapse = "; ")), ".")
+      out <- c(out, lapply(inter, function(k)
         once({ c2 <- cl; c2$target <- k
                c2$contrast <- "interaction"
                c2$hypothesis <- NULL; eval(c2, .env) })))
-      names(out) <- c(vs, vapply(subsets, paste, "", collapse = ":"))
+      names(out) <- c(vs, vapply(inter, paste, "", collapse = ":"))
       return(collect_estimands(out))
     }
   }

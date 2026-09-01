@@ -624,6 +624,20 @@ model give the same numbers; and the requirement that a design built for a fit c
 no column that fit lacks. Ten checks, and any of the four faults above would have
 failed one of them.
 
+### The target expression, expanded by R rather than by hand
+
+The same shape again, in the one place the invariant added above does not reach: the
+target was read by a hand-rolled walk over the parse tree. It handled `a * b`, then
+`a * b * c` once taught to recurse, and then failed on `a * (b + c)` - the brackets a
+reader writes for exactly the structure this package is about - passing
+`(inversion + inversion_top_notes)` on as though it were a variable name.
+
+R expands a right-hand side already. The target is now handed to `terms()` and the
+results are its term labels: `a * (b + c)` gives a, b, c, a:b, a:c and no b:c, which
+is what a formula means by it, and `a:b` alone stays a single interaction. Six checks
+compare the returned names against `terms()` over five bracketings, which is the
+invariant rather than another instance.
+
 ## Not yet implemented
 
 The prior translation and audit
