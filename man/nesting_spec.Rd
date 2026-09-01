@@ -60,23 +60,32 @@ when it happens, and the printed structure marks the variable, since a variable 
 values are labels is easily left numeric by accident - convert it to a factor first if
 that is what it is.
 
-A formula that spans fewer dimensions than there are realized cells - \code{+}
-between two variables the design admits an interaction between - asks for a
-restricted mean structure, and is fitted as written, with each nested variable given
-its parent: \code{chord_type * (inversion + top_note)} is fitted as \code{chord_type +
-top_note + chord_type:inversion + chord_type:top_note}, since \code{inversion} has no
-effect outside the strata in which it varies.
+The formula says what to fit and the \code{nests} argument says which combinations
+exist. Between them they determine the model, and nothing is added to it: a \code{+}
+where the design would admit a \code{*} is a restriction the user stated, and it is
+fitted as the restriction it is. \code{response ~ chord_type + inversion} fits one
+inversion effect shared by every chord type, not a separate one for each.
 
-The cell factor is saturated by construction and cannot express a restriction, so such
-a declaration is carried per realized cell instead: one column for each identified
-effect of the declared structure, with the columns the data cannot inform - conditions
-that do not exist, then the redundant ones - removed. That design is full rank, so the
-model fitted is the one the formula names, no coefficient is aliased, and nothing has
-to be held at zero on any engine, \pkg{brms} included. It is the same kind of object
-the cell factor is, and the cell factor is its saturated special case, so there is one
-parameterization rather than two. \code{fitting_mode()} reports which a declaration
-leads to, \code{\link{reduced_design}} shows the columns and the effect each stands
-for, and the printed spec shows the structure that will be fitted.
+What is fitted is the design that formula gives over the realized cells, with the
+columns that design cannot inform removed - identically zero first, for conditions
+that do not exist, then linearly redundant. What remains is full rank, so no
+coefficient is aliased and nothing has to be held at zero on any engine, \pkg{brms}
+included. \code{~ 0 + cell} is used when, and only when, the formula crosses the
+structure fully, where the two are the same model in different coordinates.
+\code{\link{reduced_design}} shows the columns and the effect each stands for, and
+the printed spec shows the structure that will be fitted, counted in realized cells.
+
+The level a nested variable takes where it is undefined - the sentinel - is not a
+value it takes. Rows carrying it contribute nothing to any column that variable helps
+to build, and its contrasts run among the levels that exist. So in
+\code{chord_type + inversion} the inversion coefficients read as inversion effects -
+second inversion versus root position, shared across chord types - rather than as
+comparisons against whichever stratum the sentinel stands for.
+
+The random side follows the same rule: a random structure that asks for less than the
+saturated one is fitted on the same columns rather than enlarged to an unstructured
+covariance over every realized condition. See \code{random_structure} in
+\code{\link{nest_fit}}.
 }
 \value{
 \code{nesting_spec} returns an object of class \code{nesting_spec}: a list whose

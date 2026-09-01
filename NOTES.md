@@ -851,3 +851,46 @@ Points worth recording:
   between them, which is coherent but is a different model from "the declared
   structure varying by group". `random_structure = "cells"` remains for it.
 - `random_covariance()` labels the block by the effects, not the `dm_` columns.
+
+## Follow the formula
+
+The package exists to make partially nested designs fittable through an ordinary
+formula plus a `nests` argument. Between them those two say what the model is,
+and nothing may be added to it. That thread was lost in pieces, each piece
+defensible on its own:
+
+- `declared_terms()` closed the formula under ancestry, so a bare nested
+  variable was given its parent. `chord_type + inversion` - one inversion effect
+  shared by every chord type, six parameters - became
+  `chord_type + chord_type:inversion`, which spans all ten cell means, so
+  `fitting_mode()` returned "cells" and the saturated model was fitted. The `+`
+  the user wrote was upgraded to a `*`.
+- The message said the opposite. It counted the span of the user's own formula
+  and reported "fitted as written", while the fit used the closed terms. Two
+  constructions, two answers, and the user told the wrong one.
+- The random side was enlarged to `(0 + cell | g)` whatever was declared.
+
+The rule now: the model is the design the formula gives over the realized cells,
+with the columns that design cannot inform removed - identically zero, then
+redundant. Full rank by construction, so nothing is aliased and nothing is held
+at zero. `~ 0 + cell` is used when, and only when, the formula crosses the
+structure fully, where it is the same model in coordinates that read as cell
+means. The random side takes the same columns.
+
+Two things that make it work:
+
+- **The sentinel is not a level.** It records that the variable is undefined, so
+  those rows contribute nothing to any column the variable helps to build, and
+  its contrasts run among the levels that exist. Written as a level instead, the
+  coefficients of `chord_type + inversion` read as "root position versus an
+  augmented chord" - not an inversion effect - and duplicate the parent's own
+  term, so one of the three had to be discarded by pivot order. Both codings
+  span the same space and fit the same model; only one of them is readable.
+- **One count.** `term_span()` is the width of the design `nest_fit()` builds,
+  and every message and the printed spec take their numbers from it. A message
+  that computes its own model matrix is a second implementation and will drift
+  from the first, which is exactly what happened.
+
+`closed_terms()` survives for the effects parameterization alone, whose
+coefficients are read as a chain and where a term naming a nested variable
+without its parent has no such reading. Nothing reaches it by default.

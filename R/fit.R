@@ -250,13 +250,22 @@ nest_fit <- function(spec, mode = NULL,
     mode_note <- sprintf("## parameterization: %s (requested)", mode)
   }
   f <- paste(deparse(cell_formula(spec, mode)), collapse = " ")
+  if (identical(mode, "effects") && identical(random_structure, "cells"))
+    random_structure <- "chain_slope"   # match the random side to the fixed side
+  ## Same argument, the other half of the model: a random structure that asks
+  ## for less than the saturated one is restricted whatever the mean structure
+  ## does, and the cell factor can express it no better there than in the mean.
+  ## An explicit `random_structure` is left alone - the saturated covariance is
+  ## a reasonable thing to want - so only the default follows the declaration.
+  if (rs_default && (identical(mode, "reduced") || random_restricted(spec)))
+    random_structure <- "reduced"
   ## The reduced form states the declared structure as one column per identified
   ## effect, computed once per realized cell and looked up by cell. It is the
   ## same kind of object the cell factor is - a design the data can inform in
   ## full - so nothing has to be held at zero, and the columns are ordinary
   ## numeric variables that every engine treats alike.
   aug_code <- NULL
-  if (identical(mode, "reduced")) {
+  if (identical(mode, "reduced") || identical(random_structure, "reduced")) {
     raw_data_name <- data_name
     raw_data <- data
     data <- with_reduced(spec, data)
@@ -267,14 +276,6 @@ nest_fit <- function(spec, mode = NULL,
       "## effect each one stands for.",
       sprintf("%s <- with_reduced(%s, %s)", data_name, spec_name, raw_data_name))
   }
-  if (identical(mode, "effects") && identical(random_structure, "cells"))
-    random_structure <- "chain_slope"   # match the random side to the fixed side
-  ## Same argument, the other half of the model: a declaration that asks for
-  ## less than the saturated structure asks for it on the random side too, and
-  ## the cell form cannot express that any more there than it can in the mean.
-  ## An explicit `random_structure` is left alone - the saturated covariance is
-  ## a reasonable thing to want - so only the default follows the fixed side.
-  if (identical(mode, "reduced") && rs_default) random_structure <- "reduced"
   re <- if (fit %in% c("lmer", "glmer", "clmm")) random_terms(spec, random_structure)
         else if (identical(fit, "brm")) random_terms(spec, random_structure)
   if (!is.null(re)) f <- paste(f, "+", re)

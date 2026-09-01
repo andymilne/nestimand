@@ -286,25 +286,6 @@ nesting_spec <- function(data, formula, nests,
   ## the realized cells? Cells mode fits `~ 0 + cell` whatever was written, so
   ## `+` between two nesting variables restricts nothing. Saying so is better
   ## than leaving it to be inferred from a residual degrees of freedom.
-  struct_labs <- unique(unlist(lapply(strsplit(labs, ":"), function(vs)
-    if (length(vs) && all(vs %in% cell_vars)) paste(vs, collapse = ":"))))
-  if (length(struct_labs)) {
-    Xc <- stats::model.matrix(stats::as.formula(
-      paste("~", paste(struct_labs, collapse = " + "))), cells)
-    if (qr(Xc)$rank < nrow(cells))
-      message("the declared formula spans ", qr(Xc)$rank, " of the ",
-              nrow(cells), " cell means, so it asks for less than the ",
-              "saturated structure. That is fitted as written, in the effects ",
-              "parameterization - the cell factor is saturated by ",
-              "construction and has no way to express a restriction - with ",
-              "each nested variable given its parent, since a nested variable ",
-              "has no effect outside the strata it varies in. Cross the ",
-              "structure fully for the cell parameterization. (That is a count ",
-              "of cell means, and so of the mean structure alone; the ",
-              "coefficients nest_fit() then reports as uninformative are ",
-              "design columns, which the covariates and the random terms ",
-              "multiply.)")
-  }
   ## A numeric nested variable is not part of the cell factor: it enters as a
   ## slope within the realized cells, which is what a continuous nesting means.
   ## The difference from a factor is large enough to be worth stating, since a
@@ -325,7 +306,7 @@ nesting_spec <- function(data, formula, nests,
             "tests will be unavailable. Estimates remain valid as cell-mean ",
             "contrasts; inference needs trial-level data.")
 
-  structure(list(data = data, outcome = outcome, formula_in = formula,
+  out <- structure(list(data = data, outcome = outcome, formula_in = formula,
                  parent = parent, crossed = crossed,
                  families = families, cat_families = cat_families,
                  cont_nested = cont_nested, covariates = covariates,
@@ -337,6 +318,25 @@ nesting_spec <- function(data, formula, nests,
                  random_original = random_original,
                  build = nestimand_build),
             class = "nesting_spec")
+  ## Does the formula cross the structure fully, or does it restrict it? The
+  ## count is taken from the very design the fit will use - term_span() is the
+  ## width of that design - so what is reported here and what is fitted cannot
+  ## disagree. They used to: this message counted one thing and nest_fit() built
+  ## another, and a `+` between two nesting variables was quietly upgraded to a
+  ## `*` while the user was told it had been fitted as written.
+  span <- tryCatch(term_span(out, declared_terms(out)), error = function(e) NA_integer_)
+  if (!is.na(span) && span < nrow(cells))
+    message("the formula spans ", span, " of the ", nrow(cells), " realized ",
+            "cells, so it asks for less than the saturated structure - a `+` ",
+            "where the design would admit a `*`. It is fitted as written: the ",
+            "design the formula gives over the realized cells, with the columns ",
+            "it cannot inform removed, which is full rank and needs nothing held ",
+            "at zero. `~ 0 + cell` is used instead only when the formula does ",
+            "cross the structure fully, where the two are the same model. ",
+            "reduced_design() shows the columns and the effect each stands for. ",
+            "(This counts the mean structure alone; covariates and random terms ",
+            "multiply those columns.)")
+  out
 }
 
 ## The ancestors of a nested variable, root first. Position in the family
@@ -374,22 +374,22 @@ print.nesting_spec <- function(x, ...) {
       prod(vapply(x$cell_vars, function(v) length(unique(x$data[[v]])), 1L)),
       " in the full crossing\n", sep = "")
   if (length(x$covariates)) cat("Covariates:", paste(x$covariates, collapse = ", "), "\n")
-  ## the formula that will actually be fitted, which is the effects one when the
-  ## declaration asks for less than the saturated structure
   md <- tryCatch(as.character(fitting_mode(x)), error = function(e) "cells")
-  ## The reduced form's own formula names one column per identified effect and
-  ## is unreadable at any size; what a reader wants is the structure those
-  ## columns encode, which is the declaration itself.
-  shown <- if (identical(md, "reduced")) cell_formula(x, "effects") else
-    cell_formula(x, md)
-  cat("Fitting formula:", paste(deparse(shown), collapse = " "), "\n")
-  if (identical(md, "reduced"))
-    cat("  (the declaration asks for less than the saturated structure, so it",
-        "is\n   fitted as one column per identified effect rather than as cell",
-        "means:\n   reduced_design() shows the columns)\n")
-  if (identical(md, "effects"))
-    cat("  (effects parameterization: the declaration asks for less than the",
-        "saturated structure)\n")
+  ## The structure that will be fitted, stated in the variables the user wrote:
+  ## the reduced form's own formula names one column per effect and is
+  ## unreadable at any size, and what a reader wants is the structure those
+  ## columns encode.
+  if (identical(md, "reduced")) {
+    tm <- tryCatch(declared_terms(x), error = function(e) character(0))
+    cat("Structure fitted:", paste(x$outcome, "~", paste(tm, collapse = " + ")), "\n")
+    cat("  (", term_span(x, tm), " of the ", nrow(x$cells),
+        " realized cells: fitted as written, one column per effect the design\n",
+        "   can inform. reduced_design() shows them)\n", sep = "")
+  } else {
+    cat("Fitting formula:", paste(deparse(cell_formula(x, md)), collapse = " "), "\n")
+    if (identical(md, "effects"))
+      cat("  (effects parameterization: requested by the engine or the priors)\n")
+  }
   invisible(x)
 }
 

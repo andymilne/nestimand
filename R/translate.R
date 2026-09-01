@@ -88,10 +88,12 @@ cell_formula <- function(spec, mode = c("cells", "reduced", "effects"),
       if (isTRUE(spec$cov_by_cell[[cv]])) paste0(cn, ":", cv) else cv))
     paste(c(if (intercept) cn else paste0("0 + ", cn), cov_terms), collapse = " + ")
   } else {
-    ## the declared structure, which is the saturated one unless the formula
-    ## asked for less: the effects parameterization is where a restriction can
-    ## be expressed at all, the cell factor having no way to say it
-    tm <- declared_terms(spec)
+    ## The effects parameterization reads its coefficients as a chain, which a
+    ## term naming a nested variable without its parent has no reading as, so
+    ## this is the one place the ancestry-closed form of the declaration is
+    ## used. It is a niche path - emmeans, and priors stated coordinate-wise in
+    ## effect space - and it is why closed_terms() still exists.
+    tm <- closed_terms(spec)
     paste(c(tm, spec$covariates[!spec$cov_by_cell],
             unlist(lapply(spec$covariates[spec$cov_by_cell], function(cv)
               paste0(tm, ":", cv)))), collapse = " + ")
@@ -105,7 +107,23 @@ cell_formula <- function(spec, mode = c("cells", "reduced", "effects"),
 ## term this design admits, and becomes `chord_type:inversion`. This is what is
 ## fitted when the declaration asks for less than the saturated structure, and
 ## it is a subset of `chain_terms()`, never more.
+## The terms the formula asks for, as written: each term reduced to the design
+## variables it names, and nothing added. This is the whole of what the package
+## fits. A `+` between two variables the design admits an interaction between is
+## a restriction the user stated, and stating it is the point of writing `+`.
 declared_terms <- function(spec, labels = spec$term_labels) {
+  labs <- lapply(strsplit(labels, ":"), function(vs) vs[vs %in% spec$cell_vars])
+  out <- unique(vapply(Filter(length, labs), paste, "", collapse = ":"))
+  out[order(lengths(strsplit(out, ":")), out)]
+}
+
+## The ancestry-closed form of the same thing, in which every nested variable is
+## named alongside its parent. The reduced design does not need it - the design
+## over the realized cells says what is estimable without being told - and it is
+## retained only for the effects parameterization, whose coefficients are read
+## as a chain and where a term naming a nested variable without its parent has
+## no such reading.
+closed_terms <- function(spec, labels = spec$term_labels) {
   fams <- spec$cat_families
   rank_of <- function(v) { for (f in fams) if (v %in% f) return(match(v, f)); Inf }
   canon <- function(vs) { vs <- unique(vs); vs[order(vapply(vs, rank_of, 1), vs)] }
@@ -119,12 +137,54 @@ declared_terms <- function(spec, labels = spec$term_labels) {
 }
 
 ## How many dimensions of the realized-cell space a set of terms spans, which is
-## what decides whether the declaration is the saturated structure or less.
+## what decides whether the declaration is the saturated structure or less. It is
+## the width of the design those terms give, so that the count reported and the
+## model fitted can never disagree.
 term_span <- function(spec, terms) {
   if (!length(terms)) return(0L)
-  tab <- sentinel_first(spec, spec$cells)
-  qr(stats::model.matrix(stats::as.formula(paste("~", paste(terms, collapse = " + "))),
-                         tab))$rank
+  ncol(design_over_cells(spec, terms))
+}
+
+## The sentinel is not a value the nested variable takes: it records that the
+## variable is undefined there. So it is ordered last rather than first - a real
+## level is the reference, and the contrasts are among the levels that exist -
+## and the rows where it stands contribute nothing to any column the variable
+## helps to build. Written as a level instead, it would make `chord_type +
+## inversion` report `inversion 0 versus an augmented chord`, which is not an
+## inversion effect, and would duplicate the parent's own term.
+sentinel_absent <- function(spec, tab) {
+  s <- sentinel_levels(spec)
+  for (v in names(s)) {
+    real <- setdiff(levels(factor(tab[[v]])), s[[v]])
+    tab[[v]] <- factor(as.character(tab[[v]]), levels = c(real, s[[v]]))
+  }
+  tab
+}
+
+## The design a set of terms gives over the realized cells: one row per realized
+## condition, the undefined conditions contributing nothing, and the columns the
+## design cannot inform removed - identically zero first, then linearly
+## redundant. What remains is full rank by construction, so the model fitted is
+## the model the formula names and no coefficient has to be held at zero.
+design_over_cells <- function(spec, terms, tab = spec$cells) {
+  cellid <- as.character(tab[[spec$cell_name]])
+  tab <- sentinel_absent(spec, tab)
+  s <- sentinel_levels(spec)
+  f <- stats::as.formula(paste("~", if (length(terms))
+    paste(terms, collapse = " + ") else "1"))
+  X <- stats::model.matrix(f, tab)
+  tl <- c("(Intercept)", attr(stats::terms(f), "term.labels"))[attr(X, "assign") + 1L]
+  for (v in names(s)) {
+    involves <- vapply(strsplit(tl, ":", fixed = TRUE), function(z) v %in% z, TRUE)
+    X[as.character(tab[[v]]) %in% s[[v]], involves] <- 0
+  }
+  keep <- colSums(X != 0) > 0                  # conditions that do not exist
+  X <- X[, keep, drop = FALSE]; tl <- tl[keep]
+  q <- qr(X); piv <- sort(q$pivot[seq_len(q$rank)])
+  X <- X[, piv, drop = FALSE]; tl <- tl[piv]   # and the redundant ones
+  rownames(X) <- cellid
+  attr(X, "term_of") <- stats::setNames(tl, colnames(X))
+  X
 }
 
 ## The identified chain basis, closed under ancestry: retained because the
@@ -173,24 +233,14 @@ chain_terms <- function(spec) {
 ## Column names are the effects they stand for, with `:` written `.` so that
 ## they are ordinary names in a formula and survive every engine unaltered.
 reduced_design <- function(spec) {
-  tab <- sentinel_first(spec, spec$cells)
-  tm <- declared_terms(spec)
-  f <- stats::as.formula(paste("~", paste(tm, collapse = " + ")))
-  X <- stats::model.matrix(f, tab)
-  ## which term each column codes, carried through the same subsetting as the
-  ## columns: the random side selects columns by the term they belong to
-  term_of <- c("(Intercept)", tm)[attr(X, "assign") + 1L]
-  keep <- colSums(X != 0) > 0                          # conditions that do not exist
-  X <- X[, keep, drop = FALSE]; term_of <- term_of[keep]
-  q <- qr(X); piv <- sort(q$pivot[seq_len(q$rank)])
-  X <- X[, piv, drop = FALSE]; term_of <- term_of[piv]  # and the redundant ones
+  X <- design_over_cells(spec, declared_terms(spec))
   eff <- colnames(X)
+  term_of <- attr(X, "term_of")
   colnames(X) <- reduced_names(eff)
-  rownames(X) <- as.character(spec$cells[[spec$cell_name]])
   ## the effect each column stands for, kept verbatim so that reporting can
   ## name it as the user wrote it rather than as the syntactic column name
   attr(X, "effect_names") <- stats::setNames(eff, colnames(X))
-  attr(X, "term_of") <- stats::setNames(term_of, colnames(X))
+  attr(X, "term_of") <- stats::setNames(unname(term_of), colnames(X))
   X
 }
 
@@ -254,6 +304,22 @@ reduced_augment <- function(spec, data) {
   data[keep] <- as.data.frame(X[as.character(data[[spec$cell_name]]), keep,
                                 drop = FALSE], check.names = FALSE)
   data
+}
+
+## Does a declared random structure ask for less than the saturated one? Asked
+## of the random side on its own: a formula can cross the structure fully in the
+## mean and restrict it by group, and the cell factor can express the second no
+## better than the first.
+random_restricted <- function(spec) {
+  if (is.null(spec$random_original)) return(FALSE)
+  bl <- tryCatch(bar_terms_of(spec$random_original), error = function(e) NULL)
+  if (is.null(bl)) return(FALSE)
+  any(vapply(bl, function(b) {
+    lhs <- tryCatch(attr(stats::terms(stats::as.formula(paste("~", b$lhs))),
+                         "term.labels"), error = function(e) character(0))
+    tm <- declared_terms(spec, lhs)
+    length(tm) > 0 && term_span(spec, tm) < nrow(spec$cells)
+  }, TRUE))
 }
 
 ## Does this declaration need the reduced form at all? Asked of the spec rather
@@ -406,17 +472,18 @@ fitting_mode <- function(spec, engine = "marginaleffects", priors = NULL) {
     return(structure("effects", reason = paste(
       "the declared priors are coordinate-aligned in effect space (independent",
       "non-elliptical, or constrained support), which pins the fitting basis")))
-  ## A declaration that asks for less than the saturated structure can only be
-  ## fitted in the effects parameterization: `~ 0 + cell` is saturated by
-  ## construction, so fitting it would silently enlarge the model the user
-  ## wrote. The cell form is kept wherever the two agree, which is whenever the
-  ## formula crosses the structure fully.
-  if (term_span(spec, declared_terms(spec)) < nrow(spec$cells))
+  ## `~ 0 + cell` is saturated by construction, so a declaration that asks for
+  ## less cannot be written on it: fitting it there would enlarge the model the
+  ## user wrote. The cell form is kept wherever the two agree, which is whenever
+  ## the formula crosses the structure fully - there it is the same design in
+  ## coordinates that read as cell means.
+  sp <- term_span(spec, declared_terms(spec))
+  if (sp < nrow(spec$cells))
     return(structure("reduced", reason = paste(
-      "the declared structure spans", term_span(spec, declared_terms(spec)),
-      "of the", nrow(spec$cells), "realized cells: the cell factor is saturated",
-      "and cannot express that, so the design is carried per cell with the",
-      "columns the data cannot inform removed")))
+      "the formula spans", sp, "of the", nrow(spec$cells), "realized cells, so",
+      "it asks for less than the saturated structure: the cell factor cannot",
+      "express that, so the design the formula gives over the realized cells is",
+      "carried per cell, with the columns it cannot inform removed")))
   structure("cells", reason = "default: estimation is unconditionally well posed")
 }
 

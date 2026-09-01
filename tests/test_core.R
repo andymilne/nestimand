@@ -2944,8 +2944,36 @@ chk("continuous nested: the printed structure still shows it",
 res_sp <- suppressMessages(nesting_spec(cross_dat,
   response ~ chord_type * (inversion + top), "inversion %in% chord_type"))
 res_m <- nest_fit(res_sp)
-chk("restricted: the declared terms give each nested variable its parent",
+chk("restricted: the declared terms are the formula's own, nothing added",
     identical(declared_terms(res_sp),
+              c("chord_type", "inversion", "top",
+                "chord_type:inversion", "chord_type:top")))
+chk("restricted: a `+` between two variables is not upgraded to a `*`",
+    { sp <- suppressMessages(nesting_spec(cross_dat,
+        response ~ chord_type + inversion, "inversion %in% chord_type"))
+      ## the pooled model: one inversion effect, shared by every chord type
+      identical(declared_terms(sp), c("chord_type", "inversion")) &&
+        term_span(sp, declared_terms(sp)) == 6 &&
+        identical(as.character(fitting_mode(sp)), "reduced") })
+chk("restricted: and the count reported is the model that is fitted",
+    { sp <- suppressMessages(nesting_spec(cross_dat,
+        response ~ chord_type + inversion, "inversion %in% chord_type"))
+      m <- suppressMessages(nest_fit(sp))
+      length(coef(m)) == term_span(sp, declared_terms(sp)) && !anyNA(coef(m)) })
+chk("restricted: the sentinel is absence, so the contrasts are among real levels",
+    { sp <- suppressMessages(nesting_spec(cross_dat,
+        response ~ chord_type + inversion, "inversion %in% chord_type"))
+      nm <- unname(attr(reduced_design(sp), "effect_names"))
+      identical(nm, c("(Intercept)", "chord_typedim", "chord_typemin",
+                      "chord_typemaj", "inversion1", "inversion2")) })
+chk("restricted: a row where the variable is undefined contributes nothing",
+    { sp <- suppressMessages(nesting_spec(cross_dat,
+        response ~ chord_type + inversion, "inversion %in% chord_type"))
+      X <- reduced_design(sp)
+      aug <- grepl("^aug", rownames(X))
+      all(X[aug, grepl("inversion", colnames(X))] == 0) })
+chk("restricted: the ancestry-closed form is kept for the effects path only",
+    identical(closed_terms(res_sp),
               c("chord_type", "top", "chord_type:inversion", "chord_type:top")))
 chk("restricted: they span less than the cells, and the mode follows",
     { sp_full <- suppressMessages(nesting_spec(cross_dat,
@@ -2972,9 +3000,11 @@ chk("restricted: nest_summary reports the coefficients rather than refusing",
     { d <- as.data.frame(nest_summary(res_m))
       nrow(d) == sum(!is.na(coef(res_m))) &&
         all(d$meaning == "as fitted" | grepl("held at zero", d$meaning)) })
-chk("restricted: the printed spec shows the formula that will be fitted",
+chk("restricted: the printed spec shows the structure that will be fitted",
     { txt <- paste(utils::capture.output(print(res_sp)), collapse = " ")
-      grepl("one column per identified effect", txt) &&
+      grepl("Structure fitted", txt, fixed = TRUE) &&
+        grepl("chord_type + inversion + top", txt, fixed = TRUE) &&
+        grepl("14 of the 20 realized cells", txt, fixed = TRUE) &&
         !grepl("0 \\+ cell", txt) })
 
 ## brms cannot drop an uninformative column the way lm does, so the effects
@@ -3064,12 +3094,22 @@ chk("constraints: a random structure is counted against its grouping factor",
       n <- sum(cp$table$part == "random")
       n > 0 && grepl(sprintf("%d in the random structure for `participant`", n),
                      paste(z, collapse = " ")) })
-chk("saturation: the spec message says it is counting cell means",
-    grepl("cell means",
-          paste(utils::capture.output(
-            nesting_spec(cross_dat, response ~ chord_type * (inversion + top),
-                         "inversion %in% chord_type"), type = "message"),
-            collapse = " ")))
+## The message and the fit are one number now: term_span() is the width of the
+## design nest_fit() builds, so the count reported cannot drift from the model
+## fitted. It used to, and said "fitted as written" while fitting the saturated
+## structure.
+chk("saturation: the message counts the realized cells the formula spans",
+    { txt <- paste(utils::capture.output(
+        nesting_spec(cross_dat, response ~ chord_type * (inversion + top),
+                     "inversion %in% chord_type"), type = "message"),
+        collapse = " ")
+      grepl("spans 14 of the 20 realized cells", txt, fixed = TRUE) &&
+        grepl("fitted as written", txt, fixed = TRUE) })
+chk("saturation: and the count is the number of coefficients fitted",
+    { sp <- suppressMessages(nesting_spec(cross_dat,
+        response ~ chord_type * (inversion + top), "inversion %in% chord_type"))
+      m <- suppressMessages(nest_fit(sp))
+      length(coef(m)) == term_span(sp, declared_terms(sp)) && !anyNA(coef(m)) })
 
 chk("constraints: a cell fit needs none of this",
     { sp <- suppressMessages(nesting_spec(cross_dat,
@@ -3188,7 +3228,7 @@ chk("random reduced: the covariance is reported in the effects, not the columns"
     { m <- suppressMessages(nest_fit(re_red))
       r <- random_covariance(m, re_red, "cells")
       nm <- rownames(r$participant)
-      "chord_typedim:inversion0" %in% nm && !any(grepl("^dm_", nm)) })
+      "chord_typedim:inversion1" %in% nm && !any(grepl("^dm_", nm)) })
 
 ## An argument the coefficient route cannot take is one thing; an argument that
 ## is nothing's is another. Reporting the second as the first sends the reader
@@ -3357,7 +3397,7 @@ for (.lev in list(c("none", "0", "1", "2"), c("0", "1", "2", "none"))) {
   chk(paste0("parameterization (", .tag, "): its columns are named for the effects they carry"),
       { d <- as.data.frame(nest_summary(.m_r))
         nrow(d) == length(coef(.m_r)) && all(d$meaning == "as fitted") &&
-          any(d$term == "chord_typedim:inversion0") && !any(grepl("^dm_", d$term)) })
+          any(d$term == "chord_typedim:inversion1") && !any(grepl("^dm_", d$term)) })
   chk(paste0("parameterization (", .tag, "): a saturated declaration stays in cells"),
       identical(attr(.m_c, "nestimand_mode"), "cells"))
   chk(paste0("parameterization (", .tag, "): a cell fit answers on both routes"),
