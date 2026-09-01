@@ -638,6 +638,32 @@ is what a formula means by it, and `a:b` alone stays a single interaction. Six c
 compare the returned names against `terms()` over five bracketings, which is the
 invariant rather than another instance.
 
+### A grid over one stratum had no contrasts to code
+
+Asking for an estimand within one level of something - the top-note effect within
+each chord type - means building a design over a slice of the cells, and a factor with
+one level in that slice has no contrasts, so `model.matrix()` refused. The columns
+have to be the ones the fit has whatever the grid contains, so `design_rows()` now
+gives every factor the levels the fit saw rather than the levels the slice happens to
+hold. Same fault line as the relevel: a design built from what is in front of it
+rather than from what the fit was built from. Two more checks on the invariant, over
+both sentinel positions and both parameterizations.
+
+With that, a per-stratum estimand can be assembled from exported functions:
+
+    per <- do.call(rbind, lapply(levels(dat$chord_type), function(k) {
+      cs  <- sp$cells[sp$cells$chord_type == k, , drop = FALSE]
+      pol <- nest_policy(sp, "inversion_top_notes", "proportional", cells = cs)
+      e   <- latent_estimand(m, "inversion_top_notes", pol, spec = sp, cells = cs)
+      cbind(chord_type = k, as.data.frame(e))
+    }))
+
+`estimand()` has no argument for it. `contrast = "within"` does this for a *nested*
+variable, taking the strata from its ancestors; a crossed variable has none, and
+naming the strata is not currently possible. `by` is not the answer as it stands: it
+is marginaleffects' own argument, `estimand()` already passes `by = target` to
+`avg_predictions()`, and the coefficient route makes no such call at all.
+
 ## Not yet implemented
 
 The prior translation and audit

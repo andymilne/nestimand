@@ -3128,6 +3128,23 @@ for (.lev in list(c("none", "0", "1", "2"), c("0", "1", "2", "none"))) {
         X <- design_rows(.sp_s, g, "effects")
         b <- coef_vector(.m_e)
         all(colnames(X) %in% names(b)) })
+  chk(paste0("parameterization (", .tag, "): a design over one stratum keeps the fit's columns"),
+      { ## a grid covering one level of a factor has no contrasts for it, and
+        ## the columns must still be the ones the fit has
+        cs <- .sp_s$cells[.sp_s$cells$chord_type == "maj", , drop = FALSE]
+        g <- cell_grid(.sp_s, .sp_s$data)
+        g <- g[as.character(g[[.sp_s$cell_name]]) %in%
+                 as.character(cs[[.sp_s$cell_name]]), , drop = FALSE]
+        all(vapply(c("cells", "effects"), function(md) {
+          X <- design_rows(.sp_s, g, md)
+          b <- coef_vector(if (md == "cells") .m_c else .m_e)
+          ncol(X) > 0 && all(colnames(X) %in% names(b))
+        }, TRUE)) })
+  chk(paste0("parameterization (", .tag, "): an estimand within one stratum runs"),
+      { cs <- .sp_s$cells[.sp_s$cells$chord_type == "maj", , drop = FALSE]
+        pol <- nest_policy(.sp_s, "top", "proportional", cells = cs)
+        e <- latent_estimand(.m_e, "top", pol, spec = .sp_s, cells = cs)
+        nrow(as.data.frame(e)) == 1 && is.finite(as.data.frame(e)$estimate) })
   chk(paste0("parameterization (", .tag, "): nest_summary works in both forms"),
       { a <- as.data.frame(nest_summary(.m_c)); b <- as.data.frame(nest_summary(.m_e))
         nrow(a) > 0 && nrow(b) > 0 &&

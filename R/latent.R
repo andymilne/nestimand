@@ -114,7 +114,17 @@ contrast_pairs <- function(levs, contrast = "pairwise") {
 ## not have. The columns must be built the way the fit built them, or the map
 ## between them is not a map at all.
 design_rows <- function(spec, g, mode = "cells") {
+  ref <- if (identical(mode, "effects")) sentinel_first(spec) else spec$data
   if (identical(mode, "effects")) g <- sentinel_first(spec, g)
+  ## The grid may cover only part of the design - one stratum of it, when an
+  ## estimand is asked for within each level of something - and a factor with
+  ## one level in that slice has no contrasts to code, so `model.matrix()`
+  ## refuses. The columns have to be the ones the fit has either way, so every
+  ## factor keeps the levels the fit saw rather than the levels this grid
+  ## happens to contain.
+  for (v in intersect(names(g), names(ref)))
+    if (is.factor(ref[[v]]) || is.character(ref[[v]]))
+      g[[v]] <- factor(as.character(g[[v]]), levels = levels(factor(ref[[v]])))
   rhs <- paste(deparse(cell_formula(spec, mode)[[3]]), collapse = " ")
   X <- stats::model.matrix(stats::as.formula(paste("~", rhs)), g)
   if (colnames(X)[1] == "(Intercept)") X[, -1, drop = FALSE] else X
