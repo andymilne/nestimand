@@ -105,11 +105,11 @@ cell_formula <- function(spec, mode = c("cells", "reduced", "effects"),
 ## term this design admits, and becomes `chord_type:inversion`. This is what is
 ## fitted when the declaration asks for less than the saturated structure, and
 ## it is a subset of `chain_terms()`, never more.
-declared_terms <- function(spec) {
+declared_terms <- function(spec, labels = spec$term_labels) {
   fams <- spec$cat_families
   rank_of <- function(v) { for (f in fams) if (v %in% f) return(match(v, f)); Inf }
   canon <- function(vs) { vs <- unique(vs); vs[order(vapply(vs, rank_of, 1), vs)] }
-  labs <- lapply(strsplit(spec$term_labels, ":"), function(vs)
+  labs <- lapply(strsplit(labels, ":"), function(vs)
     vs[vs %in% spec$cell_vars])
   labs <- labs[lengths(labs) > 0]
   closed <- lapply(labs, function(vs)
@@ -174,18 +174,37 @@ chain_terms <- function(spec) {
 ## they are ordinary names in a formula and survive every engine unaltered.
 reduced_design <- function(spec) {
   tab <- sentinel_first(spec, spec$cells)
-  f <- stats::as.formula(paste("~", paste(declared_terms(spec), collapse = " + ")))
+  tm <- declared_terms(spec)
+  f <- stats::as.formula(paste("~", paste(tm, collapse = " + ")))
   X <- stats::model.matrix(f, tab)
-  X <- X[, colSums(X != 0) > 0, drop = FALSE]          # conditions that do not exist
-  q <- qr(X)
-  X <- X[, sort(q$pivot[seq_len(q$rank)]), drop = FALSE]  # and the redundant ones
+  ## which term each column codes, carried through the same subsetting as the
+  ## columns: the random side selects columns by the term they belong to
+  term_of <- c("(Intercept)", tm)[attr(X, "assign") + 1L]
+  keep <- colSums(X != 0) > 0                          # conditions that do not exist
+  X <- X[, keep, drop = FALSE]; term_of <- term_of[keep]
+  q <- qr(X); piv <- sort(q$pivot[seq_len(q$rank)])
+  X <- X[, piv, drop = FALSE]; term_of <- term_of[piv]  # and the redundant ones
   eff <- colnames(X)
   colnames(X) <- reduced_names(eff)
   rownames(X) <- as.character(spec$cells[[spec$cell_name]])
   ## the effect each column stands for, kept verbatim so that reporting can
   ## name it as the user wrote it rather than as the syntactic column name
   attr(X, "effect_names") <- stats::setNames(eff, colnames(X))
+  attr(X, "term_of") <- stats::setNames(term_of, colnames(X))
   X
+}
+
+## The columns of the reduced design that carry a given set of terms. The random
+## side takes its columns from the same design the fixed side is built from,
+## rather than building its own: a term coded in isolation gets different columns
+## from the same term coded beside its relatives - marginality decides that - and
+## two designs built separately would not be two views of one model.
+reduced_columns <- function(spec, terms = NULL) {
+  X <- reduced_design(spec)
+  cols <- setdiff(colnames(X), "(Intercept)")
+  if (is.null(terms)) return(cols)
+  tm <- attr(X, "term_of")
+  cols[tm[cols] %in% terms]
 }
 
 ## The readable name of a reduced column, for reporting. Unknown names - the

@@ -38,6 +38,10 @@ random_covariance <- function(model, spec = NULL,
     ## label by the conditions rather than by the fitted factor
     plain <- sub(paste0("^", cn), "", nm)
     is_cells <- setequal(plain, cells)
+    ## a reduced random structure is labelled by the design's own columns; the
+    ## report names the effect each one stands for, as it does on the fixed side
+    if (!is_cells)
+      plain <- tryCatch(reduced_labels(spec, nm), error = function(e) plain)
     dimnames(S) <- list(plain, plain)
     if (identical(space, "effects")) {
       if (!is_cells) {

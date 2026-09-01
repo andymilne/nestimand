@@ -3105,6 +3105,91 @@ chk("cells: one function decides which cells an estimand is over",
         identical(estimand_cells(res_sp, "top", res_sp$cells[1:2, ]),
                   res_sp$cells[1:2, ]) })
 
+## ---- the random side follows the declaration too -------------------------
+## The mean structure stopped being silently saturated when the reduced design
+## arrived; the random side went on being saturated for a while longer. A
+## declaration asking for less than the full crossing asks for less on both
+## sides, and the cell factor can express that on neither.
+re_red_d <- local({
+  rows <- list()
+  for (ct in c("aug", "dim", "min", "maj")) {
+    invs <- if (ct == "aug") "none" else c("0", "1", "2")
+    for (iv in invs) for (tp in c("t1", "t2"))
+      rows[[length(rows) + 1]] <-
+        data.frame(chord_type = ct, inversion = iv, top = tp)
+  }
+  g <- do.call(rbind, rows); d <- g[rep(seq_len(nrow(g)), each = 6), ]
+  d$participant <- factor(rep(1:6, times = nrow(g)))
+  d$chord_type <- factor(d$chord_type, levels = c("aug", "dim", "min", "maj"))
+  d$inversion <- factor(d$inversion, levels = c("none", "0", "1", "2"))
+  d$top <- factor(d$top)
+  set.seed(21); d$response <- rnorm(nrow(d), 4); d$GMSI <- rnorm(nrow(d)); d
+})
+re_red_f <- response ~ chord_type * (inversion + top) +
+  (chord_type * (inversion + top) | participant)
+re_red <- suppressMessages(nesting_spec(re_red_d, re_red_f,
+  "inversion %in% chord_type", fit = "lmer"))
+re_sat <- suppressMessages(nesting_spec(re_red_d,
+  response ~ chord_type * inversion * top +
+    (chord_type * inversion * top | participant),
+  "inversion %in% chord_type", fit = "lmer"))
+chk("random reduced: the same columns the mean structure is fitted on",
+    { r <- random_terms(re_red, "reduced")
+      cols <- setdiff(colnames(reduced_design(re_red)), "(Intercept)")
+      identical(r, sprintf("(1 + %s | participant)",
+                           paste(cols, collapse = " + "))) })
+chk("random reduced: so the two sides have the same dimension",
+    { r <- random_terms(re_red, "reduced")
+      n_re <- length(strsplit(sub("^\\(", "", sub(" \\|.*$", "", r)), " \\+ ")[[1]])
+      n_fx <- ncol(reduced_design(re_red))
+      n_re == n_fx && n_fx == 14 })
+chk("random reduced: which is smaller than the saturated cell covariance",
+    { n_cells <- length(strsplit(random_terms(re_red, "cells"), " \\+ ")[[1]])
+      ncol(reduced_design(re_red)) == 14 && nrow(re_red$cells) == 20 })
+chk("random reduced: it is the default when the fixed side is reduced",
+    { cd <- suppressMessages(attr(nest_fit(re_red, dry_run = TRUE),
+                                  "nestimand_code"))
+      any(grepl("(1 + dm_chord_typedim", cd, fixed = TRUE)) &&
+        !any(grepl("0 + cell | participant", cd, fixed = TRUE)) })
+chk("random reduced: an explicit random_structure is left alone",
+    { cd <- suppressMessages(attr(
+        nest_fit(re_red, dry_run = TRUE, random_structure = "cells"),
+        "nestimand_code"))
+      any(grepl("(0 + cell | participant)", cd, fixed = TRUE)) })
+chk("random reduced: a saturated declaration still goes to cells",
+    { cd <- suppressMessages(attr(nest_fit(re_sat, dry_run = TRUE),
+                                  "nestimand_code"))
+      any(grepl("(0 + cell | participant)", cd, fixed = TRUE)) })
+chk("random reduced: a term the mean structure lacks is refused, and says why",
+    { sp <- suppressMessages(nesting_spec(re_red_d,
+        response ~ chord_type * (inversion + top) +
+          (chord_type * inversion * top | participant),
+        "inversion %in% chord_type", fit = "lmer"))
+      e <- err_of(random_terms(sp, "reduced"))
+      grepl("which the mean structure does not contain", e, fixed = TRUE) &&
+        grepl("random_structure = \"cells\"", e, fixed = TRUE) })
+chk("random reduced: a crossed covariate gets a slope per column and one more",
+    { sp <- suppressMessages(nesting_spec(re_red_d,
+        response ~ chord_type * (inversion + top) * GMSI +
+          (chord_type * (inversion + top) * GMSI | participant),
+        "inversion %in% chord_type", fit = "lmer"))
+      r <- random_terms(sp, "reduced")
+      cols <- setdiff(colnames(reduced_design(sp)), "(Intercept)")
+      grepl(" GMSI + ", r, fixed = TRUE) &&
+        all(vapply(paste0(cols, ":GMSI"), function(z)
+          grepl(z, r, fixed = TRUE), TRUE)) })
+chk("random reduced: the emitted note says what it did and what the choice was",
+    { cd <- suppressMessages(attr(nest_fit(re_red, dry_run = TRUE),
+                                  "nestimand_code"))
+      txt <- paste(cd, collapse = " ")
+      grepl("the declared structure varying by group", txt, fixed = TRUE) &&
+        grepl("random_structure = \"cells\"", txt, fixed = TRUE) })
+chk("random reduced: the covariance is reported in the effects, not the columns",
+    { m <- suppressMessages(nest_fit(re_red))
+      r <- random_covariance(m, re_red, "cells")
+      nm <- rownames(r$participant)
+      "chord_typedim:inversion0" %in% nm && !any(grepl("^dm_", nm)) })
+
 ## An argument the coefficient route cannot take is one thing; an argument that
 ## is nothing's is another. Reporting the second as the first sends the reader
 ## to the wrong documentation - `method` was described as an argument of

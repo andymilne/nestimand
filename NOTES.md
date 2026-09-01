@@ -817,3 +817,37 @@ Argument *order* in general is beyond static analysis, and stale string
 literals - a contrast label from an old convention - are beyond it entirely.
 `check_target()` catches the important case of the first at runtime. Run
 `check_calls.R` beside `check_docs.R` after any signature change.
+
+## The random side follows the declaration too
+
+The reduced design settled the mean structure and left the random structure
+where it was: `random_structure = "cells"` translated any declared random term
+into `(0 + cell | g)`, an unstructured covariance over every realized condition.
+For a declaration that asks for less than the full crossing that is the same
+fault the reduced design exists to remove, on the other half of the model -
+`(chord_type * (inversion + top) | participant)` declares 14 dimensions and was
+fitted as 20. A user found it by reading the printed covariance and asking what
+the extra effects were variations with respect to.
+
+`random_structure = "reduced"` puts the random effects on the same columns the
+mean structure is fitted on: `(1 + dm_... | g)`, so a random effect is a
+deviation in exactly the effect the mean structure states, and the two sides
+have the same dimension. It is the default whenever the fixed side is reduced;
+an explicit `random_structure` is left alone, since the saturated covariance is
+a reasonable thing to want.
+
+Points worth recording:
+
+- The random columns come from the *same* `reduced_design()` the fixed side uses,
+  selected by the term each column codes (`attr(X, "term_of")`). Building a
+  second design from the random terms alone would code them differently -
+  marginality decides how a term is coded from what sits beside it - and two
+  designs built separately are not two views of one model.
+- Every declared term naming a design variable contributes, not only those that
+  cross a structural boundary. The cell factor subsumed `chord_type` and `top`
+  only because it spans everything.
+- A random term for something the mean structure does not contain is refused
+  with the reason: it says the effect averages to zero across groups but varies
+  between them, which is coherent but is a different model from "the declared
+  structure varying by group". `random_structure = "cells"` remains for it.
+- `random_covariance()` labels the block by the effects, not the `dm_` columns.

@@ -62,8 +62,8 @@ bar_terms_of <- function(bars) {
   })
 }
 
-random_terms <- function(spec, structure = c("cells", "chain", "chain_slope",
-                                             "as_declared")) {
+random_terms <- function(spec, structure = c("cells", "reduced", "chain",
+                                             "chain_slope", "as_declared")) {
   structure <- match.arg(structure)
   bars <- spec$random_original
   if (is.null(bars)) return(NULL)
@@ -150,7 +150,39 @@ random_terms <- function(spec, structure = c("cells", "chain", "chain_slope",
       paste(" +", paste(out, collapse = " + "))
     }
     cov_txt <- cov_term(cn)
-    if (structure == "chain_slope")
+    if (structure == "reduced") {
+      ## The declared structure varying by group: the same columns the fixed
+      ## side is fitted on, so the random effects are deviations in exactly the
+      ## effects the mean structure states, and the two have the same dimension.
+      ## The cell form would enlarge it to the saturated covariance - which is
+      ## more than the declaration asks for, and the same fault the reduced
+      ## fixed design exists to avoid.
+      ## every declared term that names a design variable, not only those that
+      ## reach across a structural boundary: `chord_type` and `top` are part of
+      ## the structure the group varies in just as `chord_type:inversion` is,
+      ## and the cell factor subsumed them only because it spans everything
+      want <- declared_terms(spec, lhs[vapply(strsplit(lhs, ":"), function(vs)
+        any(vs %in% spec$cell_vars), TRUE)])
+      extra <- setdiff(want, declared_terms(spec))
+      if (length(extra))
+        stop("the random term `(", lhs_txt, " | ", grp, ")` asks for `",
+             paste(extra, collapse = "`, `"), "`, which the mean structure does ",
+             "not contain. A random effect for something held out of the mean ",
+             "says it averages to zero across groups but varies between them - ",
+             "coherent, but not what the reduced random structure expresses, ",
+             "which is the declared mean structure varying by group. Add the ",
+             "term to the model formula, or use random_structure = \"cells\" for ",
+             "the unstructured covariance over realized conditions.")
+      cols <- reduced_columns(spec, want)
+      ## a covariate crossed with the structure gets a slope per column and one
+      ## for the reference condition, exactly as on the fixed side
+      cov_red <- if (!length(covs)) "" else paste(" +", paste(unlist(
+        lapply(seq_along(covs), function(i) if (!crossed[[i]]) covs[[i]] else
+          c(covs[[i]], paste0(cols, ":", covs[[i]])))), collapse = " + "))
+      rewrap(sprintf("(1 + %s%s | %s)", paste(cols, collapse = " + "),
+                     cov_red, grp))
+    }
+    else if (structure == "chain_slope")
       ## the chain counterpart of an unstructured cell covariance: the same
       ## columns as the fixed part, so one set of declarations covers both
       rewrap(sprintf("(0 + %s%s | %s)", paste(chain_terms(spec), collapse = " + "),
@@ -193,13 +225,15 @@ random_terms <- function(spec, structure = c("cells", "chain", "chain_slope",
 }
 
 ## --- the fit ---------------------------------------------------------------
-nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "as_declared"),
+nest_fit <- function(spec, mode = NULL,
+                     random_structure = c("cells", "reduced", "chain", "as_declared"),
                      data = NULL, engine = "marginaleffects",
                      dry_run = FALSE, ..., priors = NULL,
                      prior_space = c("effects", "cells"), .env = parent.frame()) {
   ## `priors` and `prior_space` sit after the dots: both would otherwise be
   ## partial-matched by brms's own `prior`, which must reach the engine.
   prior_space <- match.arg(prior_space)
+  rs_default <- missing(random_structure)
   random_structure <- match.arg(random_structure)
   spec_name  <- deparse(substitute(spec))
   prior_name <- deparse(substitute(priors))
@@ -235,6 +269,12 @@ nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "
   }
   if (identical(mode, "effects") && identical(random_structure, "cells"))
     random_structure <- "chain_slope"   # match the random side to the fixed side
+  ## Same argument, the other half of the model: a declaration that asks for
+  ## less than the saturated structure asks for it on the random side too, and
+  ## the cell form cannot express that any more there than it can in the mean.
+  ## An explicit `random_structure` is left alone - the saturated covariance is
+  ## a reasonable thing to want - so only the default follows the fixed side.
+  if (identical(mode, "reduced") && rs_default) random_structure <- "reduced"
   re <- if (fit %in% c("lmer", "glmer", "clmm")) random_terms(spec, random_structure)
         else if (identical(fit, "brm")) random_terms(spec, random_structure)
   if (!is.null(re)) f <- paste(f, "+", re)
@@ -406,13 +446,22 @@ nest_fit <- function(spec, mode = NULL, random_structure = c("cells", "chain", "
   re_note <- if (!is.null(re) && !identical(re, spec$random_original))
     c(sprintf("## random structure %s", spec$random_original),
       sprintf("## translated to   %s", re),
-      "## - a random slope written over the original factors carries columns the",
-      "##   data cannot inform: those for conditions that do not exist, and a",
-      "##   further set reconstructable from the others. The cell form has one",
-      "##   column per realized condition, so every parameter is estimable and",
-      "##   nothing has to be held at zero. See chain_priors() for the",
-      "##   alternative, which keeps the original factors and declares the",
-      "##   uninformative columns instead.")
+      if (identical(random_structure, "reduced"))
+        c("## - the declared structure varying by group, on the same columns the",
+          "##   mean structure is fitted on, so the random effects are deviations",
+          "##   in exactly the effects declared and the two sides have the same",
+          "##   dimension. A random slope written over the original factors",
+          "##   would instead carry columns the data cannot inform, and the cell",
+          "##   form would enlarge the covariance to the saturated one - which",
+          "##   random_structure = \"cells\" still gives if that is wanted.")
+      else
+        c("## - a random slope written over the original factors carries columns the",
+          "##   data cannot inform: those for conditions that do not exist, and a",
+          "##   further set reconstructable from the others. The cell form has one",
+          "##   column per realized condition, so every parameter is estimable and",
+          "##   nothing has to be held at zero. See chain_priors() for the",
+          "##   alternative, which keeps the original factors and declares the",
+          "##   uninformative columns instead."))
   relevel_code <- if (identical(mode, "effects"))
     sentinel_relevel_code(spec, data_name)
   code <- c(sprintf("## nestimand %s -- fit", nestimand_build), lib, mode_note,
