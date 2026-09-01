@@ -250,6 +250,14 @@ nest_fit <- function(spec, mode = NULL,
     mode_note <- sprintf("## parameterization: %s (requested)", mode)
   }
   f <- paste(deparse(cell_formula(spec, mode)), collapse = " ")
+  ## The emitted code has to be runnable, so it names the fitted columns rather
+  ## than the structure they encode. A line saying what `cell` is costs nothing
+  ## and is the difference between readable and cryptic.
+  cell_note <- if (identical(mode, "cells"))
+    c(sprintf("## `%s` is a factor whose levels are the %d realized conditions, so its",
+              spec$cell_name, nrow(spec$cells)),
+      "##   coefficients are their means. The formula crosses the structure fully,",
+      "##   so that is the model it names, written compactly.")
   if (identical(mode, "effects") && identical(random_structure, "cells"))
     random_structure <- "chain_slope"   # match the random side to the fixed side
   ## Same argument, the other half of the model: a random structure that asks
@@ -448,13 +456,17 @@ nest_fit <- function(spec, mode = NULL,
     c(sprintf("## random structure %s", spec$random_original),
       sprintf("## translated to   %s", re),
       if (identical(random_structure, "reduced"))
-        c("## - the declared structure varying by group, on the same columns the",
-          "##   mean structure is fitted on, so the random effects are deviations",
-          "##   in exactly the effects declared and the two sides have the same",
-          "##   dimension. A random slope written over the original factors",
-          "##   would instead carry columns the data cannot inform, and the cell",
-          "##   form would enlarge the covariance to the saturated one - which",
-          "##   random_structure = \"cells\" still gives if that is wanted.")
+        c(sprintf(paste("## - the structure declared after the bar, varying by group:",
+                        "%d columns, one\n##   for each effect that structure",
+                        "names over the realized conditions."),
+                  length(reduced_columns(spec, declared_terms(spec,
+                    unlist(lapply(bar_terms_of(spec$random_original), function(b)
+                      tryCatch(attr(stats::terms(stats::as.formula(paste("~", b$lhs))),
+                                    "term.labels"), error = function(e) character(0))))))) + 1L),
+          "##   Written over the original factors it would carry columns the data",
+          "##   cannot inform; written as the cell factor it would let everything",
+          "##   vary, including terms the bar does not name.",
+          "##   random_structure = \"cells\" gives that larger covariance if wanted.")
       else
         c("## - a random slope written over the original factors carries columns the",
           "##   data cannot inform: those for conditions that do not exist, and a",
@@ -466,7 +478,7 @@ nest_fit <- function(spec, mode = NULL,
   relevel_code <- if (identical(mode, "effects"))
     sentinel_relevel_code(spec, data_name)
   code <- c(sprintf("## nestimand %s -- fit", nestimand_build), lib, mode_note,
-            relevel_code, aug_code, re_note, prior_note,
+            cell_note, relevel_code, aug_code, re_note, prior_note,
             sprintf("m <- %s(%s%s, data = %s%s%s)", fn, f, fam, data_name,
                     prior_txt, dots_txt))
   if (isTRUE(dry_run))

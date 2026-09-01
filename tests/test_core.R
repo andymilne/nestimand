@@ -3222,7 +3222,9 @@ chk("random reduced: the emitted note says what it did and what the choice was",
     { cd <- suppressMessages(attr(nest_fit(re_red, dry_run = TRUE),
                                   "nestimand_code"))
       txt <- paste(cd, collapse = " ")
-      grepl("the declared structure varying by group", txt, fixed = TRUE) &&
+      grepl("the structure declared after the bar, varying by group", txt,
+            fixed = TRUE) &&
+        grepl("14 columns", txt, fixed = TRUE) &&
         grepl("random_structure = \"cells\"", txt, fixed = TRUE) })
 chk("random reduced: the covariance is reported in the effects, not the columns",
     { m <- suppressMessages(nest_fit(re_red))

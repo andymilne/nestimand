@@ -375,21 +375,23 @@ print.nesting_spec <- function(x, ...) {
       " in the full crossing\n", sep = "")
   if (length(x$covariates)) cat("Covariates:", paste(x$covariates, collapse = ", "), "\n")
   md <- tryCatch(as.character(fitting_mode(x)), error = function(e) "cells")
-  ## The structure that will be fitted, stated in the variables the user wrote:
-  ## the reduced form's own formula names one column per effect and is
-  ## unreadable at any size, and what a reader wants is the structure those
-  ## columns encode.
-  if (identical(md, "reduced")) {
-    tm <- tryCatch(declared_terms(x), error = function(e) character(0))
-    cat("Structure fitted:", paste(x$outcome, "~", paste(tm, collapse = " + ")), "\n")
+  ## What is reported is always stated in the variables the user wrote. `cell`
+  ## is an internal factor whose levels are the realized conditions: efficient
+  ## to fit on and meaningless to read, so it belongs in the emitted code and
+  ## nowhere a person is being told what the model is.
+  tm <- tryCatch(declared_terms(x), error = function(e) character(0))
+  cat("Structure fitted:", paste(x$outcome, "~", paste(tm, collapse = " + ")), "\n")
+  if (identical(md, "cells"))
+    cat("  (", nrow(x$cells), " of the ", nrow(x$cells), " realized cells - the ",
+        "formula crosses the structure fully,\n   so every condition has its own ",
+        "mean and the fit uses the `", x$cell_name, "` factor,\n   whose ",
+        "coefficients are those means)\n", sep = "")
+  else if (identical(md, "reduced"))
     cat("  (", term_span(x, tm), " of the ", nrow(x$cells),
-        " realized cells: fitted as written, one column per effect the design\n",
-        "   can inform. reduced_design() shows them)\n", sep = "")
-  } else {
-    cat("Fitting formula:", paste(deparse(cell_formula(x, md)), collapse = " "), "\n")
-    if (identical(md, "effects"))
-      cat("  (effects parameterization: requested by the engine or the priors)\n")
-  }
+        " realized cells - fitted as written, one column per effect the\n",
+        "   design can inform. reduced_design() shows them)\n", sep = "")
+  else
+    cat("  (effects parameterization: requested by the engine or the priors)\n")
   invisible(x)
 }
 

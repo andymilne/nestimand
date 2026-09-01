@@ -894,3 +894,22 @@ Two things that make it work:
 `closed_terms()` survives for the effects parameterization alone, whose
 coefficients are read as a chain and where a term naming a nested variable
 without its parent has no such reading. Nothing reaches it by default.
+
+## Where `cell` may appear
+
+`cell` is an internal factor whose levels are the realized conditions. It is
+efficient to fit on and meaningless to read, so the rule is: anywhere a person
+is being told what the model is, the model is stated in the variables they
+wrote; `cell` appears only in code that has to run.
+
+- `print(spec)` now always prints `Structure fitted: response ~ <the declared
+  terms>`, whatever parameterization follows, with the count of realized cells
+  the formula spans underneath. It used to print `response ~ 0 + cell` for a
+  saturated formula, which tells a reader nothing.
+- The emitted fit code must be runnable, so it names `cell`; it now carries a
+  line saying what the factor is and that the formula crosses the structure
+  fully, so that the compact form is not cryptic.
+- `nest_summary()` already reports effects rather than columns, on both the
+  fixed and the random side.
+- The engines' own `print()` output is theirs and shows `sd(cellaug.none.0)`;
+  `nest_summary()` is the answer to that, not something the package can change.
