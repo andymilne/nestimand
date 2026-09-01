@@ -47,9 +47,6 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   if (is.null(type)) type <- if (has_thresholds(spec)) "eta" else "response"
   scale <- if (type %in% linear_types) "latent" else "response"
 
-  if (identical(scale, "latent") && identical(contrast, "within"))
-    stop("contrast = \"within\" is computed through the prediction route and ",
-         "has no linear-map form here; use scale = \"response\".")
   if (!inherits(spec, "nesting_spec"))
     stop("`spec` must be a nesting_spec object, as returned by nesting_spec().")
   ## Several targets may be named at once, bare or quoted: each is computed in
@@ -840,17 +837,23 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
     sprintf("cells <- %s", cells_txt))
 
   if (contrast == "within") {
-    fam <- NULL
-    for (f in spec$cat_families) if (target %in% f) fam <- f
-    pos <- match(target, fam)
-    if (pos == 1)
-      stop("contrast = \"within\" emits per-stratum contrasts of a *nested* ",
-           "variable; `", target, "` is not nested within anything, so every ",
-           "contrast of it crosses the structural boundary and requires a ",
-           "policy. Use policy = instead.")
+    if (!length(nest_ancestors(spec, target)))
+      stop("contrast = \"within\" gives the contrasts of a nested variable ",
+           "inside each stratum it varies in, and `", target, "` is not nested ",
+           "within anything, so it has no strata of its own. Every contrast of ",
+           "it crosses the structure and needs a policy: use `policy =`, or ",
+           "name the grouping yourself with `by =`.")
     ## the strata of a nested variable are its ancestors, not everything
     ## declared before it: a sibling is not one of its parents
     parents <- nest_ancestors(spec, target)
+    if (identical(scale, "latent"))
+      return(c(hdr[1],
+        "## within-stratum contrasts: inside one stratum the levels are directly",
+        "## comparable, so no boundary is crossed and no policy applies. On the",
+        "## latent scale that is a contrast of averaged design rows, c'b.",
+        sprintf('est  <- latent_estimand(%s, "%s", contrast = "within", spec = %s, data = %s%s%s%s)',
+                model_name, target, spec_name, data_name, eta_re, dots_txt, draws_txt),
+        "est"))
     return(c(hdr,
       "## within-stratum contrasts: no boundary is crossed, so no policy applies",
       sprintf('levs <- levels(factor(%s$%s))', data_name, target),
@@ -1174,7 +1177,9 @@ estimand_values <- function(model, spec, target, policy, at, contrast, data,
              by = target, wts = g$.w, hypothesis = H))$estimate)
   }
   if (contrast == "within") {
-    fam <- NULL; for (f in spec$cat_families) if (target %in% f) fam <- f
+    if (identical(scale, "latent"))
+      return(latent_estimand(model, target, contrast = "within",
+                             data = data, spec = spec)$estimate)
     parents <- nest_ancestors(spec, target)
     parts <- split(data, interaction(data[, parents, drop = FALSE], drop = TRUE))
     return(unlist(lapply(parts, function(d_s) {

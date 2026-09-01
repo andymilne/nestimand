@@ -193,10 +193,58 @@ estimand_cells <- function(spec, target, cells = NULL) {
     spec$cells[deg_key(spec$cells, dg$vars) %in% dg$keep, , drop = FALSE]
 }
 
+## One row per contrast, per stratum: the strata are the realized combinations
+## of the target's own ancestors, and within each the design rows of the data
+## are averaged by level of the target, so the result matches what averaging
+## predictions over the same rows gives on a linear scale. Everything else the
+## stratum contains - a sibling, a crossed variable, the covariates - is
+## averaged over as it occurs, which is what `by =` on the prediction side does.
+within_contrast_matrix <- function(model, spec, target, data = spec$data) {
+  parents <- nest_ancestors(spec, target)
+  if (!length(parents))
+    stop("contrast = \"within\" gives the contrasts of a nested variable inside ",
+         "each stratum it varies in, and `", target, "` is not nested within ",
+         "anything, so it has no strata of its own. Every contrast of it ",
+         "crosses the structure and needs a policy: use `policy =`, or name ",
+         "the grouping yourself with `by =`.")
+  X <- design_rows(spec, add_cells(spec, data), fit_mode(model))
+  key <- as.character(interaction(data[, parents, drop = FALSE], drop = TRUE))
+  levs <- levels(factor(data[[target]]))
+  tl <- as.character(data[[target]])
+  rows <- list(); nm <- character(0); st <- character(0)
+  for (s in unique(key)) {
+    i <- which(key == s)
+    present <- intersect(levs, unique(tl[i]))
+    if (length(present) < 2) next          # the variable does not vary here
+    M <- t(vapply(present, function(l)
+      colMeans(X[i[tl[i] == l], , drop = FALSE]), numeric(ncol(X))))
+    for (p in contrast_pairs(present, "pairwise")) {
+      rows[[length(rows) + 1L]] <- M[p[1], ] - M[p[2], ]
+      nm <- c(nm, paste(present[p[1]], "-", present[p[2]]))
+      st <- c(st, s)
+    }
+  }
+  if (!length(rows))
+    stop("`", target, "` varies in none of the strata of `",
+         paste(parents, collapse = ":"), "`, so there is no within-stratum ",
+         "contrast to take.")
+  C <- do.call(rbind, rows)
+  rownames(C) <- nm; colnames(C) <- colnames(X)
+  attr(C, "strata") <- st
+  C
+}
+
 latent_contrast_matrix <- function(model, spec, target, policy = "equal",
                                    at = NULL, contrast = "pairwise",
                                    data = spec$data, cells = NULL,
                                    weights = NULL, route = "g_computation") {
+  ## Within-stratum contrasts of a nested variable cross no boundary, so no
+  ## policy weighs anything: inside one stratum the variable's levels are
+  ## directly comparable. That makes them plain contrasts of design rows, which
+  ## is a linear map like any other - there is no reason they should be
+  ## available on the response scale alone, and they used to be.
+  if (identical(contrast, "within")) return(within_contrast_matrix(
+    model, spec, target, data))
   if (!identical(contrast, "interaction")) cells <- estimand_cells(spec, target, cells)
   if (identical(contrast, "interaction")) {
     cells <- estimand_cells(spec, target)
@@ -279,6 +327,8 @@ latent_estimand <- function(model, target, policy = "equal", at = NULL,
       conf.low = apply(S, 2, stats::quantile, probs = lo),
       conf.high = apply(S, 2, stats::quantile, probs = 1 - lo),
       pd = pd, row.names = NULL)
+    if (!is.null(attr(C, "strata")))
+      out <- cbind(stratum = attr(C, "strata"), out)
     attr(out, "nestimand_scale") <- "linear predictor (latent / link), posterior"
     attr(out, "nestimand_cvecs") <- stats::setNames(
       lapply(seq_len(nrow(C)), function(i) stats::setNames(C[i, ], colnames(C))),
@@ -304,6 +354,8 @@ latent_estimand <- function(model, target, policy = "equal", at = NULL,
                     p.value = 2 * stats::pnorm(-abs(est / se)),
                     conf.low = est - z * se, conf.high = est + z * se,
                     row.names = NULL)
+  if (!is.null(attr(C, "strata")))
+    out <- cbind(stratum = attr(C, "strata"), out)
   attr(out, "nestimand_scale") <- "linear predictor (latent / link)"
   attr(out, "nestimand_cvecs") <- stats::setNames(
     lapply(seq_len(nrow(C)), function(i) stats::setNames(C[i, ], colnames(C))),

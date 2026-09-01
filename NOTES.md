@@ -913,3 +913,31 @@ wrote; `cell` appears only in code that has to run.
   fixed and the random side.
 - The engines' own `print()` output is theirs and shows `sd(cellaug.none.0)`;
   `nest_summary()` is the answer to that, not something the package can change.
+
+## `contrast = "within"` on the latent scale
+
+`estimand(..., contrast = "within", type = "eta")` was refused, with a message
+telling the user to `use scale = "response"` - an argument `estimand()` does not
+have. `scale` is an internal variable set from `type`, and the message leaked it.
+
+The refusal was wrong as well as unhelpful. A within-stratum contrast compares
+the levels of a nested variable inside one stratum, so it crosses no structural
+boundary and no policy weighs anything: it is a plain contrast of design rows,
+which is a linear map like any other. `within_contrast_matrix()` builds it -
+split the data by the target's ancestors, average the design rows by level of
+the target inside each part, contrast - and everything downstream (delta method,
+posterior draws, bounds, the code view) works unchanged. The reported table gains
+a `stratum` column, carried from an attribute on the contrast matrix so both the
+frequentist and the brms path pick it up.
+
+The invariant that this is checked by: on an identity link the latent route and
+the prediction route must give the same estimates, to 1e-8. That holds.
+
+The one genuine restriction is unchanged but now says something useful: a target
+that is not nested has no strata of its own, so every contrast of it crosses the
+structure. The message says so and names both remedies - `policy =`, or `by =`
+to state the grouping directly.
+
+Worth generalizing from: a message that names an argument should name one the
+function has. `dev/check_calls.R` checks the package's own scripts against the
+signatures; nothing checks the prose in error messages.

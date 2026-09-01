@@ -373,10 +373,30 @@ chk("latent: bounds computed on the latent scale too",
         attr(lo, "nestimand")$bounds$estimate + 1e-10))
 chk("latent: the code view names the linear-map route",
     any(grepl("latent_estimand", attr(lo, "nestimand")$code)))
-chk("eta: within contrasts have no linear-map form, and say so",
-    grepl("no linear-map form",
-          err_of(estimand(m, inversion, spec = sp, contrast = "within",
-                          type = "eta"))))
+## A within-stratum contrast crosses no boundary, so no policy weighs anything
+## and it is a plain contrast of design rows - a linear map like any other. It
+## used to be refused on the latent scale, with a message naming an argument
+## `estimand()` does not have.
+chk("eta: within contrasts are available on the latent scale",
+    { e <- as.data.frame(estimand(m, inversion, spec = sp, contrast = "within",
+                                  type = "eta", bounds = FALSE, self_check = FALSE))
+      nrow(e) > 0 && "stratum" %in% names(e) && all(is.finite(e$estimate)) })
+chk("eta: and agree with the prediction route on an identity link",
+    { a <- as.data.frame(estimand(m, inversion, spec = sp, contrast = "within",
+                                  type = "eta", bounds = FALSE, self_check = FALSE))
+      b <- as.data.frame(estimand(m, inversion, spec = sp, contrast = "within",
+                                  type = "response", bounds = FALSE, self_check = FALSE))
+      nrow(a) == nrow(b) &&
+        isTRUE(all.equal(a$estimate, b$estimate, tolerance = 1e-8)) })
+chk("eta: the code view names the linear-map route for within too",
+    any(grepl("latent_estimand", attr(estimand(m, inversion, spec = sp,
+        contrast = "within", type = "eta", bounds = FALSE,
+        self_check = FALSE), "nestimand")$code)))
+chk("within: a target that is not nested is told what to use instead",
+    { e <- err_of(estimand(m, chord_type, spec = sp, contrast = "within",
+                           type = "eta"))
+      grepl("not nested within anything", e, fixed = TRUE) &&
+        grepl("`by =`", e, fixed = TRUE) })
 chk("latent: draw-wise translation refuses a frequentist fit",
     grepl("needs a posterior", err_of(latent_draws(m, "chord_type", spec = sp))))
 chk("latent: a model not fitted from this spec is refused",
