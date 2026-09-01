@@ -3065,6 +3065,29 @@ chk("constraints: a cell fit needs none of this",
       !any(grepl("chain_prior_object",
                  attr(nest_fit(sp, dry_run = TRUE), "nestimand_code"))) })
 
+## An argument the coefficient route cannot take is one thing; an argument that
+## is nothing's is another. Reporting the second as the first sends the reader
+## to the wrong documentation - `method` was described as an argument of
+## avg_predictions, which has no such argument.
+chk("dots: an argument of the prediction function is named as one",
+    { e <- err_of(estimand(m_i3, top, type = "eta", vcov = "HC3"))
+      grepl("is an argument of marginaleffects", e, fixed = TRUE) })
+chk("dots: an argument of neither is named as neither",
+    { e <- err_of(estimand(m_i3, top, type = "eta", method = "within"))
+      grepl("is not an argument of estimand() or of marginaleffects", e,
+            fixed = TRUE) })
+chk("dots: a near miss of a real argument is suggested",
+    grepl("did you mean `contrast`",
+          err_of(estimand(m_i3, top, type = "eta", contrst = "within")),
+          fixed = TRUE))
+chk("dots: a name close to nothing draws no guess",
+    !grepl("did you mean",
+           err_of(estimand(m_i3, top, type = "eta", method = "within")),
+           fixed = TRUE))
+chk("dots: the message names the vocabulary that does exist",
+    { e <- err_of(estimand(m_i3, top, type = "eta", method = "within"))
+      grepl("contrast = \"within\"", e, fixed = TRUE) && grepl("`by`", e, fixed = TRUE) })
+
 ## ---- `by`: the estimand within each level of something --------------------
 ## As marginaleffects groups an average, `by` groups an estimand: the target's
 ## contrasts are formed inside each group, the policy weighted over that group's

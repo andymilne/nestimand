@@ -675,6 +675,19 @@ variable crossed with the structure needs, having no ancestors to take them from
 group in which the target does not vary is dropped and said; a covariate cannot group
 an estimand, having no conditions; nor can the target group itself.
 
+### An unknown argument was reported as somebody else's
+
+Anything in `...` that the coefficient route could not use was described as "an
+argument of marginaleffects::avg_predictions", whether or not it was one.
+`method = "within"` - a reasonable guess at how to ask for per-stratum contrasts -
+drew a message sending the reader to the documentation of a function that has no such
+argument. The two cases are now told apart: an argument the prediction function does
+have is named as one and explained; an argument neither has says so, with a
+suggestion where the name is close to a real one (`contrst` draws `contrast`, while
+`method` draws nothing rather than a spurious guess). Either way the message ends by
+naming the vocabulary that does exist - `contrast`, including `contrast = "within"`,
+and `by`.
+
 ## Not yet implemented
 
 The prior translation and audit

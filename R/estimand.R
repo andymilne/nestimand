@@ -599,14 +599,40 @@ estimand <- function(model, target, policy = "equal", at = NULL,
                     " is given, so the sampled-group spread is not available ",
                     "on any route: dropping the argument loses nothing."))
     other <- setdiff(names(dots), "conf_level")
-    if (length(other))
-      stop("`", paste(other, collapse = "`, `"), "` ",
-           if (length(other) > 1) "are arguments" else "is an argument",
-           " of marginaleffects::avg_predictions, which the linear predictor ",
-           "does not go through: the contrast is c'b, taken from the ",
-           "coefficients. `conf_level` and `ndraws` work on either route; for ",
-           "the rest, ask for a quantity that is computed by prediction, such ",
-           "as type = \"response\".")
+    if (length(other)) {
+      ## An unnamed-to-us argument is not necessarily the prediction
+      ## function's: it may be nothing's. Saying which is the difference
+      ## between an answerable message and a wrong one - the package used to
+      ## report `method` as an argument of avg_predictions, which it is not.
+      mfx_args <- tryCatch(
+        names(formals(marginaleffects::avg_predictions)), error = function(e) NULL)
+      known <- if (length(mfx_args)) intersect(other, mfx_args) else other
+      unknown <- setdiff(other, known)
+      near <- function(x) {
+        cand <- setdiff(names(formals(estimand)),
+                        c("...", ".env", ".restrict", "model", "spec"))
+        hit <- cand[agrepl(x, cand, max.distance = 0.25, ignore.case = TRUE)]
+        if (!length(hit)) "" else
+          sprintf(" (did you mean `%s`?)", paste(hit, collapse = "`, `"))
+      }
+      stop(
+        if (length(known))
+          paste0("`", paste(known, collapse = "`, `"), "` ",
+                 if (length(known) > 1) "are arguments" else "is an argument",
+                 " of marginaleffects::avg_predictions, which the linear ",
+                 "predictor does not go through: the contrast is c'b, taken ",
+                 "from the coefficients. "),
+        if (length(unknown))
+          paste0("`", paste(unknown, collapse = "`, `"), "` ",
+                 if (length(unknown) > 1) "are not arguments"
+                 else "is not an argument",
+                 " of estimand() or of marginaleffects::avg_predictions",
+                 paste(vapply(unknown, near, ""), collapse = ""), ". "),
+        "`conf_level` and `ndraws` work on either route; the estimand's own ",
+        "vocabulary is `contrast` for which comparisons are formed - including ",
+        "contrast = \"within\", the per-stratum contrasts of a nested ",
+        "variable - and `by` for the levels an estimand is computed within.")
+    }
   }
   user_hyp <- "hypothesis" %in% names(dots)
   if (user_hyp) {
