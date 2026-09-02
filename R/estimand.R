@@ -1049,11 +1049,20 @@ reorder_check <- function(model, spec, target, policy, at, contrast, dots_txt, d
     md <- as.character(fitting_mode(spx))
     if (identical(md, "reduced")) dta <- with_reduced(spx, dta)
     f <- cell_formula(spx, md)
-    switch(shadow,
+    out <- switch(shadow,
       lm  = stats::lm(f, data = dta),
       glm = stats::glm(f, data = dta,
                        family = eval(parse(text = spx$family %||% "gaussian"))),
       clm = ordinal::clm(f, data = dta))
+    ## The shadow is fitted here rather than by nest_fit(), so it has to be
+    ## labelled here too: everything downstream reads the parameterization off
+    ## the model, and an unlabelled fit is taken for the cell form. A shadow of
+    ## a restricted declaration is not in the cell form, so the design rows were
+    ## built over conditions whose coefficients the shadow does not have, and
+    ## the check reported the model as one nest_fit() had not produced.
+    attr(out, "nestimand_mode") <- md
+    attr(out, "nestimand_spec") <- spx
+    out
   }
   ## The check permutes factor levels and asks whether the estimand moves, so
   ## it works from the declaration's own data: a subsample taken for the
@@ -1109,6 +1118,13 @@ reorder_check <- function(model, spec, target, policy, at, contrast, dots_txt, d
   }, error = function(e) list(status = "error", note = conditionMessage(e)))
   if (identical(out$status, "inconclusive"))
     message("reorder self-check inconclusive: ", out$note, ".")
+  ## An error stopped the check from running, which says nothing about the
+  ## estimand but does mean it went unchecked. It used to be recorded and not
+  ## said, so the only trace was one word in the printed footer.
+  if (identical(out$status, "error"))
+    message("the reorder self-check could not run, so this estimand is ",
+            "unchecked - the estimate itself is unaffected. The check failed ",
+            "with: ", out$note)
   if (identical(out$status, "failed"))
     warning("reorder self-check FAILED (", out$note, "): the estimate moved when ",
             "nested-factor levels were permuted, so this estimand depends on ",
@@ -1242,6 +1258,12 @@ print.nestimand_estimand <- function(x, digits = 4, ...) {
   if (!is.null(meta$self_check))
     cat("   reorder check: ", meta$self_check$status, sep = "")
   cat("\n")
+  ## A check that did not pass is worth the line it takes to say why. Reaching
+  ## the note by hand means knowing that on a several-target estimand the
+  ## attribute sits on each part rather than on the collection, and `attr()`
+  ## returns NULL rather than complaining when it is asked of the collection.
+  if (!is.null(meta$self_check) && !identical(meta$self_check$status, "passed"))
+    cat("  (", meta$self_check$note, ")\n", sep = "")
   if (!is.null(meta$bounds)) {
     cat("Bounds over all admissible policies:\n")
     b <- meta$bounds

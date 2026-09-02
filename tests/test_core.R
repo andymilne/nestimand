@@ -3121,6 +3121,49 @@ chk("random reduced: the covariance is reported in the effects, not the columns"
       nm <- rownames(r$participant)
       !any(grepl("^dm_", nm)) })
 
+## The shadow is fitted here rather than by nest_fit(), so it carries no
+## parameterization label unless one is put on it - and an unlabelled fit is
+## read as the cell form. For a restricted declaration the shadow is not in the
+## cell form, so the check built design rows over conditions whose coefficients
+## the shadow does not have and reported the model as one nest_fit() had not
+## produced. Reported as `reorder check: error`, on an estimand that was itself
+## perfectly sound.
+if (requireNamespace("lme4", quietly = TRUE)) {
+  sp_shadow <- suppressMessages(nesting_spec(re_red_d,
+    response ~ chord_type * (inversion + top) * GMSI +
+      (chord_type * (inversion + top) | participant),
+    "inversion %in% chord_type", fit = "lmer"))
+  m_shadow <- suppressWarnings(fit_from(sp_shadow))
+  ## on the linear-map route, which is where the parameterization of the model
+  ## is actually read: the prediction route works either way
+  sc_shadow <- suppressWarnings(attr(nest_estimand(m_shadow, inversion,
+    policy = "proportional", bounds = FALSE, type = "eta"),
+    "nestimand")$self_check)
+  chk("reorder: a restricted mixed fit is checked, not reported as foreign",
+      identical(sc_shadow$status, "passed"))
+  chk("reorder: an interaction target on the same fit is checked too",
+      identical(suppressWarnings(attr(nest_estimand(m_shadow,
+        chord_type:inversion, policy = "proportional", bounds = FALSE,
+        type = "eta"), "nestimand")$self_check$status), "passed"))
+}
+chk("reorder: a check that could not run says so rather than recording it silently",
+    { z <- character(0)
+      withCallingHandlers(
+        reorder_check(lm(response ~ training, data = dat), sp, "chord_type",
+                      nest_policy(sp, "chord_type", "equal"), NULL, "pairwise",
+                      "", sp$data),
+        message = function(mm) { z <<- c(z, conditionMessage(mm))
+                                 invokeRestart("muffleMessage") })
+      any(grepl("reorder self-check could not run", z)) })
+chk("reorder: and the printed footer carries the reason, not just the word",
+    { e_ok <- nest_estimand(mf, chord_type, bounds = FALSE, self_check = FALSE)
+      meta <- attr(e_ok, "nestimand")
+      meta$self_check <- list(status = "error", note = "a stated reason")
+      attr(e_ok, "nestimand") <- meta
+      txt <- paste(utils::capture.output(print(e_ok)), collapse = " ")
+      grepl("reorder check: error", txt, fixed = TRUE) &&
+        grepl("a stated reason", txt, fixed = TRUE) })
+
 ## An argument the coefficient route cannot take is one thing; an argument that
 ## is nothing's is another. Reporting the second as the first sends the reader
 ## to the wrong documentation - `method` was described as an argument of

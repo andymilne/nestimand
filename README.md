@@ -1,23 +1,26 @@
 # nestimand
 
-Estimands for partially nested designs, by translation into realized-cell space.
+Fitting and estimation for partially nested designs — designs containing a
+factor whose levels exist only within certain levels of another. Chord
+inversion, undefined for augmented triads. A dose that exists only in the
+treatment arm. A follow-up question asked only of those who answered yes.
 
-Declare the nesting structure once. The package fits the design in the
-realized-cell parameterization, where estimation is unconditionally well posed —
-full rank, no aliasing, no identification constraints — and translates grids,
-labels, draws, priors, and results back into the original variable space in
-which research questions, priors, and reports are stated.
+Give `nestimand` your formula and your data. It fits the model your formula
+names over the conditions your design actually realizes — full rank, nothing
+aliased, nothing held at zero — and translates grids, labels, draws, priors and
+results back into the variables you wrote.
 
-The decisive reason is the random effects. Written as a chain of interaction
-terms, a random slope over the nesting structure is rank-deficient by
-construction: the columns for impossible combinations are identically zero for
-every group, leaving dimensions of the covariance that no amount of data can
-identify. No engine refuses such a structure — lme4 fits it and reports a
-convergence warning, easily mistaken for sparse data — so the chain form is
-confined in practice to nested grouping factors, which impose compound symmetry.
-Placing the whole categorical structure on a single realized-cell factor makes
-every random-effects structure R offers available and identified: unstructured,
-diagonal, any brms covariance, or the grouping chain as a constrained submodel.
+The model fitted is the one you asked for and nothing else. A `+` between two
+variables stays a `+`, on the random side as on the fixed side. What changes is
+only how it is written, so that every coefficient is estimable.
+
+This matters most for random effects. A random slope written over the original
+factors carries columns for combinations that do not exist: identically zero for
+every group, so no amount of data can identify those dimensions of the
+covariance. No engine refuses such a structure — lme4 fits it and reports a
+convergence warning, easily mistaken for sparse data. Written over the columns
+the design does identify, every parameter is estimable, and any covariance
+structure R offers is available: unstructured, diagonal, any brms covariance.
 
 ## Install
 
@@ -40,16 +43,27 @@ install.packages("nestimand", repos = NULL, type = "source")
 
 ## Use
 
+Three verbs cover an analysis.
+
 ```r
 library(nestimand)
 
-sp <- nesting_spec(dat, response ~ chord_type * inversion + training,
-                   "inversion %in% chord_type")
-m  <- nest_fit(sp)
-e  <- estimand(m, chord_type, policy = "equal")
+m <- nest_fit("lm", response ~ chord_type * inversion + training, dat)
+e <- nest_estimand(m, chord_type, policy = "equal")
 
-e             # contrasts in the original variable names, with bounds
-show_code(e)  # the code that produced them, for saving and adapting
+e                # contrasts in the original variable names, with bounds
+nest_summary(m)  # the coefficient table, read back as effects
+show_code(e)     # the code that produced them, for saving and adapting
+```
+
+The nesting structure need not be stated: where a variable is undefined it has
+no value, so a data frame carrying `NA` says what the structure is, and what was
+read off it is reported in the syntax you would have written. Declare it
+yourself when the data cannot settle it, or when you mean something else:
+
+```r
+m <- nest_fit("lm", response ~ chord_type * inversion, dat,
+              nests = "inversion %in% chord_type")
 ```
 
 Every across-boundary contrast requires a weighting policy — a distribution over
@@ -60,10 +74,10 @@ alongside the point estimate.
 
 ## Help
 
-`?nestimand` gives an overview, with the functions grouped by how often they are
-needed: the five that cover an ordinary analysis, those the analysis may call
-for, those that report what the translation did, and those exported only so that
-the code from `show_code()` will run.
+`?nestimand` gives an overview: the three verbs an ordinary analysis needs, how
+the structure is declared or read, and what the model is fitted on. Everything
+else the package exports is machinery, exported so that the code `show_code()`
+emits will run.
 
 ## Tests
 
@@ -78,4 +92,7 @@ The brms checks compile Stan programs. Installing `cmdstanr` and setting
 `options(brms.backend = "cmdstanr")` reduces compilation from minutes to
 seconds; the test script detects and announces it automatically.
 
-`NOTES.md` records what has been verified by execution and what has not.
+`dev/check_docs.R` and `dev/check_calls.R` audit the help pages and the
+package's own calls against the signatures; run both before committing a
+signature change. `NOTES.md` records what has been verified by execution and
+what has not.
