@@ -5,46 +5,68 @@
 \title{Estimands for Partially Nested Designs by Cell Translation}
 \description{
 A partially nested design contains a factor whose levels exist only within
-certain levels of another factor: chord inversion, say, which is undefined for
+certain levels of another: chord inversion, say, which is undefined for
 augmented triads. Default modelling practice mishandles such designs quietly,
 producing aliased coefficients with misleading labels and marginal summaries
 that change when factor levels are permuted.
 
-\pkg{nestimand} declares the design once, fits it in the realized-cell
-parameterization, where estimation is unconditionally well posed, and
-translates grids, labels, draws, priors, and results back into the original
-variable space in which research questions and reports are stated. Every
-contrast that crosses the structural boundary requires an explicit weighting
-policy, because no such contrast is defined without one.
+\pkg{nestimand} fits the model your formula names over the conditions your
+design realizes, and translates grids, labels, draws, priors and results back
+into the variables you wrote. Every contrast that crosses a structural boundary
+requires an explicit weighting policy, because no such contrast is defined
+without one.
 }
-\section{The everyday workflow}{
-Five functions cover an ordinary analysis.
+\section{Three verbs}{
+An analysis is three calls.
 
 \tabular{ll}{
-  \code{\link{nesting_spec}} \tab declare the design once: which factor nests within which \cr
-  \code{\link{nest_fit}} \tab fit it, keeping the call that was run \cr
+  \code{\link{nest_fit}} \tab fit the model, keeping the code that produced it \cr
   \code{\link{nest_estimand}} \tab contrasts in the original variable names, with bounds \cr
-  \code{\link{show_code}} \tab the code that produced a result, for saving and adapting \cr
-  \code{\link{engine_types}} \tab which \code{type} values the installed engine accepts \cr
-  \code{\link{nest_summary}} \tab the coefficient table, in the original parameterization \cr
+  \code{\link{nest_summary}} \tab the coefficient table, read back as effects \cr
 }
 
-\preformatted{sp <- nesting_spec(dat, response ~ chord_type * inversion + training,
-                   "inversion \%in\% chord_type")
-m  <- nest_fit(sp)
-e  <- nest_estimand(m, chord_type, policy = "equal")
-show_code(e)}
+\preformatted{m <- nest_fit(dat, rating ~ chord_type * inversion + training)
+e <- nest_estimand(m, chord_type, policy = "equal")
+nest_summary(m)}
+
+\code{\link{show_code}} returns the script that produced any of them, for
+saving, adapting and re-running.
+}
+\section{What you have to say, and what is worked out}{
+The formula and the nesting structure determine the model between them, and
+nothing is added to it. A \code{+} where the design would admit a \code{*} is a
+restriction you stated, and it is fitted as the restriction it is.
+
+The structure itself need not be stated. Where a variable is undefined it has no
+value, and those rows are exactly the ones some other variable's levels pick
+out, so \code{\link{nest_fit}} reads the structure off a data frame carrying
+\code{NA}:
+
+\preformatted{## inversion is NA wherever chord_type is "aug"
+m <- nest_fit(dat, rating ~ chord_type * inversion)
+#> nesting structure read from the data: nests = "inversion \%in\% chord_type"}
+
+What was inferred is always said, in the syntax you would have written, and an
+\code{NA} pattern no combination of the other variables accounts for is refused
+as missing data rather than read as structure. Declare it yourself when the data
+cannot settle it, or when you mean something else:
+
+\preformatted{m <- nest_fit(dat, rating ~ chord_type * inversion,
+              "inversion \%in\% chord_type")}
+
+\code{\link{nesting_spec}} makes the declaration without fitting, for looking at
+before committing to a long fit; \code{nest_fit} accepts either it or the data.
 }
 \section{Deeper and branching structures}{
 A nested variable may itself hold nested variables, to any depth, and one parent
-may hold several. Each link is one declaration, and links sharing a parent may be
-gathered:
+may hold several. Each link is one declaration, and links sharing a parent may
+be gathered:
 
 \preformatted{## inversion and X1 are both undefined for augmented triads;
 ## Z exists only within an inversion
-sp <- nesting_spec(dat, rating ~ chord_type * inversion * X1 * Z,
-                   c("inversion \%in\% chord_type", "X1 \%in\% chord_type",
-                     "Z \%in\% inversion"))
+nest_fit(dat, rating ~ chord_type * inversion * X1 * Z,
+         c("inversion \%in\% chord_type", "X1 \%in\% chord_type",
+           "Z \%in\% inversion"))
 
 ## the two siblings, gathered - these four are the same declaration
 c(inversion, X1) \%in\% chord_type
@@ -52,74 +74,47 @@ c(inversion, X1) \%in\% chord_type
 inversion + X1 \%in\% chord_type
 c("inversion \%in\% chord_type", "X1 \%in\% chord_type")}
 
-Only the nesting has to be declared. A categorical variable the formula crosses
-with the declared structure is part of the design and joins the cell factor by
-itself - \code{top_note} below needs no entry in \code{nests} - so it can be
-the target of an estimand like any other design variable:
+Only the nesting is declared. A categorical variable the formula crosses with
+the declared structure is part of the design and joins the cell factor by
+itself - \code{top_note} below needs no entry - so it can be the target of an
+estimand like any other design variable:
 
-\preformatted{nesting_spec(dat, rating ~ chord_type * inversion * top_note,
-             "inversion \%in\% chord_type")}
+\preformatted{nest_fit(dat, rating ~ chord_type * inversion * top_note,
+         "inversion \%in\% chord_type")}
 
-Three kinds of variable stay covariates: one entering additively, whose effect is
-thereby declared common to every condition; a numeric one; and an ordered factor,
-whose contrasts say it is meant as a quantity. Naming one in \code{nests} on its
-own folds it into the cell factor deliberately.
+Three kinds of variable stay covariates: one entering additively, whose effect
+is thereby declared common to every condition; a numeric one; and an ordered
+factor, whose contrasts say it is meant as a quantity. Naming one in
+\code{nests} on its own folds it into the cell factor deliberately.
 
 The strata of a nested variable are its own ancestors, and a sibling is not one
 of them: \code{nest_estimand(m, X1, by = "chord_type")} compares the levels of
-\code{X1} within each chord type, while \code{nest_estimand(m, Z,
-by = c("chord_type", "inversion"))} compares within each chord type and
-inversion. A variable declared
-inside two parents is refused, as is \code{\%in\%} chained within one entry -
-\code{Z \%in\% inversion \%in\% chord_type} is two declarations, since R reads
-it as \code{(Z \%in\% inversion) \%in\% chord_type}.
+\code{X1} within each chord type, while \code{nest_estimand(m, Z, by =
+c("chord_type", "inversion"))} compares within each chord type and inversion. A
+variable declared inside two parents is refused, as is \code{\%in\%} chained
+within one entry - \code{Z \%in\% inversion \%in\% chord_type} is two
+declarations, since \R reads it as \code{(Z \%in\% inversion) \%in\% chord_type}.
 }
-\section{As the analysis requires}{
-\tabular{ll}{
-  \code{\link{latent_estimand}} \tab the contrast as a linear functional: exact, and necessary for ordinal fits \cr
-  \code{\link{latent_draws}} \tab the same, draw by draw, from a \pkg{brms} posterior \cr
-  \code{\link{nest_policy}} \tab build and inspect a weighting policy before using it \cr
-  \code{\link{nest_prior}} \tab state a prior in effect space or cell space \cr
-  \code{\link{prior_audit}} \tab what a stated prior implies in the other space \cr
-  \code{\link{prior_for_estimand}} \tab what it implies for a named contrast \cr
-  \code{\link{random_terms}} \tab how a declared random structure is translated \cr
-  \code{\link{random_slope_rank}} \tab the rank deficiency of a structural random slope \cr
-  \code{\link{random_covariance}} \tab the random-effects covariance, in the original terms \cr
-  \code{\link{random_heterogeneity}} \tab the spread of a named effect across units \cr
-}
-}
-\section{Inspecting the translation}{
-Not needed for an analysis, but useful for seeing what the package did.
+\section{How the model is parameterized}{
+What is fitted is the design your formula gives over the realized cells, with
+the columns that design cannot inform removed: identically zero first, for
+conditions that do not exist, then linearly redundant. What remains is full rank,
+so no coefficient is aliased and nothing has to be held at zero on any engine,
+\pkg{brms} included. Where the formula crosses the structure fully this is the
+cell factor itself, \code{~ 0 + cell}, whose coefficients are the cell means -
+the same model in coordinates that read directly.
 
-\tabular{ll}{
-  \code{\link{cell_formula}} \tab the fitting formula, in either parameterization \cr
-  \code{\link{effect_basis}} \tab the matrix A relating cell means to identified effects \cr
-  \code{\link{translation}} \tab A and its inverse, with the cell and effect names \cr
-  \code{\link{fitting_mode}} \tab which parameterization is chosen, and why \cr
-  \code{\link{chain_terms}} \tab the ancestry-closed chain terms \cr
-  \code{\link{boundary_vars}} \tab the variables that cross the structural boundary \cr
-  \code{\link{cell_grid}} \tab one row per realized cell \cr
-  \code{\link{has_thresholds}} \tab whether the declared family carries thresholds \cr
+You do not have to think about this to use the package: everything reported is
+stated in the variables you wrote. \code{\link{nesting_spec}} prints the
+structure that will be fitted and how many of the realized cells it spans.
 }
-}
-\section{Called by emitted code}{
-The code returned by \code{\link{show_code}} has to run, so the functions it calls
-are exported. They are not intended to be typed.
-
-\tabular{ll}{
-  \code{\link{add_cells}} \tab recompute the cell factor on a grid \cr
-  \code{\link{counterfactual_grid}} \tab the G-computation grid, with policy weights \cr
-  \code{\link{policy_weights}} \tab the weights a policy places on a grid \cr
-  \code{\link{policy_vertices}} \tab the single-version policies bounding the estimand \cr
-  \code{\link{policy_contrast_matrix}} \tab weighted design-matrix rows, one per stratum \cr
-  \code{\link{add_bounds}} \tab attach the partial-identification region \cr
-  \code{\link{mfx_canonical}} \tab fix contrast labels and direction across engine versions \cr
-  \code{\link{mfx_term_column}} \tab locate the contrast label column \cr
-  \code{\link{mfx_hypothesis}} \tab the \code{hypothesis} spelling the installed version accepts \cr
-  \code{\link{mfx_formula_hypothesis}} \tab whether that version takes a formula \cr
-  \code{\link{prior_stanvars}} \tab the \pkg{brms} data blocks for a translated prior \cr
-  \code{\link{prior_statement}} \tab the \pkg{brms} prior statement \cr
-}
+\section{Other exported functions}{
+Everything else the package exports is machinery. Some of it is worth looking at
+to see what was done - \code{\link{cell_formula}}, \code{\link{effect_basis}},
+\code{\link{fitting_mode}}, \code{\link{reduced_design}}. The rest is exported
+only because the code \code{\link{show_code}} emits has to run, and that code
+calls the package rather than inlining cell tables and weight vectors as
+literals. None of it is intended to be typed.
 }
 \references{
 Milne, A. J. Partially nested variables: modelling and estimation in R.

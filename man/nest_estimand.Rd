@@ -2,11 +2,6 @@
 \alias{nest_estimand}
 \alias{print.nestimand_estimand}
 \alias{add_bounds}
-\alias{show_code}
-\alias{show_code.default}
-\alias{show_code.nestimand_estimand}
-\alias{engine_types}
-\alias{print.nestimand_types}
 \title{Estimands in the original variable space}
 \description{
 \code{nest_estimand} returns a labelled contrast table in the original variable names, under
@@ -25,9 +20,7 @@ add_bounds(est, model, spec, target, contrast = "pairwise", scale = c("response"
            "latent"), cells = spec$cells, route = c("g_computation",
            "cells"), data = spec$data, ...)
 
-show_code(x, ...) 
 
-engine_types(model = NULL) 
 }
 \arguments{
   \item{model}{a fitted model, ideally from \code{\link{nest_fit}}.}
@@ -62,9 +55,9 @@ and releases.}
   \item{dry_run}{return the code without computing anything. \code{show_code()} prints the code of a result that has already been computed, since the inner call is evaluated first; this is the way to see the code beforehand.}
   \item{...}{passed to \code{marginaleffects::avg_predictions}, which computes the estimand, and written into the saved code: \code{conf_level}, \code{p_adjust}, \code{vcov}, \code{type}, \code{df} and the rest are supplied this way. See \code{?marginaleffects::avg_predictions} for what it accepts. \code{ndraws} thins the posterior of a \pkg{brms} fit and works on either route: passed to the prediction function, or applied to the draws directly. It is the other lever on a large problem, alongside \code{subsample}, and usually the cheaper, since a posterior has far more draws than the quantities they inform. A \code{hypothesis} supplied here replaces the comparison that \code{contrast} would have formed - the two cannot both be sent - and the direction convention goes with it, the labels then being whatever the engine returns. This is the way to ask for comparisons within each level of a grouped output, as an ordinal fit on the response scale produces: \code{hypothesis = ~ pairwise | group}. When \code{type} names the linear predictor the estimand is computed from the coefficients instead, and \code{conf_level} is the only one of these that applies.}
   \item{.env}{environment in which the assembled code is evaluated.}
+  \item{x}{an estimand, for printing.}
   \item{est}{an estimand table, for \code{add_bounds}.}
   \item{cells}{the realized cells the bounds are computed over, matching any restriction applied to the estimand itself.}
-  \item{x}{an object carrying code, for \code{show_code}.}
   \item{digits}{decimal places for the printed table. The object keeps full precision; only the display is rounded.}
   \item{scale}{internal, for \code{add_bounds}: whether the bounds are computed from the coefficients or through the prediction function. \code{\link{nest_estimand}} sets it from \code{type}.}
 }
@@ -179,27 +172,25 @@ effects on two machines.
 \value{
 \code{nest_estimand} an estimand table of class \code{nestimand_estimand}, carrying the
 policy, contrast, scale, bounds, self-check result, and code in its \code{nestimand}
-attribute. \code{show_code} prints the code and returns it invisibly.
+attribute; \code{\link{show_code}} prints it.
 }
 \seealso{
 \code{\link{nest_fit}}, \code{\link{nest_policy}}, \code{\link{latent_estimand}}
 }
 \examples{
 \dontrun{
-sp <- nesting_spec(dat, response ~ chord_type * inversion + training,
-                   "inversion %in% chord_type")
-m  <- nest_fit(sp)
-e  <- nest_estimand(m, chord_type, policy = "equal")   # the fit carries its spec
+m <- nest_fit(dat, response ~ chord_type * inversion + training,
+              "inversion %in% chord_type")
+e <- nest_estimand(m, chord_type, policy = "equal")    # the fit carries its declaration
 e
 show_code(e)
 
 ## A branching, three-deep structure. The target decides which strata the
 ## contrast is pooled over: X1 within each chord type, Z within each chord
 ## type and inversion.
-sp2 <- nesting_spec(dat, response ~ chord_type * inversion * X1 * Z,
-                    c("inversion %in% chord_type", "X1 %in% chord_type",
-                      "Z %in% inversion"))
-m2 <- nest_fit(sp2)
+m2 <- nest_fit(dat, response ~ chord_type * inversion * X1 * Z,
+               c("inversion %in% chord_type", "X1 %in% chord_type",
+                 "Z %in% inversion"))
 nest_estimand(m2, X1, by = "chord_type")               # one contrast per chord type
 nest_estimand(m2, top_note, by = chord_type)           # the same, strata named, for a
                                                   # variable that has no ancestors

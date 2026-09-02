@@ -54,3 +54,4 @@ standard deviations, one row per grouping factor and contrast.
 effects when \code{random = TRUE}; \code{\link{latent_estimand}} for the
 contrast vectors themselves.
 }
+\keyword{internal}

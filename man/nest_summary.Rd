@@ -63,9 +63,8 @@ in the \code{nestimand_map} attribute.
 }
 \examples{
 \dontrun{
-sp <- nesting_spec(dat, response ~ chord_type * inversion + training,
-                   "inversion \%in\% chord_type")
-m  <- nest_fit(sp)
+m <- nest_fit(dat, response ~ chord_type * inversion + training,
+              "inversion \%in\% chord_type")
 nest_summary(m)                # effect coefficients, with their meanings
 nest_summary(m, "cells")       # the realized-cell means
 }

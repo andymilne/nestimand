@@ -1159,3 +1159,33 @@ line range exactly - then drop the expressions that matched, and iterate on
 whatever the removal orphaned by re-running and reading the error. Same lesson
 as `bar_terms_of()` and the target expansion: hand-rolled parsing of R by
 pattern is wrong, and R will do it correctly if asked.
+
+
+## The help files, rewritten around the three verbs
+
+Not a patch. What was wrong was the shape: the package page opened "Five
+functions cover an ordinary analysis", led with `nesting_spec()`, and listed 45
+exports in four tables as though they were equals.
+
+- **`nestimand-package.Rd`** now opens with the three verbs and a three-line
+  example, then says what you have to state and what is worked out - including
+  the inference, with its announcement shown. The four function tables are gone;
+  one closing paragraph says that everything else is machinery, some worth
+  looking at and the rest exported only because the emitted code has to run.
+- **`show_code.Rd`** is a page of its own rather than an alias buried in the
+  estimand page. It is the fourth thing a user types, and it explains why the
+  package exports more than three functions - the code calls nestimand rather
+  than inlining cell tables as literals.
+- **`\keyword{internal}`** on `cell_formula`, `latent_estimand`, `mfx_canonical`,
+  `nest_policy`, `nest_prior` and `random_covariance`, so the index shows six
+  user-facing pages rather than twelve of equal weight. Nothing is unexported:
+  the emitted code still needs them.
+- **`nesting_spec.Rd`**'s `nests` entry had grown to a 400-word paragraph by
+  accretion. It is now three sentences plus two sections - "Reading the structure
+  from the data" and "What has to be declared" - and the `Details` section no
+  longer says an NA in a nesting variable is refused, which stopped being true
+  when the sentinel became automatic.
+- **`nest_fit.Rd`** leads with the one-call form and says what it works out;
+  the spec form is offered second, for inspecting before a long fit.
+- Every example uses the current API, and `tools::checkRd()` is clean on all
+  twelve pages.

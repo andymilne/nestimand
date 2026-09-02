@@ -86,3 +86,4 @@ both spaces and over the full coefficient vector. \code{prior_audit} and
 \seealso{
 \code{\link{nest_fit}}, \code{\link{nest_estimand}}
 }
+\keyword{internal}

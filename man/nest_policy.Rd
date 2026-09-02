@@ -59,3 +59,4 @@ partial-identification region; \code{boundary_vars} the nested variables.
 \code{\link{nest_estimand}}, whose help sets out what each policy and route means.
 \code{\link{nest_estimand}}, \code{\link{add_bounds}}, \code{\link{prior_for_estimand}}
 }
+\keyword{internal}

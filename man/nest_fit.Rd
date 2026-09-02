@@ -4,12 +4,21 @@
 \alias{random_slope_rank}
 \alias{has_thresholds}
 \alias{print.nestimand_code}
-\title{Fit a declared design, keeping the call}
+\title{Fit a partially nested design}
 \description{
-\code{nest_fit} assembles the model call as text and evaluates it, so the returned fit
-carries the code that produced it and \code{\link{show_code}} can show the whole
-pipeline. Arguments in \code{...} reach the engine unaltered.
-\code{random_terms} translates a declared random structure.
+\code{nest_fit} declares the design and fits it. Give it the data and a formula and it
+works the rest out - reading the nesting structure off the data where a variable is
+undefined, choosing the parameterization, and translating any random structure to
+conditions that exist:
+
+\preformatted{m <- nest_fit(dat, rating ~ chord_type * inversion + training)}
+
+Give it a \code{\link{nesting_spec}} instead when you want to look at the declaration
+before committing to a long fit, or reuse one across several fits.
+
+The call is assembled as text and evaluated, so the returned fit carries the code that
+produced it and \code{\link{show_code}} can show the whole pipeline - the code that
+ran, not a reconstruction of it. Arguments in \code{...} reach the engine unaltered.
 }
 \usage{
 nest_fit(spec, formula = NULL, nests = NULL, mode = NULL,
@@ -56,7 +65,7 @@ same formula however its declarations were written; the \code{"cells"} form does
 depend on the order in any case.
 
 \preformatted{sp <- nesting_spec(dat, rating ~ chord_type * inversion * X1 +
-                          (chord_type * inversion * X1 | participant),
+                     (chord_type * inversion * X1 | participant),
                    c(inversion, X1) \%in\% chord_type, fit = "lmer")
 random_terms(sp, "cells")
 ## (0 + cell | participant)

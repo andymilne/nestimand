@@ -66,3 +66,4 @@ the response scale, where this route uses the coefficients directly.
 
 \code{\link{nest_estimand}}, \code{\link{nest_policy}}
 }
+\keyword{internal}

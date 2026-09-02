@@ -35,3 +35,4 @@ the number of reversed rows in its \code{nestimand_flipped} attribute.
 \seealso{
 \code{\link{nest_estimand}}
 }
+\keyword{internal}
