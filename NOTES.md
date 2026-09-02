@@ -1106,3 +1106,56 @@ directly. Measured rather than argued:
 So its unique contribution is `cov =`, and vector-valued `mean`/`sd` stated
 compactly. Everything scalar is reachable through brms syntax, which `nest_fit()`
 translates. Worth keeping only if a correlated prior is ever wanted.
+
+
+## emmeans support and the effects fitting mode removed
+
+The effects parameterization - fitting on the original factors, with the
+uninformative columns held at zero by `constant(0)` priors - existed for two
+callers: `engine = "emmeans"`, which is formula-driven and cannot read a cell
+factor, and priors stated coordinate-wise in effect space. Neither is wanted, so
+both are gone, and with them:
+
+- `R/chain.R` entirely: `chain_priors()`, `chain_prior_object()`,
+  `zero_columns()`, `chain_random_zeros()` and their print methods.
+- `closed_terms()`, the ancestry-closed form of the declaration, whose only
+  remaining caller was the effects formula.
+- `sentinel_relevel_code()`, `random_structure = "chain_slope"`, the `engine`
+  argument of `nest_fit()`, and the `mode = "effects"` branches through
+  `cell_formula()`, `design_rows()`, `fit_mode()` and `nest_summary()`.
+- `requires_effect_basis()`, which let a prior pin the fitting basis.
+
+What did **not** go, and it is worth being clear why. `effect_basis()`,
+`chain_terms()` and `sentinel_first()` look like part of the same subsystem and
+are not: the basis is what `nest_summary()` uses to read cell means back as
+effects, and what translates a prior between the two spaces. It is a basis, not
+a parameterization - nothing is fitted on it. Removing it would have taken the
+back-translation with it.
+
+`mode` is now `c("cells", "reduced")` and `fitting_mode()` takes only a spec.
+
+## No user-facing covariance prior
+
+`nest_prior(cov = )` let the user state an arbitrary joint prior on the cells.
+Correlating the cells is nestimand's job, not theirs: a prior stated on the
+effects *is* a correlated prior on the cells, and producing that correlation is
+what the translation is for. The argument is gone; `mean` and `sd` remain, and
+they are always independent in whichever space the prior is stated in.
+
+`nest_prior()` itself stays exported, because the code `show_code()` emits calls
+it and that code has to run - the same reason two dozen other functions are
+public without being things a user would reach for.
+
+## A mistake worth recording
+
+Pruning the effects-mode tests, I wrote a bracket-counting loop to find each
+`chk()` block. Parentheses inside strings and comments broke it, it swallowed
+the rest of the file as one block, and it deleted 3,200 of 3,600 lines. The
+file was recoverable because the committed copy was on disk.
+
+The fix was to stop counting brackets and let R parse the file - `parse(f,
+keep.source = TRUE)` with `getSrcref()` gives every top-level expression and its
+line range exactly - then drop the expressions that matched, and iterate on
+whatever the removal orphaned by re-running and reading the error. Same lesson
+as `bar_terms_of()` and the target expansion: hand-rolled parsing of R by
+pattern is wrong, and R will do it correctly if asked.

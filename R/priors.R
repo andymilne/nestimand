@@ -11,7 +11,7 @@ resolve_prior <- function(priors, spec, .env = parent.frame()) {
   do.call(nest_prior, c(list(spec = spec), lapply(priors$call, eval, .env)))
 }
 
-nest_prior <- function(spec, mean, sd = NULL, cov = NULL,
+nest_prior <- function(spec, mean, sd = NULL,
                        on = c("effects", "cells"),
                        family = c("normal", "student_t"), df = 3,
                        covariate_mean = 0, covariate_sd = NULL) {
@@ -32,19 +32,15 @@ nest_prior <- function(spec, mean, sd = NULL, cov = NULL,
   A <- effect_basis(spec)
   nm <- if (on == "effects") colnames(A) else rownames(A)
   mean <- expand_named(mean, nm, "mean")
-  if (is.null(cov)) {
-    if (is.null(sd))
-      stop("state either `sd` (independent priors) or `cov` (a joint prior).")
-    sd <- expand_named(sd, nm, "sd")
-    if (any(sd <= 0)) stop("every `sd` must be positive.")
-    cov <- diag(sd^2, nrow = length(sd))
-    dimnames(cov) <- list(nm, nm)
-  } else {
-    if (!identical(dim(cov), c(length(nm), length(nm))))
-      stop("`cov` must be ", length(nm), " x ", length(nm), ", one row and ",
-           "column per ", on, ".")
-    dimnames(cov) <- list(nm, nm)
-  }
+  if (is.null(sd)) stop("`sd` is needed: one standard deviation per ", on,
+                        ", or one for all of them.")
+  sd <- expand_named(sd, nm, "sd")
+  if (any(sd <= 0)) stop("every `sd` must be positive.")
+  ## Independent in the space the prior is stated in. Stated on the effects it
+  ## is correlated on the cells, which is the translation's whole point; a
+  ## correlation the user states themselves is not something this asks for.
+  cov <- diag(sd^2, nrow = length(sd))
+  dimnames(cov) <- list(nm, nm)
   ## translate into the fitting space, and back, so both are always available
   if (on == "effects") {
     eff_mean <- mean; eff_cov <- cov
@@ -270,7 +266,6 @@ prior_statement <- function(prior) {
 
 ## Priors that pin the fitting basis: independent non-elliptical, or bounded
 ## support, are declarable only where the coordinates are the effects.
-requires_effect_basis <- function(prior) isTRUE(attr(prior, "requires_effect_basis"))
 
 
 ## --- priors written in brms syntax -----------------------------------------
@@ -317,20 +312,19 @@ prior_from_brms <- function(spec, prior, space = c("effects", "cells"),
     stop("a `class = \"b\"` prior naming individual coefficients cannot be ",
          "translated as it stands: the translation is a joint one, so the whole ",
          "mean structure has to be described. State one prior for the class - ",
-         "set_prior(\"normal(0, 1)\", class = \"b\") - or build the prior with ",
-         "nest_prior(), which takes a mean and a standard deviation per ",
-         "parameter and names them in the space you choose.")
+         "set_prior(\"normal(0, 1)\", class = \"b\") - or state it in cell space ",
+         "with prior_space = \"cells\", where each coefficient is its own.")
   if (nrow(sp$b) > 1)
     stop("several `class = \"b\"` priors were given; the translation needs one ",
-         "description of the mean structure. Combine them, or use nest_prior().")
+         "description of the mean structure. Combine them into one, or state ",
+         "them in cell space with prior_space = \"cells\".")
   pr <- parse_normal_prior(sp$b$prior[1])
   if (is.null(pr))
     stop("`", sp$b$prior[1], "` is not an elliptical prior, and only those ",
          "translate exactly: a normal or student_t prior on the effects induces ",
          "a normal or student_t prior on the cells, mu ~ N(A m, A D A'). For a ",
-         "prior of another shape, fit in the chain parameterization, where the ",
-         "coefficients are the effects themselves: nest_fit(spec, ",
-         "mode = \"effects\", priors = chain_priors(spec)).")
+         "prior of another shape, state it in cell space with ",
+         "prior_space = \"cells\", where it reaches brms as written.")
   np <- nest_prior(spec, mean = pr$mean, sd = pr$sd, on = space,
                    family = pr$family, df = pr$df,
                    covariate_mean = covariate_mean,

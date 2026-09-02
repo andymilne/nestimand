@@ -15,7 +15,7 @@
 ## anywhere below. The folder layout does not matter.
 local({
   want <- c("spec.R", "translate.R", "policy.R", "estimand.R", "fit.R",
-            "latent.R", "priors.R", "chain.R", "summary.R", "random.R")
+            "latent.R", "priors.R", "summary.R", "random.R")
   found <- list.files(".", pattern = "[.][Rr]$", recursive = TRUE, full.names = TRUE)
   hits <- found[basename(found) %in% want]
   missing <- setdiff(want, basename(hits))

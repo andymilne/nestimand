@@ -82,7 +82,6 @@ it as \code{(Z \%in\% inversion) \%in\% chord_type}.
   \code{\link{nest_prior}} \tab state a prior in effect space or cell space \cr
   \code{\link{prior_audit}} \tab what a stated prior implies in the other space \cr
   \code{\link{prior_for_estimand}} \tab what it implies for a named contrast \cr
-  \code{\link{chain_priors}} \tab the \code{constant(0)} declarations chain-mode \pkg{brms} requires \cr
   \code{\link{random_terms}} \tab how a declared random structure is translated \cr
   \code{\link{random_slope_rank}} \tab the rank deficiency of a structural random slope \cr
   \code{\link{random_covariance}} \tab the random-effects covariance, in the original terms \cr
@@ -99,7 +98,6 @@ Not needed for an analysis, but useful for seeing what the package did.
   \code{\link{fitting_mode}} \tab which parameterization is chosen, and why \cr
   \code{\link{chain_terms}} \tab the ancestry-closed chain terms \cr
   \code{\link{boundary_vars}} \tab the variables that cross the structural boundary \cr
-  \code{\link{zero_columns}} \tab which design columns the data cannot inform \cr
   \code{\link{cell_grid}} \tab one row per realized cell \cr
   \code{\link{has_thresholds}} \tab whether the declared family carries thresholds \cr
 }
@@ -119,8 +117,6 @@ are exported. They are not intended to be typed.
   \code{\link{mfx_term_column}} \tab locate the contrast label column \cr
   \code{\link{mfx_hypothesis}} \tab the \code{hypothesis} spelling the installed version accepts \cr
   \code{\link{mfx_formula_hypothesis}} \tab whether that version takes a formula \cr
-  \code{\link{chain_prior_object}} \tab the declarations as a \pkg{brms} prior \cr
-  \code{\link{chain_random_zeros}} \tab the uninformative columns, per grouping factor \cr
   \code{\link{prior_stanvars}} \tab the \pkg{brms} data blocks for a translated prior \cr
   \code{\link{prior_statement}} \tab the \pkg{brms} prior statement \cr
 }

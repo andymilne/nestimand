@@ -48,9 +48,8 @@ nest_summary <- function(model, space = c("effects", "cells"),
     ## coefficients are already the effects this function exists to produce.
     ## That happens when the declaration asks for less than the saturated
     ## structure, which the cell factor cannot express.
-    md <- attr(model, "nestimand_mode")
-    if (identical(md, "effects") || identical(md, "reduced"))
-      return(effects_fit_summary(model, spec, conf_level, random, space = md))
+    if (identical(attr(model, "nestimand_mode"), "reduced"))
+      return(reduced_fit_summary(model, spec, conf_level, random))
     stop("nest_summary() reads the cell coefficients, and this model has none: ",
          "it was not fitted in the cell parameterization, and does not carry ",
          "the declaration that says it was fitted as effects. Refit with ",
@@ -158,8 +157,7 @@ nest_summary <- function(model, space = c("effects", "cells"),
   if (isTRUE(random))
     attr(out, "nestimand_random") <-
       ## the reduced form leaves the random side in the cell parameterization
-      tryCatch(random_covariance(model, spec,
-                                 if (identical(space, "reduced")) "cells" else space),
+      tryCatch(random_covariance(model, spec, "cells"),
                error = function(e) structure(list(), note = conditionMessage(e)))
   attr(out, "nestimand_space") <- space
   ## which engine produced the coefficients being translated: the same table
@@ -178,8 +176,7 @@ nest_summary <- function(model, space = c("effects", "cells"),
 ## A fit whose coefficients are already effects. Nothing is translated: the
 ## aliased columns the chain form carries are dropped, since they are held at
 ## zero and say nothing, and each row is labelled with the term it belongs to.
-effects_fit_summary <- function(model, spec, conf_level = 0.95, random = FALSE,
-                               space = "effects") {
+reduced_fit_summary <- function(model, spec, conf_level = 0.95, random = FALSE) {
   b <- coef_vector(model)
   keep <- names(b)[!is.na(b)]
   V <- vcov_beta(model, keep)
@@ -199,18 +196,14 @@ effects_fit_summary <- function(model, spec, conf_level = 0.95, random = FALSE,
   }
   ## A coefficient held at zero says which kind of constraint holds it, since a
   ## row of zeros with no direction to report is otherwise unreadable.
-  held <- if (identical(space, "reduced")) character(0) else tryCatch({
-    tb <- chain_priors(spec)$table
-    stats::setNames(tb$kind[tb$part == "fixed"], tb$coef[tb$part == "fixed"])
-  }, error = function(e) character(0))
-  out$meaning <- ifelse(out$term %in% names(held),
-                        paste("held at zero:", held[out$term]), "as fitted")
-  ## the reduced form's columns are named syntactically so that every engine
-  ## carries them unaltered; the report names the effect each one stands for
-  if (identical(space, "reduced"))
-    out$term <- tryCatch(reduced_labels(spec, out$term),
-                         error = function(e) out$term)
-  attr(out, "nestimand_space") <- space
+  ## every column of the reduced design is estimated: it is full rank by
+  ## construction, so there is nothing held at zero to explain
+  out$meaning <- "as fitted"
+  ## its columns are named syntactically so that every engine carries them
+  ## unaltered; the report names the effect each one stands for
+  out$term <- tryCatch(reduced_labels(spec, out$term),
+                       error = function(e) out$term)
+  attr(out, "nestimand_space") <- "reduced"
   attr(out, "nestimand_fit") <- spec$fit
   ## a brmsformula deparses to its whole object; one more formula() call reduces
   ## it to the formula a reader wants to see
@@ -223,8 +216,7 @@ effects_fit_summary <- function(model, spec, conf_level = 0.95, random = FALSE,
   if (isTRUE(random))
     attr(out, "nestimand_random") <-
       ## the reduced form leaves the random side in the cell parameterization
-      tryCatch(random_covariance(model, spec,
-                                 if (identical(space, "reduced")) "cells" else space),
+      tryCatch(random_covariance(model, spec, "cells"),
                error = function(e) structure(list(), note = conditionMessage(e)))
   class(out) <- c("nestimand_summary", class(out))
   out

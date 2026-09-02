@@ -45,16 +45,6 @@ sentinel_first <- function(spec, data = spec$data) {
   data
 }
 
-sentinel_relevel_code <- function(spec, data_name) {
-  s <- sentinel_levels(spec)
-  if (!length(s)) return(NULL)
-  c("## the chain form is legible only with the sentinel as reference level: the",
-    "## impossible cells are then exactly the all-zero columns. Contrasts are",
-    "## still reported in the order declared in the data.",
-    vapply(names(s), function(v)
-      sprintf('%s[["%s"]] <- relevel(factor(%s[["%s"]]), "%s")',
-              data_name, v, data_name, v, s[[v]][1]), ""))
-}
 
 ## --- fitting formulae ------------------------------------------------------
 
@@ -69,8 +59,7 @@ has_thresholds <- function(spec)
   (identical(spec$fit, "brm") && !is.null(spec$family) &&
      grepl("cumulative|sratio|cratio|acat", spec$family))
 
-cell_formula <- function(spec, mode = c("cells", "reduced", "effects"),
-                         intercept = NULL) {
+cell_formula <- function(spec, mode = c("cells", "reduced"), intercept = NULL) {
   mode <- match.arg(mode)
   if (is.null(intercept)) intercept <- has_thresholds(spec)
   rhs <- if (mode == "reduced") {
@@ -87,16 +76,6 @@ cell_formula <- function(spec, mode = c("cells", "reduced", "effects"),
     cov_terms <- unlist(lapply(spec$covariates, function(cv)
       if (isTRUE(spec$cov_by_cell[[cv]])) paste0(cn, ":", cv) else cv))
     paste(c(if (intercept) cn else paste0("0 + ", cn), cov_terms), collapse = " + ")
-  } else {
-    ## The effects parameterization reads its coefficients as a chain, which a
-    ## term naming a nested variable without its parent has no reading as, so
-    ## this is the one place the ancestry-closed form of the declaration is
-    ## used. It is a niche path - emmeans, and priors stated coordinate-wise in
-    ## effect space - and it is why closed_terms() still exists.
-    tm <- closed_terms(spec)
-    paste(c(tm, spec$covariates[!spec$cov_by_cell],
-            unlist(lapply(spec$covariates[spec$cov_by_cell], function(cv)
-              paste0(tm, ":", cv)))), collapse = " + ")
   }
   stats::as.formula(paste(spec$outcome, "~", rhs), env = parent.frame())
 }
@@ -114,25 +93,6 @@ cell_formula <- function(spec, mode = c("cells", "reduced", "effects"),
 declared_terms <- function(spec, labels = spec$term_labels) {
   labs <- lapply(strsplit(labels, ":"), function(vs) vs[vs %in% spec$cell_vars])
   out <- unique(vapply(Filter(length, labs), paste, "", collapse = ":"))
-  out[order(lengths(strsplit(out, ":")), out)]
-}
-
-## The ancestry-closed form of the same thing, in which every nested variable is
-## named alongside its parent. The reduced design does not need it - the design
-## over the realized cells says what is estimable without being told - and it is
-## retained only for the effects parameterization, whose coefficients are read
-## as a chain and where a term naming a nested variable without its parent has
-## no such reading.
-closed_terms <- function(spec, labels = spec$term_labels) {
-  fams <- spec$cat_families
-  rank_of <- function(v) { for (f in fams) if (v %in% f) return(match(v, f)); Inf }
-  canon <- function(vs) { vs <- unique(vs); vs[order(vapply(vs, rank_of, 1), vs)] }
-  labs <- lapply(strsplit(labels, ":"), function(vs)
-    vs[vs %in% spec$cell_vars])
-  labs <- labs[lengths(labs) > 0]
-  closed <- lapply(labs, function(vs)
-    canon(unique(c(vs, unlist(lapply(vs, function(v) nest_ancestors(spec, v)))))))
-  out <- unique(vapply(closed, paste, "", collapse = ":"))
   out[order(lengths(strsplit(out, ":")), out)]
 }
 
@@ -187,9 +147,10 @@ design_over_cells <- function(spec, terms, tab = spec$cells) {
   X
 }
 
-## The identified chain basis, closed under ancestry: retained because the
-## effect-basis fitting mode and the emmeans engine both require the original
-## factors as predictors (see `fitting_mode()`).
+## The identified chain basis, closed under ancestry. Nothing is fitted on it -
+## `effect_basis()` is built from it, and that is what `nest_summary()` uses to
+## read cell means back as effects, and what translates a prior between the two
+## spaces. It is a basis, not a parameterization.
 chain_terms <- function(spec) {
   vars <- spec$cell_vars
   if (length(vars) > 12)
@@ -463,20 +424,7 @@ effect_basis <- function(spec) {
 ## The parameterization is itself a translation: chosen by the layer, never a
 ## silent difference. Cells by default; the effect basis when the requested
 ## engine or the declared priors can only be expressed there.
-fitting_mode <- function(spec, engine = "marginaleffects", priors = NULL) {
-  if (identical(engine, "emmeans"))
-    return(structure("effects", reason = paste(
-      "engine = \"emmeans\" is formula-driven and requires the original factors",
-      "as predictors")))
-  if (!is.null(priors) && isTRUE(attr(priors, "requires_effect_basis")))
-    return(structure("effects", reason = paste(
-      "the declared priors are coordinate-aligned in effect space (independent",
-      "non-elliptical, or constrained support), which pins the fitting basis")))
-  ## `~ 0 + cell` is saturated by construction, so a declaration that asks for
-  ## less cannot be written on it: fitting it there would enlarge the model the
-  ## user wrote. The cell form is kept wherever the two agree, which is whenever
-  ## the formula crosses the structure fully - there it is the same design in
-  ## coordinates that read as cell means.
+fitting_mode <- function(spec, ...) {
   sp <- term_span(spec, declared_terms(spec))
   if (sp < nrow(spec$cells))
     return(structure("reduced", reason = paste(

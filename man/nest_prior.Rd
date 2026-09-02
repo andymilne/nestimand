@@ -35,7 +35,6 @@ prior_from_brms(spec, prior, space = c("effects", "cells"), covariate_mean = 0,
   \item{spec}{a \code{nesting_spec} object.}
   \item{mean}{prior mean: one value for all, a full vector, or a named vector, optionally with a \code{.default} element.}
   \item{sd}{prior standard deviations, for independent priors.}
-  \item{cov}{a full covariance matrix, for a joint prior.}
   \item{on}{the space in which the prior is stated.}
   \item{family}{\code{"normal"} or \code{"student_t"}.}
   \item{df}{degrees of freedom for the t family.}
@@ -85,5 +84,5 @@ both spaces and over the full coefficient vector. \code{prior_audit} and
 \code{prior_stanvars} and \code{prior_statement} return the \pkg{brms} objects.
 }
 \seealso{
-\code{\link{chain_priors}}, \code{\link{nest_fit}}, \code{\link{nest_estimand}}
+\code{\link{nest_fit}}, \code{\link{nest_estimand}}
 }

@@ -114,8 +114,7 @@ contrast_pairs <- function(levs, contrast = "pairwise") {
 ## not have. The columns must be built the way the fit built them, or the map
 ## between them is not a map at all.
 design_rows <- function(spec, g, mode = "cells") {
-  ref <- if (identical(mode, "effects")) sentinel_first(spec) else spec$data
-  if (identical(mode, "effects")) g <- sentinel_first(spec, g)
+  ref <- spec$data
   ## The grid may cover only part of the design - one stratum of it, when an
   ## estimand is asked for within each level of something - and a factor with
   ## one level in that slice has no contrasts to code, so `model.matrix()`
@@ -136,8 +135,7 @@ design_rows <- function(spec, g, mode = "cells") {
 
 ## Which parameterization a fit is in, so that the design rows built here match
 ## its coefficients. A fit from `nest_fit()` carries it; anything else is read
-## as the cell form, which is what it was before a declaration could restrict
-## the structure and be fitted as effects.
+## as the cell form.
 fit_mode <- function(model) {
   md <- attr(model, "nestimand_mode")
   if (is.null(md)) "cells" else md

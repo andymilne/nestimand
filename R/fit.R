@@ -63,7 +63,7 @@ bar_terms_of <- function(bars) {
 }
 
 random_terms <- function(spec, structure = c("cells", "reduced", "chain",
-                                             "chain_slope", "as_declared")) {
+                                             "as_declared")) {
   structure <- match.arg(structure)
   bars <- spec$random_original
   if (is.null(bars)) return(NULL)
@@ -124,7 +124,7 @@ random_terms <- function(spec, structure = c("cells", "reduced", "chain",
     fam <- NULL
     for (ff in spec$cat_families) if (any(struct_vars %in% ff)) fam <- ff
     partial <- !all(fam %in% struct_vars)
-    if (partial && structure %in% c("cells", "chain_slope"))
+    if (partial && identical(structure, "cells"))
       stop("the random term `(", lhs_txt, " | ", grp, ")` varies with `",
            paste(intersect(struct_vars, boundary_vars(spec)), collapse = "`, `"),
            "` but not with `", paste(setdiff(fam, struct_vars), collapse = "`, `"),
@@ -182,11 +182,6 @@ random_terms <- function(spec, structure = c("cells", "reduced", "chain",
       rewrap(sprintf("(1 + %s%s | %s)", paste(cols, collapse = " + "),
                      cov_red, grp))
     }
-    else if (structure == "chain_slope")
-      ## the chain counterpart of an unstructured cell covariance: the same
-      ## columns as the fixed part, so one set of declarations covers both
-      rewrap(sprintf("(0 + %s%s | %s)", paste(chain_terms(spec), collapse = " + "),
-                     cov_term(chain_terms(spec)), grp))
     else if (structure == "cells")
       rewrap(sprintf("(0 + %s%s | %s)", cn, cov_txt, grp))
     else {
@@ -227,8 +222,7 @@ random_terms <- function(spec, structure = c("cells", "reduced", "chain",
 ## --- the fit ---------------------------------------------------------------
 nest_fit <- function(spec, formula = NULL, nests = NULL, mode = NULL,
                      random_structure = c("cells", "reduced", "chain", "as_declared"),
-                     data = NULL, engine = "marginaleffects",
-                     dry_run = FALSE, ..., fit = NULL, family = NULL,
+                     data = NULL, dry_run = FALSE, ..., fit = NULL, family = NULL,
                      random = NULL, cell_name = "cell", priors = NULL,
                      prior_space = c("effects", "cells"), .env = parent.frame()) {
   ## The declaration and the fit are one step unless the user wants them apart.
@@ -281,11 +275,11 @@ nest_fit <- function(spec, formula = NULL, nests = NULL, mode = NULL,
   if (is.null(data)) { data <- spec$data; data_name <- paste0(spec_name, "$data") }
   fit <- spec$fit
   if (is.null(mode)) {
-    fm <- fitting_mode(spec, engine = engine, priors = priors)
+    fm <- fitting_mode(spec)
     mode <- as.character(fm)
     mode_note <- sprintf("## parameterization: %s (%s)", mode, attr(fm, "reason"))
   } else {
-    mode <- match.arg(mode, c("cells", "reduced", "effects"))
+    mode <- match.arg(mode, c("cells", "reduced"))
     mode_note <- sprintf("## parameterization: %s (requested)", mode)
   }
   f <- paste(deparse(cell_formula(spec, mode)), collapse = " ")
@@ -297,8 +291,6 @@ nest_fit <- function(spec, formula = NULL, nests = NULL, mode = NULL,
               spec$cell_name, nrow(spec$cells)),
       "##   coefficients are their means. The formula crosses the structure fully,",
       "##   so that is the model it names, written compactly.")
-  if (identical(mode, "effects") && identical(random_structure, "cells"))
-    random_structure <- "chain_slope"   # match the random side to the fixed side
   ## Same argument, the other half of the model: a random structure that asks
   ## for less than the saturated one is restricted whatever the mean structure
   ## does, and the cell factor can express it no better there than in the mean.
@@ -367,56 +359,6 @@ nest_fit <- function(spec, formula = NULL, nests = NULL, mode = NULL,
     dots$prior <- NULL
     user_prior <- split$other
   }
-  ## The effects parameterization carries columns the data cannot inform, and
-  ## brms cannot drop them the way `lm` does: it samples them, and the posterior
-  ## is improper along them. They are known from the design, not chosen, so they
-  ## are held at zero rather than left for the user to discover from a
-  ## divergence. Which coefficients, and of which kind, is said aloud - passing
-  ## `priors` explicitly overrides this.
-  if (identical(fit, "brm") && identical(mode, "effects") && is.null(priors)) {
-    user_b <- inherits(user_prior, "brmsprior") && any(user_prior$class == "b")
-    cp <- chain_priors(spec, regularize = if (user_b) NULL else "normal(0, 5)")
-    if (nrow(cp$table)) {
-      ## Say where the coefficients are as well as how many, since the count is
-      ## of design columns and the declaration was reported in cell dimensions:
-      ## the two differ, and comparing them without that is confusing. A
-      ## structural term is crossed with each covariate it interacts with, so
-      ## one uninformative condition can carry several columns, and the random
-      ## side repeats the whole set for every grouping factor.
-      tb <- cp$table
-      n_str <- sum(tb$kind == "structural zero")
-      n_id  <- sum(tb$kind == "identification constraint")
-      where <- c(
-        if (any(tb$part == "fixed"))
-          sprintf("%d in the mean structure", sum(tb$part == "fixed")),
-        unlist(lapply(unique(stats::na.omit(tb$group)), function(g)
-          sprintf("%d in the random structure for `%s`",
-                  sum(tb$part == "random" & tb$group %in% g), g))))
-      message("the effects parameterization states the structure as ",
-              "coefficients rather than as cells, and carries ", nrow(tb),
-              " of them the data cannot inform - ",
-              paste(where, collapse = ", "), ". Of these, ", n_str,
-              " are structural zeros - conditions the design does not realize - ",
-              "and ", n_id, " are identification constraints, a coding choice ",
-              "like a reference level, which leaves every estimand unchanged. ",
-              "All are held at zero by constant(0) priors, so that the ",
-              "posterior is proper. This counts coefficients, not cells: a ",
-              "structural term is crossed with each covariate it interacts ",
-              "with, so one condition that does not exist can carry several ",
-              "columns. chain_priors(", spec_name, ") lists them and ",
-              "show_code() prints the block; the rest take ",
-              if (user_b) "the prior you supplied" else "normal(0, 5)",
-              ", and passing `priors =` yourself replaces all of this.")
-      priors <- cp
-      ## The emitted code re-derives the block rather than naming an object the
-      ## fitting environment held, so it has to carry the arguments it was
-      ## derived with: with the default regularizer it would state a second
-      ## `class = "b"` prior beside the user's, which brms refuses as a
-      ## duplicate - and the code that was run would not be the code shown.
-      prior_name <- sprintf("chain_priors(%s%s)", spec_name,
-                            if (user_b) ", regularize = NULL" else "")
-    }
-  }
   if (!is.null(priors) && !is.null(user_prior) && "prior" %in% names(dots))
     dots$prior <- NULL
   dots_txt <- if (length(dots))
@@ -447,24 +389,11 @@ nest_fit <- function(spec, formula = NULL, nests = NULL, mode = NULL,
   ## declared before `...` R would partial-match it here and refuse the call, so
   ## `priors` sits after the dots and has to be named in full.
   if (inherits(priors, "brmsprior"))
-    stop("`priors` takes a nestimand prior object - nest_prior() for a translated ",
-         "prior, chain_priors() for the chain-mode declarations. A brms prior ",
-         "goes to the engine under its own name: pass `prior = ` and it will be ",
-         "handed through unaltered.")
-  if (inherits(priors, "nestimand_chain_priors")) {
-    if (!identical(mode, "effects"))
-      stop("chain-mode declarations belong to the chain parameterization, but ",
-           "the fitting mode is `", mode, "`. Pass mode = \"effects\", or use ",
-           "nest_prior() for a translated prior on the cell parameterization.")
-    other <- user_prior_txt
-    prior_txt <- if (is.null(other))
-      sprintf(", prior = chain_prior_object(%s)", prior_name)
-    else sprintf(", prior = c(chain_prior_object(%s), %s)", prior_name, other)
-    prior_note <- c(priors$code[1:4],
-      "## Held at zero below; every other coefficient is estimated as usual.")
-    priors_obj <- priors
-    priors <- NULL
-  } else priors_obj <- NULL
+    stop("`priors` carries the package's own translated prior. A brms prior goes ",
+         "to the engine under its own name: pass `prior = ` and it will be ",
+         "handed through unaltered, or translated into cell space if it ",
+         "describes the mean structure.")
+  priors_obj <- NULL
   if (!is.null(priors)) {
     if (!inherits(priors, "nestimand_prior"))
       stop("`priors` must be a nestimand_prior object, as returned by nest_prior().")
@@ -511,18 +440,14 @@ nest_fit <- function(spec, formula = NULL, nests = NULL, mode = NULL,
           "##   data cannot inform: those for conditions that do not exist, and a",
           "##   further set reconstructable from the others. The cell form has one",
           "##   column per realized condition, so every parameter is estimable and",
-          "##   nothing has to be held at zero. See chain_priors() for the",
-          "##   alternative, which keeps the original factors and declares the",
-          "##   uninformative columns instead."))
-  relevel_code <- if (identical(mode, "effects"))
-    sentinel_relevel_code(spec, data_name)
+          "##   nothing has to be held at zero."))
   ## a declaration made here is part of the code that reproduces the fit
   spec_code <- if (!is.null(spec_call))
     c("## the declaration, built from the data and the formula",
       paste("spec <-", paste(deparse(spec_call), collapse = " ")))
   code <- c(sprintf("## nestimand %s -- fit", nestimand_build), lib, spec_code,
             mode_note,
-            cell_note, relevel_code, aug_code, re_note, prior_note,
+            cell_note, aug_code, re_note, prior_note,
             sprintf("m <- %s(%s%s, data = %s%s%s)", fn, f, fam, data_name,
                     prior_txt, dots_txt))
   if (isTRUE(dry_run))
@@ -530,8 +455,8 @@ nest_fit <- function(spec, formula = NULL, nests = NULL, mode = NULL,
                      nestimand_code = code))
   env <- new.env(parent = .env)
   assign(spec_name, spec, envir = env)
-  ## `prior_name` may be a call - `chain_priors(sp)` - so that the emitted code
-  ## stands on its own; there is then nothing to assign, the call being
+  ## `prior_name` may be a call - `nest_prior(spec, ...)` - so that the emitted
+  ## code stands on its own; there is then nothing to assign, the call being
   ## evaluated where it stands.
   if (grepl("^[.A-Za-z][.A-Za-z0-9._]*$", prior_name)) {
     if (!is.null(priors)) assign(prior_name, priors, envir = env)

@@ -14,10 +14,9 @@ pipeline. Arguments in \code{...} reach the engine unaltered.
 \usage{
 nest_fit(spec, formula = NULL, nests = NULL, mode = NULL,
          random_structure = c("cells", "reduced", "chain", "as_declared"),
-         data = NULL, engine = "marginaleffects", dry_run = FALSE, ...,
-         fit = NULL, family = NULL, random = NULL, cell_name = "cell",
-         priors = NULL, prior_space = c("effects", "cells"),
-         .env = parent.frame())
+         data = NULL, dry_run = FALSE, ..., fit = NULL, family = NULL,
+         random = NULL, cell_name = "cell", priors = NULL,
+         prior_space = c("effects", "cells"), .env = parent.frame())
 
 random_terms(spec, structure = c("cells", "chain", "chain_slope", 
              "as_declared"))
@@ -34,11 +33,10 @@ has_thresholds(spec)
   \item{family}{the family, when the declaration is being made here.}
   \item{random}{the random structure, when the declaration is being made here and it is not written into the formula with a bar.}
   \item{cell_name}{the name of the realized-cell factor, when the declaration is being made here.}
-  \item{mode}{the parameterization; chosen by \code{\link{fitting_mode}} when \code{NULL}, which is what it should normally be left as. A declaration that crosses the structure fully is fitted on the cell factor; one that asks for less is fitted on the reduced design - one column per identified effect, so the model is the one the formula names and no coefficient has to be held at zero. \code{"effects"} keeps the original factors as predictors and is needed only by \code{engine = "emmeans"} and by priors stated coordinate-wise in effect space; there the uninformative columns are declared with \code{constant(0)}.}
+  \item{mode}{the parameterization; chosen by \code{\link{fitting_mode}} when \code{NULL}, which is what it should normally be left as. A declaration that crosses the structure fully is fitted on the cell factor, whose coefficients are the cell means; one that asks for less is fitted on the reduced design - one column per identified effect, so the model is the one the formula names, no coefficient is aliased, and nothing has to be held at zero.}
   \item{random_structure}{how a declared random structure is translated. Chosen to match the mean structure when not given: a declaration that crosses the structure fully gets \code{"cells"}, one that asks for less gets \code{"reduced"}. \code{"reduced"} puts the random effects on the same columns the mean structure is fitted on, so they are deviations in exactly the effects declared and the two sides have the same dimension; a random term naming something the mean structure does not contain is refused, since that is a different model and not what this option expresses. \code{"cells"} gives an unstructured covariance over realized cells, \code{"chain"} for the grouping-factor submodel - one rung per ancestor path, so a chain gives \code{(1|p) + (1|p:a) + (1|p:a:b)} and siblings enter crossed, \code{(1|p:a:b) + (1|p:a:c) + (1|p:a:b:c)}, neither of them made the coarser division - \code{"chain_slope"} for the chain counterpart of the cell covariance, \code{"as_declared"} to pass it through unchanged.}
   \item{data}{data to fit; the spec's data by default.}
-  \item{engine}{the package the estimands will be computed with, which can affect the parameterization: \code{"marginaleffects"}, the default, works from the cell factor, while \code{"emmeans"} reads the nesting from the formula and so requires the chain form.}
-  \item{priors}{a \code{\link{nest_prior}} or \code{\link{chain_priors}} object. \code{nest_prior()} called without a declaration returns one that is dimensioned here, against the declaration this call builds or was given, so a prior can be written in the same call as the fit. On \pkg{brms} in the effects parameterization - which \code{mode = "effects"}, the emmeans engine, and effect-space priors ask for, and nothing else now does - it is derived if not supplied: the design carries coefficients the data cannot inform - conditions that do not exist, and one redundant column per stratum - and brms cannot drop them as \code{lm} does, so they are held at zero by \code{constant(0)} priors and their number and kind are reported. Supplying \code{priors} replaces that block - a nestimand prior, translated or derived. It governs the mean structure; \pkg{brms}'s own \code{prior} remains the route to everything else - the random-effects standard deviations and correlations, the thresholds, sigma - and the two are combined into one call. A \code{class = "b"} entry in \code{prior} draws a note, since those coefficients are the realized conditions rather than the effects of the original variables, and supplying one alongside \code{priors} is refused as two priors for the same structure. It sits after \code{...} and must be named in full, so that \pkg{brms}'s own \code{prior} argument reaches the engine rather than being partial-matched to it.}
+  \item{priors}{the package's own translated prior, as \code{\link{nest_prior}} returns. Called without a declaration it returns one that is dimensioned here, against the declaration this call builds or was given, so a prior can be written in the same call as the fit. It governs the mean structure; \pkg{brms}'s own \code{prior} remains the route to everything else - the random-effects standard deviations and correlations, the thresholds, sigma - and the two are combined into one call. A \code{class = "b"} entry in \code{prior} is translated into cell space rather than passed through, since those coefficients are the realized conditions rather than the effects of the original variables; supplying one alongside \code{priors} is refused as two priors for the same structure. It sits after \code{...} and must be named in full, so that \pkg{brms}'s own \code{prior} argument reaches the engine rather than being partial-matched to it.}
   \item{dry_run}{return the code without fitting, which matters when the fit is a sampling run.}
   \item{...}{passed to the fitting function named by \code{fit} in the declaration - \code{lm}, \code{glm}, \code{lme4::lmer}, \code{lme4::glmer}, \code{ordinal::clm}, \code{ordinal::clmm} or \code{brms::brm} - and written into the saved code: this is how \code{prior}, \code{sample_prior}, \code{save_pars}, \code{init}, \code{threads}, \code{file}, \code{chains}, \code{iter}, \code{seed} and the rest reach \pkg{brms}, and their counterparts reach the other engines.}
   \item{.env}{environment in which the assembled call is evaluated.}
@@ -71,7 +69,7 @@ random_terms(sp, "chain")
 \code{nest_fit} the fitted model, classed \code{nestimand_fit} behind the
 engine's own classes - so that packages dispatching or validating on
 \code{class(model)[1]} see what they expect - with the code in its \code{nestimand_code} attribute and the
-declaration in \code{nestimand_spec}, so that \code{\link{estimand}} and
+declaration in \code{nestimand_spec}, so that \code{\link{nest_estimand}} and
 \code{\link{nest_summary}} can be called on the model alone. An
 \code{update} method carries the declaration across a refit, so a simplified
 model remains usable without the declaration being supplied again; whether the
@@ -84,5 +82,5 @@ that one takes precedence, so an updated brms fit needs \code{spec} supplied, or
 columns, rank, and identically zero columns of a structural random slope.
 }
 \seealso{
-\code{\link{nesting_spec}}, \code{\link{estimand}}, \code{\link{chain_priors}}
+\code{\link{nesting_spec}}, \code{\link{nest_estimand}}, \code{\link{nest_summary}}
 }

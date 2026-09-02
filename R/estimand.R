@@ -3,7 +3,7 @@
 ## Every estimand is assembled as text, then evaluated, so `show_code()` cannot
 ## drift from what was run: it is the same object. Non-core arguments in `...`
 ## are deparsed into that text and so reach the destination function - brms,
-## marginaleffects, emmeans - unaltered, and appear in the saved code.
+## marginaleffects, brms - unaltered, and appear in the saved code.
 
 nest_estimand <- function(model, target, policy = "equal", at = NULL,
                           contrast = c("pairwise", "reference", "sequential"),

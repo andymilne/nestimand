@@ -21,7 +21,7 @@ realized cell and one column per identified effect; and \code{with_reduced} carr
 those columns alongside the data, looked up by cell.
 }
 \usage{
-cell_formula(spec, mode = c("cells", "reduced", "effects"), intercept = NULL) 
+cell_formula(spec, mode = c("cells", "reduced"), intercept = NULL) 
 
 chain_terms(spec) 
 
@@ -37,7 +37,7 @@ effect_basis(spec)
 
 translation(spec) 
 
-fitting_mode(spec, engine = "marginaleffects", priors = NULL) 
+fitting_mode(spec) 
 }
 \arguments{
   \item{spec}{a \code{nesting_spec} object.}
@@ -47,8 +47,6 @@ fitting_mode(spec, engine = "marginaleffects", priors = NULL)
   \item{unrealized}{what to do with rows naming combinations that do not exist: drop them, or stop.}
   \item{data}{data from which covariate means are taken.}
   \item{covariates}{hold covariates at their means, or keep the supplied values.}
-  \item{engine}{the package the estimands will be computed with; \code{"emmeans"} reads the nesting from the formula and so requires the chain form, where \code{"marginaleffects"} works from the cell factor.}
-  \item{priors}{declared priors, which may pin the parameterization.}
   \item{x}{an object to print.}
 }
 \value{
