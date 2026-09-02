@@ -3164,6 +3164,44 @@ chk("reorder: and the printed footer carries the reason, not just the word",
       grepl("reorder check: error", txt, fixed = TRUE) &&
         grepl("a stated reason", txt, fixed = TRUE) })
 
+## The engine's own result object is the handle its own accessors work through -
+## get_draws() above all, which is how a posterior is taken elsewhere to be
+## processed or plotted. Canonicalizing the contrast directions used to coerce
+## it to a plain data frame first, so a Bayesian estimand came back with no
+## draws reachable. Keeping the object means keeping the draws in step with it:
+## a contrast written the other way round has its estimate negated, and draws
+## that disagreed with the estimate printed beside them would be worse than none.
+mfx_obj <- local({
+  d <- data.frame(term = c("aug - maj", "maj - dim"), estimate = c(-1, 2),
+                  conf.low = c(-1.5, 1.5), conf.high = c(-0.5, 2.5))
+  attr(d, "posterior_draws") <- matrix(c(-1.1, -0.9, 2.1, 1.9), nrow = 2,
+                                       byrow = TRUE)
+  class(d) <- c("predictions", "data.frame")
+  mfx_canonical(d, levs = c("aug", "dim", "min", "maj"))
+})
+chk("draws: the engine's own result object survives canonicalization",
+    inherits(mfx_obj, "predictions"))
+chk("draws: a flipped contrast takes its draws with it",
+    isTRUE(all.equal(rowMeans(attr(mfx_obj, "posterior_draws")),
+                     mfx_obj$estimate)))
+chk("draws: and the label is the flipped one",
+    identical(mfx_obj$term, c("maj - aug", "maj - dim")))
+chk("draws: draws that cannot be aligned give up the object, not the agreement",
+    { d <- data.frame(term = c("aug - maj", "maj - dim"), estimate = c(-1, 2))
+      attr(d, "posterior_draws") <- matrix(1:3, nrow = 3)   # wrong length
+      class(d) <- c("predictions", "data.frame")
+      o <- mfx_canonical(d, levs = c("aug", "dim", "min", "maj"))
+      identical(class(o), "data.frame") && identical(o$estimate, c(1, 2)) })
+chk("draws: a fit whose route runs through the engine keeps the class",
+    { d_b <- dat; d_b$bin <- as.integer(d_b$response > stats::median(d_b$response))
+      m_b <- suppressMessages(nest_fit("glm", bin ~ chord_type * inversion, d_b,
+               family = "binomial", nests = "inversion %in% chord_type"))
+      inherits(suppressMessages(nest_estimand(m_b, chord_type, policy = "equal",
+               bounds = FALSE, self_check = FALSE)), "predictions") })
+chk("draws: the accessor takes whichever spelling the installed version has",
+    is.function(mfx_draws) &&
+      is.null(mfx_draws(structure(list(), class = "not_a_result"))))
+
 ## An argument the coefficient route cannot take is one thing; an argument that
 ## is nothing's is another. Reporting the second as the first sends the reader
 ## to the wrong documentation - `method` was described as an argument of

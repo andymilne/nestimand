@@ -524,6 +524,45 @@ mfx_split_label <- function(x) {
   sub("^\\((.*)\\)$", "\\1", parts)
 }
 
+## The draws behind a marginaleffects result, and how to put them back. The
+## accessor was renamed `posterior_draws` -> `get_draws` between versions and
+## the object grew properties where it had attributes, so both spellings are
+## tried rather than one being pinned.
+mfx_draw_matrix <- function(x) {
+  for (a in c("posterior_draws", "draws")) {
+    v <- attr(x, a, exact = TRUE)
+    if (is.matrix(v)) return(structure(v, nestimand_slot = a))
+  }
+  NULL
+}
+
+## Put the canonicalized columns back onto the engine's own object, so the
+## result is still a marginaleffects result and its own accessors keep working -
+## get_draws() above all, which is how a posterior is taken elsewhere to be
+## processed or plotted. The draws must travel the same way as the estimates: a
+## contrast whose direction was flipped has draws of the opposite sign, and
+## draws disagreeing with the estimate printed beside them would be worse than
+## no draws at all. Where they cannot be flipped, the plain frame is returned
+## and the object is given up rather than left inconsistent.
+mfx_reapply <- function(d, df, flip) {
+  if (identical(class(d), "data.frame")) return(NULL)
+  x <- tryCatch({ y <- d; for (cl in names(df)) y[[cl]] <- df[[cl]]; y },
+                error = function(e) NULL)
+  if (is.null(x) || !all(names(df) %in% names(as.data.frame(x)))) return(NULL)
+  if (!any(flip)) return(x)
+  dr <- mfx_draw_matrix(x)
+  if (is.null(dr)) return(x)                 # no draws: nothing to keep in step
+  if (nrow(dr) != length(flip)) return(NULL) # cannot align them: give the object up
+  slot <- attr(dr, "nestimand_slot")
+  dr <- unclass(dr); attr(dr, "nestimand_slot") <- NULL
+  dr[flip, ] <- -dr[flip, ]
+  ok <- tryCatch({ attr(x, slot) <- dr
+                   identical(mfx_draw_matrix(x)[flip, , drop = FALSE],
+                             dr[flip, , drop = FALSE]) },
+                 error = function(e) FALSE)
+  if (isTRUE(ok)) x else NULL
+}
+
 mfx_canonical <- function(d, levs = NULL) {
   df <- as.data.frame(d)
   nm <- mfx_term_column(df)
@@ -552,8 +591,10 @@ mfx_canonical <- function(d, levs = NULL) {
   ## direction, contradicting the estimate beside it
   if (!identical(nm, "term")) df[[nm]] <- term
   df$term <- term
-  attr(df, "nestimand_flipped") <- sum(flip)
-  df
+  out <- mfx_reapply(d, df, flip)
+  if (is.null(out)) out <- df
+  attr(out, "nestimand_flipped") <- sum(flip)
+  out
 }
 
 ## kept for callers that only need the label column normalized

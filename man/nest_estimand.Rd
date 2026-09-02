@@ -173,6 +173,19 @@ effects on two machines.
 \code{nest_estimand} an estimand table of class \code{nestimand_estimand}, carrying the
 policy, contrast, scale, bounds, self-check result, and code in its \code{nestimand}
 attribute; \code{\link{show_code}} prints it.
+
+Where the estimand was computed by prediction, the \pkg{marginaleffects} result is kept
+underneath rather than reduced to a data frame, so that package's own accessors still
+work on it - \code{get_draws()} in particular, which is how a posterior is taken
+elsewhere to be processed or plotted. A contrast written the other way round from the
+declared level order is reported in the canonical direction, and its draws are negated
+with it, so draws and estimates always agree. On the linear-map route
+(\code{type = "eta"}) no prediction is made and there is no such object;
+\code{\link{latent_draws}} gives the draws there, one column per contrast.
+
+Several targets - \code{chord_type * inversion} - give a collection instead, whose parts
+carry these attributes individually: \code{attr(e[["inversion"]], "nestimand")}, not
+\code{attr(e, "nestimand")}.
 }
 \seealso{
 \code{\link{nest_fit}}, \code{\link{nest_policy}}, \code{\link{latent_estimand}}

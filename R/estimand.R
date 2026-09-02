@@ -1321,24 +1321,44 @@ collect_estimands <- function(out) {
 
 
 ## Replace a frequentist summary with a posterior one where the draws exist.
+## The draws behind a marginaleffects result. The accessor was renamed
+## `posterior_draws` -> `get_draws`, so which one exists depends on the
+## installed version; the package asks for whichever is there rather than
+## pinning one, as it does for the hypothesis argument.
+mfx_draws <- function(x) {
+  ns <- asNamespace("marginaleffects")
+  for (nm in c("get_draws", "posterior_draws"))
+    if (exists(nm, envir = ns)) {
+      ## an accessor handed something it does not recognise may warn and return
+      ## its argument rather than refuse, so the result is checked for the long
+      ## form it is supposed to be rather than merely for not being NULL
+      d <- tryCatch(suppressWarnings(get(nm, envir = ns)(x)),
+                    error = function(e) NULL)
+      if (is.data.frame(d) && all(c("drawid", "draw") %in% names(d))) return(d)
+    }
+  NULL
+}
+
 add_posterior_summary <- function(out, model) {
   if (!inherits(model, "brmsfit")) return(out)
   d <- tryCatch(as.data.frame(out), error = function(e) NULL)
   if (is.null(d) || "pd" %in% names(d)) return(out)
-  drw <- tryCatch(marginaleffects::posterior_draws(out), error = function(e) NULL)
+  drw <- mfx_draws(out)
   if (is.null(drw) || !all(c("drawid", "draw") %in% names(drw))) return(out)
   key <- if ("term" %in% names(drw)) "term" else NULL
   grp <- intersect(c("group", "by"), names(drw))
   idx <- do.call(paste, c(unname(drw[c(key, grp)]), sep = "\r"))
   pd <- tapply(drw$draw, idx, function(z) max(mean(z > 0), mean(z < 0)))
   own <- do.call(paste, c(unname(d[intersect(c(key, grp), names(d))]), sep = "\r"))
-  d$pd <- as.numeric(pd[match(own, names(pd))])
-  d$statistic <- NULL
-  d$p.value <- NULL
-  for (a in names(attributes(out)))
-    if (!a %in% c("names", "row.names", "class")) attr(d, a) <- attr(out, a)
-  class(d) <- unique(c(setdiff(class(out), "data.frame"), class(d)))
-  d
+  ## Written onto the object the engine returned rather than onto a copy of its
+  ## data. Rebuilding it as a plain data.frame and moving the attributes across
+  ## loses whatever else the object is - and a marginaleffects result is the
+  ## handle its own accessors work through, so a rebuilt one no longer answers
+  ## get_draws(), which is the natural way to take the posterior somewhere else.
+  out$pd <- as.numeric(pd[match(own, names(pd))])
+  out$statistic <- NULL
+  out$p.value <- NULL
+  out
 }
 
 ## --- what the engine will accept -------------------------------------------
