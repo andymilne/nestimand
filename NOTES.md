@@ -1057,3 +1057,52 @@ expression as a promise, so `{ sp <- ... }` inside a check assigns into the
 global frame. A new block near the top of the file quietly clobbered the `sp`
 that forty later checks depend on. Locals in a `chk()` body need names of their
 own.
+
+
+## Three verbs
+
+`estimand()` is now `nest_estimand()`, beside `nest_fit()` and `nest_summary()`.
+The word "estimand" is kept because it is the claim the package makes - these
+are causal contrasts under a stated policy, not effects read off a fit, which is
+why `policy =` exists at all - and the `nest_` prefix makes the three verbs read
+as one family.
+
+`apply_sentinel()` is gone. NA still cannot be left as it is - R deletes those
+rows casewise and silently, and the rows are the design rather than an accident -
+but *who* converts it has changed. The user had no way to be right: `where` was
+theirs to supply, so it could be wrong, and the warning for omitting it was the
+entire safeguard. Now the structure says which rows should be undefined, and
+`nesting_spec()` converts them itself, checked either way:
+
+- **Declared**: a nested variable must be absent for a whole stratum of its
+  parents or for none of it. A stray NA inside a stratum that has values is
+  missing data, and is refused; so is a value in a stratum the declaration says
+  is empty.
+- **Inferred**: the inference has already established the pattern, so the check
+  can only pass - it runs anyway, because one path in and one path out is worth
+  more than the call it saves.
+- A variable nested in nothing has no structure to check an NA against, and is
+  refused with that reason.
+
+So the safety property that used to depend on the user supplying `where`
+correctly now comes from the declaration, which is checkable.
+
+## What `nest_prior()` is still for
+
+Asked whether it earns its place, since brms priors are passed to `nest_fit()`
+directly. Measured rather than argued:
+
+- `prior = set_prior("normal(0, 1)", class = "b")` with the default
+  `prior_space = "effects"` produces *exactly* the same translated prior as
+  `nest_prior(spec, mean = 0, sd = 1, on = "effects")` - same cell mean, same
+  cell covariance. So for a scalar prior the brms route already covers it.
+- What it cannot cover is a *joint* prior. A brms `class = "b"` prior is
+  independent per fitted coefficient, and the fitted coefficients are cell means,
+  so it can only ever say the cell means are independent. A prior that is
+  independent in effect space is correlated in cell space - on the ten-cell
+  design above, correlations from 0.33 to 0.82 - and `nest_prior(cov = )` is the
+  only way to state an arbitrary one.
+
+So its unique contribution is `cov =`, and vector-valued `mean`/`sd` stated
+compactly. Everything scalar is reachable through brms syntax, which `nest_fit()`
+translates. Worth keeping only if a correlated prior is ever wanted.

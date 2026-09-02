@@ -33,5 +33,5 @@ the number of reversed rows in its \code{nestimand_flipped} attribute.
 \code{mfx_hypothesis} the spelling the installed version accepts.
 }
 \seealso{
-\code{\link{estimand}}
+\code{\link{nest_estimand}}
 }

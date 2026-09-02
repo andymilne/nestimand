@@ -44,8 +44,8 @@ nested_names <- function(txt, parent) {
 ## within every combination of their levels, `v` is either always absent or never
 ## absent. That is what "structurally undefined here" means, and it is decidable.
 ## Where no such set exists the absences are not structural - they are missing
-## data - and saying so is the point: the check distinguishes the two, which is
-## the distinction apply_sentinel() exists to make by hand.
+## data - and saying so is the point: telling structure from missingness is the
+## one judgement here that cannot be got wrong quietly.
 ##
 ## Two cases the first version of this got wrong, both worth keeping in view:
 ## a parent may itself be absent (that is what a chain is), so its own absence
@@ -137,8 +137,9 @@ nesting_spec <- function(data, formula, nests = NULL,
       is.factor(data[[v]]) || is.character(data[[v]]) || is.logical(data[[v]]), TRUE)]
     inf <- infer_nests(data, cvars)
     if (length(inf$notes)) stop(paste(inf$notes, collapse = " "),
-      ". Supply `nests` to declare the structure yourself, or apply_sentinel() ",
-      "to mark which rows are structurally undefined.")
+      ". Supply `nests` to say what the structure is, and those rows will be ",
+      "checked against it; anything left over is missing data, and should be ",
+      "resolved rather than coded as a condition.")
     if (length(inf$ambiguous))
       stop("the structure cannot be read off the data: ",
            paste(inf$ambiguous, collapse = "; "), " each explain the same gaps ",
@@ -158,11 +159,11 @@ nesting_spec <- function(data, formula, nests = NULL,
     ## the sentinel the rest of the package is built on
     for (z in nests) {
       v <- trimws(strsplit(z, "%in%")[[1]][1])
-      ## `where` is the absences themselves: the inference has just established
-      ## that they are structural, so the check apply_sentinel() makes with it
-      ## can only pass, and passing it keeps the warning for the unchecked case
+      ## the inference has just established that these absences are structural,
+      ## so the check can only pass; it runs all the same, since one path in and
+      ## one path out is worth more than the call it saves
       if (anyNA(data[[v]]))
-        data <- apply_sentinel(data, v, where = is.na(data[[v]]))
+        data <- set_sentinel(data, v, where = is.na(data[[v]]))
     }
   }
   ne <- substitute(nests)
@@ -222,14 +223,34 @@ nesting_spec <- function(data, formula, nests = NULL,
 
   ## --- validation --------------------------------------------------------
   nest_vars <- unique(c(names(parent), parent, crossed))
-  for (v in nest_vars) {
+  for (v in nest_vars)
     if (!v %in% names(data)) stop("variable not in data: ", v)
-    if (anyNA(data[[v]]))
-      stop("`", v, "` contains NA. Code the undefined state as an explicit ",
-           "sentinel (a factor level such as \"none\", or 0 for a numeric); ",
-           "NA triggers silent casewise deletion in R's model machinery. ",
-           "If the NA values mark structurally undefined rows, ",
-           "apply_sentinel() converts them safely.")
+  ## A declared structure says where each nested variable is undefined: in the
+  ## strata of its parents in which it takes no value at all. That is checkable
+  ## against the data, so the sentinel is applied here rather than asked for -
+  ## and an NA the declaration does not account for is still refused, which is
+  ## the whole of what the user used to do by hand.
+  for (v in nest_vars) {
+    if (!anyNA(data[[v]])) next
+    anc <- v; repeat { p <- unname(parent[anc[1]]); if (is.na(p) || is.null(p)) break
+                       anc <- c(p, anc) }
+    up <- setdiff(anc, v)
+    if (!length(up))
+      stop("`", v, "` contains NA but is nested in nothing, so no structure ",
+           "says where it should be undefined. Those NAs are missing data - R ",
+           "would delete them casewise and silently. Declare `", v, "` inside ",
+           "the variable that determines where it applies, or resolve them.")
+    key <- do.call(paste, c(lapply(up, function(z)
+      ifelse(is.na(data[[z]]), "\r<absent>", as.character(data[[z]]))), sep = "\r"))
+    absent <- is.na(data[[v]])
+    ok <- tapply(absent, key, function(z) length(unique(z)) == 1L)
+    if (!all(ok))
+      stop("`", v, "` is NA in some rows of a stratum of `",
+           paste(up, collapse = ":"), "` and not others (", sum(!ok),
+           " stratum/strata). A variable is undefined for a whole stratum or ",
+           "for none of it, so these are missing data rather than structure. ",
+           "Resolve them, or declare the structure that accounts for them.")
+    data <- set_sentinel(data, v, where = absent)
   }
   for (ch in names(parent))
     if (is.numeric(data[[parent[[ch]]]]))
@@ -503,35 +524,28 @@ print.nesting_spec <- function(x, ...) {
   invisible(x)
 }
 
-apply_sentinel <- function(data, var, where = NULL, sentinel = "none") {
-  ## Convert NA to a sentinel where the design says the variable is undefined.
-  ## `where` marks the structurally undefined rows, e.g. data$chord_type == "aug".
-  ## Supplying it is worthwhile: NA conflates two things this package keeps
-  ## apart, and with `where` given, an NA outside those rows is genuine
-  ## missingness and is refused, while a non-NA inside them is inconsistent
-  ## coding and is likewise refused. Omitting it converts every NA and warns.
+## Convert a variable's structurally undefined rows to an explicit sentinel.
+## NA cannot be left as it is: R's model machinery deletes those rows casewise
+## and silently, and the rows are the design rather than an accident. `where`
+## marks the rows the structure says are undefined, so an NA outside them is
+## genuine missing data and is refused rather than coded as a condition.
+##
+## This is not a step the user takes. Where the structure is declared, the
+## declaration says which rows should be undefined; where it is inferred, the
+## inference has just established it. Either way the check has an answer to
+## check against, which is what asking the user to do it by hand never did.
+set_sentinel <- function(data, var, where, sentinel = "none") {
   x <- data[[var]]
-  if (is.null(where)) {
-    n <- sum(is.na(x))
-    if (n)
-      warning("converting all ", n, " NA value(s) in `", var, "` to the sentinel ",
-              "without checking which are structural. Any that are genuine ",
-              "missing data are now coded as an existing condition, and will be ",
-              "analysed as one. Supplying `where` - a logical vector marking the ",
-              "rows in which `", var, "` is undefined by design, such as ",
-              "`data$parent == \"level\"` - restricts the conversion to those ",
-              "rows and refuses the rest.", call. = FALSE)
-    where <- is.na(x)
-  } else {
-    if (any(is.na(x) & !where))
-      stop(sum(is.na(x) & !where), " NA value(s) in `", var,
-           "` fall outside the declared undefined rows. Those are genuine ",
-           "missing data, not structure; do not convert them to a sentinel.")
-    if (any(!is.na(x) & where))
-      stop(sum(!is.na(x) & where), " non-NA value(s) in `", var,
-           "` occur inside the declared undefined rows; resolve the ",
-           "inconsistent coding before applying a sentinel.")
-  }
+  if (any(is.na(x) & !where))
+    stop(sum(is.na(x) & !where), " NA value(s) in `", var, "` fall outside the ",
+         "rows the structure says are undefined. Those are missing data rather ",
+         "than structure - R would delete them casewise and silently - and ",
+         "coding them as a condition would analyse them as one. Resolve them, ",
+         "or declare a structure that accounts for them.")
+  if (any(!is.na(x) & where))
+    stop(sum(!is.na(x) & where), " value(s) of `", var, "` occur in rows where ",
+         "the structure says it is undefined. Either the declaration or the ",
+         "data is wrong; resolve the inconsistency before fitting.")
   if (is.numeric(x)) {
     if (!is.numeric(sentinel)) sentinel <- 0
     x[where] <- sentinel

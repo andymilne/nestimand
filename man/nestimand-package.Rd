@@ -23,17 +23,16 @@ Five functions cover an ordinary analysis.
 \tabular{ll}{
   \code{\link{nesting_spec}} \tab declare the design once: which factor nests within which \cr
   \code{\link{nest_fit}} \tab fit it, keeping the call that was run \cr
-  \code{\link{estimand}} \tab contrasts in the original variable names, with bounds \cr
+  \code{\link{nest_estimand}} \tab contrasts in the original variable names, with bounds \cr
   \code{\link{show_code}} \tab the code that produced a result, for saving and adapting \cr
   \code{\link{engine_types}} \tab which \code{type} values the installed engine accepts \cr
   \code{\link{nest_summary}} \tab the coefficient table, in the original parameterization \cr
-  \code{\link{apply_sentinel}} \tab convert structurally undefined \code{NA} to a sentinel \cr
 }
 
 \preformatted{sp <- nesting_spec(dat, response ~ chord_type * inversion + training,
                    "inversion \%in\% chord_type")
 m  <- nest_fit(sp)
-e  <- estimand(m, chord_type, policy = "equal")
+e  <- nest_estimand(m, chord_type, policy = "equal")
 show_code(e)}
 }
 \section{Deeper and branching structures}{
@@ -67,8 +66,8 @@ whose contrasts say it is meant as a quantity. Naming one in \code{nests} on its
 own folds it into the cell factor deliberately.
 
 The strata of a nested variable are its own ancestors, and a sibling is not one
-of them: \code{estimand(m, X1, by = "chord_type")} compares the levels of
-\code{X1} within each chord type, while \code{estimand(m, Z,
+of them: \code{nest_estimand(m, X1, by = "chord_type")} compares the levels of
+\code{X1} within each chord type, while \code{nest_estimand(m, Z,
 by = c("chord_type", "inversion"))} compares within each chord type and
 inversion. A variable declared
 inside two parents is refused, as is \code{\%in\%} chained within one entry -

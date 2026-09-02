@@ -57,7 +57,7 @@ combination of conditions the coefficient equals. The transformation matrix is
 in the \code{nestimand_map} attribute.
 }
 \seealso{
-\code{\link{estimand}} for contrasts under a stated weighting policy,
+\code{\link{nest_estimand}} for contrasts under a stated weighting policy,
 \code{\link{effect_basis}} for the matrix relating the two spaces,
 \code{\link{nest_fit}}.
 }

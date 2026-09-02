@@ -70,10 +70,14 @@ chk("nesting_spec: bare nests", inherits(spd, "nesting_spec"))
 chk("nesting_spec: data name captured ('d')", spd$data_name == "d")
 chk("nesting_spec: realized cells counted per family",
     nrow(sp$cells_by_family[[1]]) == 10 && nrow(spd$cells_by_family[[1]]) == 5)
+## structurally undefined rows are converted now, so what is refused is an NA
+## the structure does not account for: one inside a stratum that has values
 bad <- dat; bad$inversion[bad$chord_type == "aug"] <- NA
-chk("nesting_spec: NA refused, apply_sentinel recommended",
-    grepl("apply_sentinel", err_of(nesting_spec(bad, response ~ chord_type * inversion,
-                                                "inversion %in% chord_type"))))
+bad$inversion[which(bad$chord_type == "dim")[1]] <- NA
+chk("nesting_spec: an NA the structure does not account for is still refused",
+    grepl("missing data rather than structure",
+          err_of(nesting_spec(bad, response ~ chord_type * inversion,
+                              "inversion %in% chord_type")), fixed = TRUE))
 d3 <- data.frame(v = factor(rep(c("none","p"), 50)), r = c(rep(0,50), runif(50,4,8)))
 d3$y <- rnorm(100)
 chk("nesting_spec: continuous leaf accepted",
@@ -244,9 +248,9 @@ eq2d <- est(nest_policy(sp2d, "chord", "equal"), tgt = "chord",
 chk("depth 2: equal differs from hierarchical (leaves vs tree)",
     abs(val(eq2d, "maj - aug") - val(e2d, "maj - aug")) > 1e-3)
 
-## ---- estimand(): the function, and the code it kept ----------------------
+## ---- nest_estimand(): the function, and the code it kept ----------------------
 set.seed(3)
-e <- estimand(m, chord_type, spec = sp, policy = "equal")
+e <- nest_estimand(m, chord_type, spec = sp, policy = "equal")
 chk("estimand: aug - maj = -0.6779 in original labels",
     abs(as.data.frame(e)$estimate[as.data.frame(e)$term == "maj - aug"] - 0.6779) < 1e-4)
 meta <- attr(e, "nestimand")
@@ -266,13 +270,13 @@ chk("show_code: the saved code re-runs and reproduces the estimand",
 chk("show_code: prints the lines and returns them invisibly",
     is.character(capture.output(show_code(e))[1]))
 ## non-core arguments reach the destination function, and appear in the code
-e9 <- estimand(m, chord_type, spec = sp, bounds = FALSE, self_check = FALSE,
+e9 <- nest_estimand(m, chord_type, spec = sp, bounds = FALSE, self_check = FALSE,
                conf_level = 0.9)
 chk("estimand: `...` passed through to marginaleffects",
     any(grepl("conf_level = 0.9", attr(e9, "nestimand")$code, fixed = TRUE)) &&
     as.data.frame(e9)$conf.low[1] > as.data.frame(e)$conf.low[1])
 ## contrasts inside each stratum, which is `by =` naming the target's parent
-ew <- suppressMessages(estimand(m, inversion, spec = sp, by = "chord_type",
+ew <- suppressMessages(nest_estimand(m, inversion, spec = sp, by = "chord_type",
                                 bounds = FALSE))
 dw <- as.data.frame(ew)
 chk("estimand by parent: three strata x three contrasts, no sentinel",
@@ -281,10 +285,10 @@ chk("estimand by parent: three strata x three contrasts, no sentinel",
 chk("estimand by parent: passes the reorder check",
     identical(attr(ew, "nestimand")$self_check$status, "passed"))
 chk("estimand: a non-nesting target is refused",
-    grepl("need no policy", err_of(estimand(m, training, spec = sp))))
+    grepl("need no policy", err_of(nest_estimand(m, training, spec = sp))))
 chk("estimand: supplied policy is written into the code verbatim",
     any(grepl('c("0" = 0.5, "1" = 0.3, "2" = 0.2)',
-        attr(estimand(m, chord_type, spec = sp, policy = c("0" = .5, "1" = .3, "2" = .2),
+        attr(nest_estimand(m, chord_type, spec = sp, policy = c("0" = .5, "1" = .3, "2" = .2),
              bounds = FALSE, self_check = FALSE), "nestimand")$code, fixed = TRUE)))
 
 ## ---- declaring and fitting in one call ------------------------------------
@@ -304,7 +308,7 @@ one_d <- local({
   for (one_v in c("chord_type", "inversion", "top")) one_z[[one_v]] <- factor(one_z[[one_v]])
   set.seed(2); one_z$response <- rnorm(nrow(one_z), 4); one_z
 })
-one_sent <- apply_sentinel(one_d, "inversion", where = is.na(one_d$inversion))
+one_sent <- set_sentinel(one_d, "inversion", where = is.na(one_d$inversion))
 chk("infer: the structure is read off the structural NAs",
     identical(infer_nests(one_d, c("chord_type", "inversion", "top"))$nests,
               "inversion %in% chord_type"))
@@ -395,7 +399,7 @@ chk("nest_fit: the parameterization and its reason are stated",
     any(grepl("parameterization: cells", attr(mf, "nestimand_code"))))
 chk("nest_fit: emmeans engine selects the effect basis, with its reason",
     identical(attr(nest_fit(sp, engine = "emmeans"), "nestimand_mode"), "effects"))
-ef <- estimand(mf, chord_type, spec = sp, policy = "equal", bounds = FALSE, self_check = FALSE)
+ef <- nest_estimand(mf, chord_type, spec = sp, policy = "equal", bounds = FALSE, self_check = FALSE)
 chk("nest_fit: the code view joins fit and estimand into one pipeline",
     any(grepl("^mf <- lm", attr(ef, "nestimand")$code)) &&
     any(grepl("avg_predictions", attr(ef, "nestimand")$code)))
@@ -427,7 +431,7 @@ mo <- nest_fit(spo)
 chk("ordinal: clm fits without the intercept warning, 15 parameters",
     length(coef(mo)) == 15)
 chk("ordinal: the response scale is probed, and refused clearly if unavailable",
-    { e <- err_of(estimand(mo, chord_type, spec = spo, bounds = FALSE,
+    { e <- err_of(nest_estimand(mo, chord_type, spec = spo, bounds = FALSE,
                            self_check = FALSE))
       identical(e, "") || grepl("scale = \"latent\"", e) })
 spbo <- nesting_spec(do2, rating ~ chord_type * inversion,
@@ -444,7 +448,7 @@ chk("brms: non-core arguments reach the engine and appear in the code",
 
 ## ---- latent scale: estimands as linear functionals -----------------------
 lp <- latent_estimand(m, "chord_type", "equal", spec = sp)
-ap <- as.data.frame(estimand(m, chord_type, spec = sp, bounds = FALSE, self_check = FALSE))
+ap <- as.data.frame(nest_estimand(m, chord_type, spec = sp, bounds = FALSE, self_check = FALSE))
 chk("latent: agrees with the prediction route on estimates (1e-10)",
     max(abs(lp$estimate[match(ap$term, lp$term)] - ap$estimate)) < 1e-10)
 chk("latent: agrees with the prediction route on standard errors (1e-7)",
@@ -455,7 +459,7 @@ chk("latent: a supplied policy is the convex combination of the vertices",
 chk("latent: reference and sequential contrasts available",
     nrow(latent_estimand(m, "chord_type", "equal", contrast = "reference", spec = sp)) == 3 &&
     nrow(latent_estimand(m, "chord_type", "equal", contrast = "sequential", spec = sp)) == 3)
-lo <- estimand(mo, chord_type, spec = spo, policy = "equal")
+lo <- nest_estimand(mo, chord_type, spec = spo, policy = "equal")
 chk("latent: ordinal fit returns one number per contrast, where predictions fail",
     nrow(as.data.frame(lo)) == 6 && is.finite(as.data.frame(lo)$estimate[3]))
 chk("latent: ordinal estimand passes the reorder check",
@@ -469,12 +473,12 @@ chk("latent: the code view names the linear-map route",
 ## A within-stratum contrast crosses no boundary, so no policy weighs anything
 ## and it is a plain contrast of design rows - a linear map like any other. It
 ## used to be refused on the latent scale, with a message naming an argument
-## `estimand()` does not have.
+## `nest_estimand()` does not have.
 ## `contrast` decides one thing: which comparisons are formed among the target's
 ## levels. Grouping is `by`, and an interaction is a `:` target. `"within"` was
 ## the first spelled two ways, `"interaction"` the second.
 chk("contrast: it offers the three comparison sets and nothing else",
-    identical(eval(formals(estimand)$contrast),
+    identical(eval(formals(nest_estimand)$contrast),
               c("pairwise", "reference", "sequential")))
 chk("latent: draw-wise translation refuses a frequentist fit",
     grepl("needs a posterior", err_of(latent_draws(m, "chord_type", spec = sp))))
@@ -537,7 +541,7 @@ chk("mfx: the emitted code matches the installed version",
     identical(mfx_hypothesis_txt("pairwise", "0.19.0"), "~pairwise"))
 chk("mfx: the emitted estimand code uses the accepted spelling",
     any(grepl(paste0("hypothesis = ", mfx_hypothesis_txt("pairwise")),
-              attr(estimand(m, chord_type, spec = sp, bounds = FALSE,
+              attr(nest_estimand(m, chord_type, spec = sp, bounds = FALSE,
                             self_check = FALSE, p_adjust = "none"),
                    "nestimand")$code, fixed = TRUE)))
 
@@ -569,18 +573,18 @@ chk("labels: the number of reversed rows is recorded",
     attr(cn, "nestimand_flipped") == 0 && attr(co, "nestimand_flipped") == 3)
 chk("labels: an unrecognized label is left alone rather than mangled",
     identical(mfx_canonical(data.frame(term = "b0", estimate = 1))$term, "b0"))
-chk("labels: estimand() reports contrasts in declared level order",
-    identical(as.data.frame(estimand(m, chord_type, spec = sp, bounds = FALSE,
+chk("labels: nest_estimand() reports contrasts in declared level order",
+    identical(as.data.frame(nest_estimand(m, chord_type, spec = sp, bounds = FALSE,
                                      self_check = FALSE))$term[1:3],
               c("dim - aug", "min - aug", "maj - aug")))
 
 chk("show_code: the normalization is part of the saved code, not applied after",
     any(grepl("mfx_canonical",
-              attr(estimand(m, chord_type, spec = sp, bounds = FALSE,
+              attr(nest_estimand(m, chord_type, spec = sp, bounds = FALSE,
                             self_check = FALSE, p_adjust = "none"),
                    "nestimand")$code)))
 chk("show_code: grouped-contrast code re-runs and reproduces its estimand",
-    { ew2 <- suppressMessages(estimand(m, inversion, spec = sp, by = "chord_type",
+    { ew2 <- suppressMessages(nest_estimand(m, inversion, spec = sp, by = "chord_type",
                       bounds = FALSE, self_check = FALSE))
       env2 <- new.env(); assign("m", m, env2); assign("sp", sp, env2)
       rr <- eval(parse(text = paste(attr(ew2, "nestimand")$code, collapse = "\n")),
@@ -770,30 +774,50 @@ chk("diag(): a plain bar is unaffected",
     identical(random_terms(mk_re("(chord_type * inversion | participant)"), "cells"),
               "(0 + cell | participant)"))
 
-## ---- apply_sentinel(): `where` is optional ---------------------------------
+## ---- the sentinel is applied by the declaration, not by the user -----------
+## `apply_sentinel()` is gone. NA still cannot be left as it is - R deletes those
+## rows casewise and silently - but who converts it changed: the declaration says
+## which rows should be undefined, or the inference establishes it, and either
+## way there is an answer to check the data against. Asking the user to do it by
+## hand had no such answer, so `where` could be wrong and the warning for
+## omitting it was the whole safeguard.
 dna <- dat; dna$inversion[dna$chord_type == "aug"] <- NA
-w <- NULL
-d_auto <- withCallingHandlers(apply_sentinel(dna, "inversion"),
-  warning = function(x) { w <<- conditionMessage(x); invokeRestart("muffleWarning") })
-d_expl <- apply_sentinel(dna, "inversion", dna$chord_type == "aug")
-chk("apply_sentinel: omitting `where` converts every NA",
-    !anyNA(d_auto$inversion) && identical(d_auto$inversion, d_expl$inversion))
-chk("apply_sentinel: omitting `where` warns, naming the risk and the remedy",
-    grepl("genuine missing data", w) && grepl("`where`", w) && grepl("40", w))
-chk("apply_sentinel: supplying `where` converts silently",
-    { w2 <- NULL
-      withCallingHandlers(apply_sentinel(dna, "inversion", dna$chord_type == "aug"),
-        warning = function(x) { w2 <<- conditionMessage(x); invokeRestart("muffleWarning") })
-      is.null(w2) })
-dmix <- dna; dmix$inversion[5] <- NA
-chk("apply_sentinel: with `where`, genuine missingness is still refused",
-    grepl("genuine missing data",
-          err_of(apply_sentinel(dmix, "inversion", dmix$chord_type == "aug"))))
-chk("apply_sentinel: the sentinel is placed first among the levels",
-    identical(levels(d_auto$inversion)[1], "none"))
-chk("apply_sentinel: numeric variables take 0 by default",
-    { dn <- data.frame(v = factor(c("none", "p")), r = c(NA, 5))
-      identical(apply_sentinel(dn, "r")$r, c(0, 5)) })
+chk("sentinel: a declared structure converts its own undefined rows",
+    { sp_na <- suppressMessages(nesting_spec(dna, response ~ chord_type * inversion,
+                                             "inversion %in% chord_type"))
+      !anyNA(sp_na$data$inversion) &&
+        identical(levels(sp_na$data$inversion)[1], "none") &&
+        nrow(sp_na$cells) == 10 })
+chk("sentinel: and gives the same declaration as data already carrying one",
+    { sp_na <- suppressMessages(nesting_spec(dna, response ~ chord_type * inversion,
+                                             "inversion %in% chord_type"))
+      identical(sort(as.character(sp_na$cells$cell)), sort(as.character(sp$cells$cell))) })
+chk("sentinel: an NA the structure does not account for is refused",
+    { dmix <- dna; dmix$inversion[5] <- NA
+      grepl("missing data rather than structure",
+            err_of(nesting_spec(dmix, response ~ chord_type * inversion,
+                                "inversion %in% chord_type")), fixed = TRUE) })
+chk("sentinel: a value where the structure says there is none is refused",
+    { dbad <- dna; dbad$inversion <- as.character(dbad$inversion)
+      dbad$inversion[which(dbad$chord_type == "aug")[1]] <- "0"
+      dbad$inversion <- factor(dbad$inversion)
+      grepl("missing data rather than structure",
+            err_of(nesting_spec(dbad, response ~ chord_type * inversion,
+                                "inversion %in% chord_type")), fixed = TRUE) })
+chk("sentinel: an NA on a variable nested in nothing has no structure to check",
+    { droot <- dat; droot$chord_type <- as.character(droot$chord_type)
+      droot$chord_type[1] <- NA; droot$chord_type <- factor(droot$chord_type)
+      grepl("nested in nothing",
+            err_of(nesting_spec(droot, response ~ chord_type * inversion,
+                                "inversion %in% chord_type")), fixed = TRUE) })
+chk("sentinel: a numeric nested variable takes 0",
+    { dn <- data.frame(g = factor(rep(c("a", "b"), each = 2)),
+                       r = c(NA, NA, 5, 7), y = rnorm(4))
+      sp_n <- suppressMessages(nesting_spec(dn, y ~ g * r, "r %in% g"))
+      identical(sp_n$data$r, c(0, 0, 5, 7)) })
+chk("sentinel: apply_sentinel is no longer exported",
+    !("apply_sentinel" %in% ls(envir = globalenv())) ||
+      !is.function(tryCatch(get("apply_sentinel"), error = function(e) NULL)))
 
 ## ---- nest_summary(): the fit in the original parameterization -------------
 ns <- nest_summary(mf, spec = sp)
@@ -843,12 +867,12 @@ chk("nest_summary: the model alone is enough",
     isTRUE(all.equal(nest_summary(mf)$estimate, nest_summary(mf, spec = sp)$estimate)))
 chk("estimand: the model alone is enough; `spec` is only for outside fits",
     isTRUE(all.equal(
-      as.data.frame(estimand(mf, chord_type, bounds = FALSE, self_check = FALSE))$estimate,
-      as.data.frame(estimand(mf, chord_type, spec = sp, bounds = FALSE,
+      as.data.frame(nest_estimand(mf, chord_type, bounds = FALSE, self_check = FALSE))$estimate,
+      as.data.frame(nest_estimand(mf, chord_type, spec = sp, bounds = FALSE,
                              self_check = FALSE))$estimate)))
 chk("estimand: the emitted code names the spec as it was named at fitting",
     any(grepl("nest_policy(sp, \"chord_type\"",
-        attr(estimand(mf, chord_type, bounds = FALSE, self_check = FALSE),
+        attr(nest_estimand(mf, chord_type, bounds = FALSE, self_check = FALSE),
              "nestimand")$code, fixed = TRUE)))
 chk("latent_estimand: the model alone is enough",
     abs(latent_estimand(mf, "chord_type")$estimate[3] - 0.6779) < 1e-4)
@@ -856,7 +880,7 @@ chk("a model fitted outside nest_fit is refused, with the reason",
     grepl("does not carry one", err_of(nest_summary(m))))
 chk("a model fitted outside nest_fit needs `spec`, and says so",
     grepl("does not carry one",
-          err_of(estimand(m, chord_type, bounds = FALSE, self_check = FALSE))))
+          err_of(nest_estimand(m, chord_type, bounds = FALSE, self_check = FALSE))))
 
 ## ---- covariate slopes translate like the means -----------------------------
 ## A covariate interacting with the conditions gives one slope per cell, which
@@ -901,18 +925,18 @@ chk("slopes: cell space names them per condition",
 m_cross <- suppressWarnings(lm(response ~ chord_type * inversion + training, data = sp$data))
 m_chain <- lm(cell_formula(sp, "effects"), data = sp$data)
 val3 <- function(mm) suppressWarnings(as.data.frame(
-  estimand(mm, chord_type, spec = sp, bounds = FALSE, self_check = FALSE))$estimate[3])
+  nest_estimand(mm, chord_type, spec = sp, bounds = FALSE, self_check = FALSE))$estimate[3])
 chk("self-fitted: a crossed fit gives the same estimand as the cell fit",
     abs(val3(m_cross) - 0.6779) < 1e-4)
 chk("self-fitted: a chain fit does too",
     abs(val3(m_chain) - 0.6779) < 1e-4)
 chk("self-fitted: a model missing the nested variable is refused",
     grepl("does not contain `inversion`",
-          err_of(estimand(lm(response ~ chord_type + training, data = sp$data),
+          err_of(nest_estimand(lm(response ~ chord_type + training, data = sp$data),
                           chord_type, spec = sp, bounds = FALSE, self_check = FALSE))))
 chk("self-fitted: the refusal explains what the answer would have been",
     grepl("weighting the fit already implies",
-          err_of(estimand(lm(response ~ chord_type + training, data = sp$data),
+          err_of(nest_estimand(lm(response ~ chord_type + training, data = sp$data),
                           chord_type, spec = sp, bounds = FALSE, self_check = FALSE))))
 chk("nest_summary: refuses a model with no cell coefficients",
     grepl("not fitted in the cell parameterization",
@@ -926,14 +950,14 @@ chk("update: the declaration survives the refit",
     inherits(attr(mu, "nestimand_spec"), "nesting_spec") &&
     inherits(mu, "nestimand_fit") && length(coef(mu)) == 10)
 chk("update: the estimand works from the updated fit, without `spec`",
-    abs(as.data.frame(estimand(mu, chord_type, bounds = FALSE,
+    abs(as.data.frame(nest_estimand(mu, chord_type, bounds = FALSE,
                                self_check = FALSE))$estimate[3] - 0.6779) < 1e-4)
 chk("update: the code view records the new call, not the old one",
     any(grepl("updated from the original call", attr(mu, "nestimand_code"))) &&
     !any(grepl("training", attr(mu, "nestimand_code"))))
 chk("update: an update that drops the structure is caught downstream",
     grepl("does not contain",
-          err_of(estimand(update(mf, . ~ . - cell), chord_type))))
+          err_of(nest_estimand(update(mf, . ~ . - cell), chord_type))))
 chk("class: the engine's own methods still work",
     length(predict(mf, newdata = head(sp$data))) == 6 &&
     inherits(summary(mf), "summary.lm") && nrow(vcov(mf)) == 11)
@@ -942,7 +966,7 @@ chk("class: the engine's own methods still work",
 ## `inversion` holds only the sentinel in the augmented stratum, so a contrast
 ## against that level would compare strata rather than inversions. Such strata
 ## are excluded, giving the pooled estimand of Section 4.1.
-einv <- estimand(mf, inversion, bounds = FALSE, self_check = FALSE)
+einv <- nest_estimand(mf, inversion, bounds = FALSE, self_check = FALSE)
 dinv <- as.data.frame(einv)
 chk("nested target: no contrast involves the sentinel level",
     nrow(dinv) == 3 && !any(grepl("none", dinv$term)))
@@ -953,14 +977,14 @@ chk("nested target: the restriction is stated in the emitted code",
     any(grepl("does not vary in every stratum", attr(einv, "nestimand")$code)) &&
     any(grepl("subset(sp$cells", attr(einv, "nestimand")$code, fixed = TRUE)))
 chk("nested target: it passes the reorder check",
-    identical(attr(estimand(mf, inversion, bounds = FALSE),
+    identical(attr(nest_estimand(mf, inversion, bounds = FALSE),
                    "nestimand")$self_check$status, "passed"))
 chk("nested target: contrasts inside each parent stratum are unaffected",
-    nrow(as.data.frame(suppressMessages(estimand(mf, inversion, by = "chord_type",
+    nrow(as.data.frame(suppressMessages(nest_estimand(mf, inversion, by = "chord_type",
                                 bounds = FALSE, self_check = FALSE)))) == 9)
 chk("root target: no restriction applies, and the estimand is unchanged",
     is.null(degenerate_strata(sp, "chord_type")) &&
-    abs(as.data.frame(estimand(mf, chord_type, bounds = FALSE,
+    abs(as.data.frame(nest_estimand(mf, chord_type, bounds = FALSE,
                                self_check = FALSE))$estimate[3] - 0.6779) < 1e-4)
 chk("versions: a nested variable's versions are the strata it occurs in",
     identical(sort(versions_of(sp, "inversion")[["0"]]), c("dim", "maj", "min")) &&
@@ -969,7 +993,7 @@ chk("versions: a root variable's versions are unchanged",
     identical(sort(versions_of(sp, "chord_type")[["maj"]]), c("0", "1", "2")))
 
 ## ---- bounds: one row per contrast, correctly paired ------------------------
-bi <- attr(estimand(mf, inversion, self_check = FALSE), "nestimand")$bounds
+bi <- attr(nest_estimand(mf, inversion, self_check = FALSE), "nestimand")$bounds
 chk("bounds: one row per contrast, not recycled against a longer vector",
     nrow(bi) == 3 && !anyDuplicated(bi$term))
 chk("bounds: each estimate lies inside its own interval",
@@ -985,21 +1009,21 @@ set.seed(7); dperm$inversion <- factor(dperm$inversion,
                                        levels = c("none", sample(c("0", "1", "2"))))
 spp <- nesting_spec(dperm, response ~ chord_type * inversion + training,
                     "inversion %in% chord_type")
-bp <- attr(estimand(nest_fit(spp), inversion, self_check = FALSE), "nestimand")$bounds
+bp <- attr(nest_estimand(nest_fit(spp), inversion, self_check = FALSE), "nestimand")$bounds
 chk("bounds: invariant under level permutation, up to contrast direction",
     isTRUE(all.equal(sort(abs(bi$estimate)), sort(abs(bp$estimate)), tolerance = 1e-8)) &&
     isTRUE(all.equal(sort(abs(c(bi$policy_low, bi$policy_high))),
                      sort(abs(c(bp$policy_low, bp$policy_high))), tolerance = 1e-8)))
 chk("labels: the engine's own label column is not left contradicting the estimate",
-    { d <- as.data.frame(estimand(mf, chord_type, bounds = FALSE, self_check = FALSE))
+    { d <- as.data.frame(nest_estimand(mf, chord_type, bounds = FALSE, self_check = FALSE))
       lc <- mfx_term_column(d)
       identical(as.character(d[[lc]]), d$term) })
 chk("target: a variable holding the name is read for its value",
     { tv <- "inversion"
-      nrow(as.data.frame(estimand(mf, tv, bounds = FALSE, self_check = FALSE))) == 3 })
+      nrow(as.data.frame(nest_estimand(mf, tv, bounds = FALSE, self_check = FALSE))) == 3 })
 chk("model: an inline call is named safely in the emitted code",
     any(grepl("^model <- lm",
-        attr(estimand(nest_fit(sp), chord_type, bounds = FALSE,
+        attr(nest_estimand(nest_fit(sp), chord_type, bounds = FALSE,
                       self_check = FALSE), "nestimand")$code)))
 
 ## ---- the declarations must identify the model whatever the level order -----
@@ -1020,10 +1044,10 @@ sp_last <- nesting_spec(sent_last, response ~ chord_type * inversion + training,
                         "inversion %in% chord_type")
 m_last <- nest_fit(sp_last)
 chk("sentinel last: the estimand is unchanged",
-    abs(as.data.frame(estimand(m_last, chord_type, bounds = FALSE,
+    abs(as.data.frame(nest_estimand(m_last, chord_type, bounds = FALSE,
                                self_check = FALSE))$estimate[3] - 0.6779) < 1e-4)
 chk("sentinel last: the nested contrast still excludes the sentinel",
-    { d <- as.data.frame(estimand(m_last, inversion, bounds = FALSE,
+    { d <- as.data.frame(nest_estimand(m_last, inversion, bounds = FALSE,
                                   self_check = FALSE))
       nrow(d) == 3 && !any(grepl("none", d$term)) })
 chk("sentinel last: the effect basis is still square and full rank",
@@ -1051,7 +1075,7 @@ chk("sentinel: the reordering is written into the emitted code, not silent",
 chk("sentinel: the cells parameterization needs no reordering",
     !any(grepl("relevel", attr(m_last, "nestimand_code"))))
 chk("sentinel: contrasts are still reported in the declared order",
-    identical(as.data.frame(estimand(m_last, inversion, bounds = FALSE,
+    identical(as.data.frame(nest_estimand(m_last, inversion, bounds = FALSE,
                                      self_check = FALSE))$term,
               c("1 - 0", "2 - 0", "2 - 1")))
 chk("sentinel: the effect basis is the same either way",
@@ -1062,7 +1086,7 @@ chk("sentinel: the effect basis is the same either way",
 ## model is evaluated. On balanced linear data the three agree; they separate
 ## under covariate imbalance, which is what G-computation exists to handle.
 rt3 <- function(mm, spx, rt, pol = "equal")
-  as.data.frame(estimand(mm, chord_type, policy = pol, route = rt, spec = spx,
+  as.data.frame(nest_estimand(mm, chord_type, policy = pol, route = rt, spec = spx,
                          bounds = FALSE, self_check = FALSE))$estimate[3]
 chk("routes: all three agree on balanced data with a shared covariate",
     max(abs(diff(vapply(c("g_computation", "cells"),
@@ -1080,18 +1104,18 @@ chk("routes: equal and proportional separate once the design is unbalanced",
     abs(rt3(mu2, spu, "g_computation", "equal") -
         rt3(mu2, spu, "g_computation", "proportional")) > 1e-3)
 chk("routes: the route is recorded and printed",
-    identical(attr(estimand(mf, chord_type, route = "cells", bounds = FALSE,
+    identical(attr(nest_estimand(mf, chord_type, route = "cells", bounds = FALSE,
                             self_check = FALSE), "nestimand")$route, "cells"))
 chk("routes: the emitted code says which rows the model was evaluated over",
     any(grepl("crossed with every realized",
-        attr(estimand(mf, chord_type, bounds = FALSE, self_check = FALSE,
+        attr(nest_estimand(mf, chord_type, bounds = FALSE, self_check = FALSE,
                       p_adjust = "none"), "nestimand")$code)) &&
     any(grepl("covariates at their means",
-        attr(estimand(mf, chord_type, route = "cells", bounds = FALSE,
+        attr(nest_estimand(mf, chord_type, route = "cells", bounds = FALSE,
                       self_check = FALSE, p_adjust = "none"),
              "nestimand")$code)))
 chk("routes: the reorder check follows the route it was asked for",
-    identical(attr(estimand(mf, chord_type, route = "cells", bounds = FALSE),
+    identical(attr(nest_estimand(mf, chord_type, route = "cells", bounds = FALSE),
                    "nestimand")$self_check$status, "passed"))
 
 ## ---- unit weights: standardizing to another population ---------------------
@@ -1102,7 +1126,7 @@ dw <- dat; dw$wt_hi <- as.numeric(dw$training > 7); dw$wt1 <- 1
 spw <- nesting_spec(dw, response ~ chord_type * inversion * training,
                     "inversion %in% chord_type")
 mw <- nest_fit(spw)
-gw <- function(...) as.data.frame(estimand(mw, chord_type, bounds = FALSE,
+gw <- function(...) as.data.frame(nest_estimand(mw, chord_type, bounds = FALSE,
                                            self_check = FALSE, ...))$estimate[3]
 chk("weights: uniform weights leave the estimand unchanged",
     abs(gw(weights = "wt1") - gw()) < 1e-10)
@@ -1119,7 +1143,7 @@ chk("weights: refused on the cells route, which has no units to weight",
     grepl("no units to weight", err_of(gw(route = "cells", weights = "wt_hi"))))
 chk("weights: they appear in the emitted code, with their purpose",
     any(grepl("standardized to the population",
-        attr(estimand(mw, chord_type, weights = "wt_hi", bounds = FALSE,
+        attr(nest_estimand(mw, chord_type, weights = "wt_hi", bounds = FALSE,
                       self_check = FALSE), "nestimand")$code)))
 
 ## ---- the reference condition follows the declared level order --------------
@@ -1156,7 +1180,7 @@ chk("reference: the estimand is unaffected by the choice",
     { dd <- dat; dd$inversion <- factor(dd$inversion, levels = c("2","1","0","none"))
       spr <- nesting_spec(dd, response ~ chord_type * inversion + training,
                           "inversion %in% chord_type")
-      abs(as.data.frame(estimand(nest_fit(spr), chord_type, bounds = FALSE,
+      abs(as.data.frame(nest_estimand(nest_fit(spr), chord_type, bounds = FALSE,
                                  self_check = FALSE))$estimate[3] - 0.6779) < 1e-4 })
 
 ## ---- the reorder check on a mixed model ------------------------------------
@@ -1172,7 +1196,7 @@ if (requireNamespace("lme4", quietly = TRUE)) {
                        (chord_type * inversion | participant),
                        "inversion %in% chord_type", fit = "lmer")
   mm2 <- suppressWarnings(nest_fit(spm2))
-  rc <- suppressWarnings(attr(estimand(mm2, chord_type, bounds = FALSE),
+  rc <- suppressWarnings(attr(nest_estimand(mm2, chord_type, bounds = FALSE),
                               "nestimand")$self_check)
   chk("reorder: a mixed fit is checked on the shadow model, and passes",
       identical(rc$status, "passed") && grepl("shadow model", rc$note))
@@ -1180,10 +1204,10 @@ if (requireNamespace("lme4", quietly = TRUE)) {
       grepl("fixed-effects phenomenon", rc$note))
 }
 chk("reorder: a plain fit is still checked on the model itself",
-    { r <- attr(estimand(mf, chord_type, bounds = FALSE), "nestimand")$self_check
+    { r <- attr(nest_estimand(mf, chord_type, bounds = FALSE), "nestimand")$self_check
       identical(r$status, "passed") && !grepl("shadow", r$note) })
 chk("reorder: an ordinal fit uses an ordinal shadow",
-    { r <- attr(estimand(mo, chord_type, bounds = FALSE),
+    { r <- attr(nest_estimand(mo, chord_type, bounds = FALSE),
                 "nestimand")$self_check
       identical(r$status, "passed") })
 
@@ -1227,7 +1251,7 @@ combo <- expand.grid(target = c("chord_type", "inversion"),
                      policy = c("equal", "proportional"),
                      stringsAsFactors = FALSE)
 res <- vapply(seq_len(nrow(combo)), function(i) {
-  r <- tryCatch(as.data.frame(estimand(mf, combo$target[i], policy = combo$policy[i],
+  r <- tryCatch(as.data.frame(nest_estimand(mf, combo$target[i], policy = combo$policy[i],
                   route = combo$route[i], bounds = TRUE,
                   self_check = TRUE))$estimate[1],
                 error = function(e) NA_real_)
@@ -1239,7 +1263,7 @@ chk("combinations: each target agrees across routes on balanced data",
     max(abs(diff(res[combo$target == "inversion"]))) < 1e-8)
 chk("combinations: the emitted code runs for each of them",
     all(vapply(seq_len(nrow(combo)), function(i) {
-      e <- estimand(mf, combo$target[i], policy = combo$policy[i],
+      e <- nest_estimand(mf, combo$target[i], policy = combo$policy[i],
                     route = combo$route[i], bounds = FALSE, self_check = FALSE)
       env <- new.env(); assign("mf", mf, env); assign("sp", sp, env)
       r <- tryCatch(eval(parse(text = paste(attr(e, "nestimand")$code,
@@ -1256,7 +1280,7 @@ chk("policy_weights: a stratum the policy does not cover contributes nothing",
 if (requireNamespace("lme4", quietly = TRUE)) {
   rr <- vapply(c("g_computation", "cells"), function(rt)
     tryCatch(suppressWarnings(as.data.frame(
-      estimand(mm2, chord_type, route = rt, bounds = FALSE,
+      nest_estimand(mm2, chord_type, route = rt, bounds = FALSE,
                self_check = FALSE))$estimate[1]), error = function(e) NA_real_), 1)
   chk("mixed: every route runs, the cells grid carrying the grouping column",
       !anyNA(rr) && max(abs(diff(rr))) < 1e-8)
@@ -1264,7 +1288,7 @@ if (requireNamespace("lme4", quietly = TRUE)) {
       "participant" %in% names(cell_grid(spm2)))
   chk("mixed: grouping_vars reads them from the declared bars",
       identical(grouping_vars(spm2), "participant"))
-  cd <- attr(estimand(mm2, chord_type, route = "cells", bounds = FALSE,
+  cd <- attr(nest_estimand(mm2, chord_type, route = "cells", bounds = FALSE,
                       self_check = FALSE, p_adjust = "none"), "nestimand")$code
   chk("mixed: the engine's default stands, and is stated",
       any(grepl("default stands", cd)) &&
@@ -1272,7 +1296,7 @@ if (requireNamespace("lme4", quietly = TRUE)) {
                  fixed = TRUE)))
   chk("mixed: a user-supplied re.form is not overridden",
       any(grepl("re.form = NULL",
-          attr(estimand(mm2, chord_type, bounds = FALSE, self_check = FALSE,
+          attr(nest_estimand(mm2, chord_type, bounds = FALSE, self_check = FALSE,
                         re.form = NULL), "nestimand")$code, fixed = TRUE)))
   chk("mixed: brms would be told in its own spelling",
       { spb_m <- nesting_spec(dat, response ~ chord_type * inversion +
@@ -1282,7 +1306,7 @@ if (requireNamespace("lme4", quietly = TRUE)) {
                   "re_formula") && length(grouping_vars(spb_m)) == 1 })
 }
 chk("mixed: a fit with no random terms is left alone",
-    !any(grepl("re.form", attr(estimand(mf, chord_type, bounds = FALSE,
+    !any(grepl("re.form", attr(nest_estimand(mf, chord_type, bounds = FALSE,
                                         self_check = FALSE, p_adjust = "none"),
                                "nestimand")$code)))
 
@@ -1296,7 +1320,7 @@ combo2 <- expand.grid(target = c("chord_type", "inversion"),
                       scale = c("response", "latent"),
                       stringsAsFactors = FALSE)
 called <- unlist(lapply(seq_len(nrow(combo2)), function(i) {
-  e <- tryCatch(estimand(mf, combo2$target[i], route = combo2$route[i],
+  e <- tryCatch(nest_estimand(mf, combo2$target[i], route = combo2$route[i],
                          scale = combo2$scale[i], bounds = TRUE,
                          self_check = FALSE), error = function(x) NULL)
   if (is.null(e)) return(character(0))
@@ -1310,28 +1334,28 @@ missing_exports <- missing_exports[vapply(missing_exports, exists, TRUE)]
 chk("emitted code: every nestimand function it calls is exported",
     length(missing_exports) == 0)
 chk("routes: a route that averages over each condition's own rows is refused",
-    grepl("should be one of", err_of(estimand(mf, chord_type, route = "observed"))))
+    grepl("should be one of", err_of(nest_estimand(mf, chord_type, route = "observed"))))
 
 ## ---- printing and multiple targets -----------------------------------------
 chk("print: four decimal places by default, more on request",
-    { p4 <- capture.output(print(estimand(mf, chord_type, bounds = FALSE,
+    { p4 <- capture.output(print(nest_estimand(mf, chord_type, bounds = FALSE,
                                           self_check = FALSE)))
-      p8 <- capture.output(print(estimand(mf, chord_type, bounds = FALSE,
+      p8 <- capture.output(print(nest_estimand(mf, chord_type, bounds = FALSE,
                                           self_check = FALSE), digits = 8))
       any(grepl("0.6779", p4, fixed = TRUE)) &&
       any(grepl("0.67788574", p8, fixed = TRUE)) })
 chk("print: the object keeps full precision whatever is shown",
-    abs(as.data.frame(estimand(mf, chord_type, bounds = FALSE,
+    abs(as.data.frame(nest_estimand(mf, chord_type, bounds = FALSE,
                                self_check = FALSE))$estimate[3] -
         0.677885742) < 1e-8)
 chk("print: nest_summary takes digits too",
     any(grepl("4.08435", capture.output(print(nest_summary(mf), digits = 6)),
               fixed = TRUE)))
-em <- estimand(mf, c(chord_type, inversion), bounds = FALSE, self_check = FALSE)
+em <- nest_estimand(mf, c(chord_type, inversion), bounds = FALSE, self_check = FALSE)
 chk("targets: several at once, bare or quoted",
     inherits(em, "nestimand_estimands") &&
     identical(names(em), c("chord_type", "inversion")) &&
-    identical(names(estimand(mf, c("chord_type", "inversion"), bounds = FALSE,
+    identical(names(nest_estimand(mf, c("chord_type", "inversion"), bounds = FALSE,
                              self_check = FALSE)), names(em)))
 chk("targets: each element is an ordinary estimand table",
     inherits(em[["chord_type"]], "nestimand_estimand") &&
@@ -1343,7 +1367,7 @@ chk("targets: show_code covers every one of them",
       any(grepl("--- chord_type ---", cd)) && any(grepl("--- inversion ---", cd)) })
 
 ## ---- interaction contrasts, and the formula forms --------------------------
-ei <- estimand(mf, chord_type:inversion, self_check = FALSE)
+ei <- nest_estimand(mf, chord_type:inversion, self_check = FALSE)
 di <- as.data.frame(ei)
 cm <- tapply(dat$response, paste(dat$chord_type, dat$inversion, sep = "."), mean)
 chk("interaction: a difference of differences, matching the raw cell means",
@@ -1354,7 +1378,7 @@ chk("interaction: 9 contrasts, none touching the sentinel stratum",
 chk("interaction: a policy is dropped rather than refused, and reported",
     { msg <- NULL
       r <- withCallingHandlers(
-        estimand(mf, chord_type:inversion, policy = "proportional",
+        nest_estimand(mf, chord_type:inversion, policy = "proportional",
                  self_check = FALSE),
         message = function(m) { msg <<- conditionMessage(m)
                                 invokeRestart("muffleMessage") })
@@ -1362,18 +1386,18 @@ chk("interaction: a policy is dropped rather than refused, and reported",
       isTRUE(attr(r, "nestimand")$policy_dropped) &&
       nrow(as.data.frame(r)) == 9 })
 chk("interaction: dropping it leaves the marginal contrasts' policy intact",
-    { r <- suppressMessages(estimand(mf, chord_type * inversion,
+    { r <- suppressMessages(nest_estimand(mf, chord_type * inversion,
                                      policy = "proportional", bounds = FALSE,
                                      self_check = FALSE))
       identical(attr(r[["chord_type"]], "nestimand")$policy, "proportional") &&
       isTRUE(attr(r[["chord_type:inversion"]], "nestimand")$policy_dropped) })
 chk("interaction: the printed policy reads as not applicable",
     any(grepl("Policy: not applicable",
-        capture.output(print(estimand(mf, chord_type:inversion,
+        capture.output(print(nest_estimand(mf, chord_type:inversion,
                                       self_check = FALSE))))))
 chk("interaction: no bounds, since there is no policy to vary",
     is.null(attr(ei, "nestimand")$bounds))
-est_star <- estimand(mf, chord_type * inversion, bounds = FALSE, self_check = FALSE)
+est_star <- nest_estimand(mf, chord_type * inversion, bounds = FALSE, self_check = FALSE)
 chk("targets: `a * b` gives a, b, and their interaction",
     identical(names(est_star),
               c("chord_type", "inversion", "chord_type:inversion")) &&
@@ -1387,11 +1411,11 @@ chk("interaction: the emitted code re-runs",
                 envir = env)
       isTRUE(all.equal(as.data.frame(r)$estimate, di$estimate)) })
 chk("interaction: a `:` target is how it is asked for",
-    { a <- as.data.frame(estimand(mf, chord_type:inversion, bounds = FALSE,
+    { a <- as.data.frame(nest_estimand(mf, chord_type:inversion, bounds = FALSE,
                                   self_check = FALSE))
       nrow(a) == nrow(di) && isTRUE(all.equal(a$estimate, di$estimate)) })
 chk("interaction: a `*` target gives the marginals and it together",
-    { b <- suppressMessages(estimand(mf, chord_type * inversion, bounds = FALSE,
+    { b <- suppressMessages(nest_estimand(mf, chord_type * inversion, bounds = FALSE,
                                      self_check = FALSE))
       length(b) == 3 &&
         identical(names(b), c("chord_type", "inversion", "chord_type:inversion")) &&
@@ -1402,21 +1426,21 @@ chk("interaction: a `*` target gives the marginals and it together",
 ## They are the same estimand under other policies, so computing them on a
 ## different grid from the estimand itself is both inconsistent and, on the
 ## g-computation grid, far slower than the route requested.
-bc <- attr(estimand(mf, inversion, route = "cells", self_check = FALSE),
+bc <- attr(nest_estimand(mf, inversion, route = "cells", self_check = FALSE),
            "nestimand")$bounds
-bg <- attr(estimand(mf, inversion, self_check = FALSE), "nestimand")$bounds
+bg <- attr(nest_estimand(mf, inversion, self_check = FALSE), "nestimand")$bounds
 chk("bounds: the same whichever route computes them, on balanced data",
     isTRUE(all.equal(bc$policy_low, bg$policy_low, tolerance = 1e-8)) &&
     isTRUE(all.equal(bc$policy_high, bg$policy_high, tolerance = 1e-8)))
 chk("bounds: the route is carried into the emitted call",
     any(grepl('route = "cells"',
-        attr(estimand(mf, inversion, route = "cells", self_check = FALSE,
+        attr(nest_estimand(mf, inversion, route = "cells", self_check = FALSE,
                       p_adjust = "none"), "nestimand")$code, fixed = TRUE)) &&
     !any(grepl("route =",
-        attr(estimand(mf, inversion, self_check = FALSE, p_adjust = "none"),
+        attr(nest_estimand(mf, inversion, self_check = FALSE, p_adjust = "none"),
              "nestimand")$code, fixed = TRUE)))
 chk("bounds: the emitted code re-runs on the cells route",
-    { e <- estimand(mf, inversion, route = "cells", self_check = FALSE)
+    { e <- nest_estimand(mf, inversion, route = "cells", self_check = FALSE)
       env <- new.env(); assign("mf", mf, env); assign("sp", sp, env)
       r <- eval(parse(text = paste(attr(e, "nestimand")$code, collapse = "\n")),
                 envir = env)
@@ -1436,7 +1460,7 @@ local({
   ## increments a counter, then check the counter stays at zero
   attr(m_c, "nestimand_code") <<- c("## nestimand -- fit", "m <- trace_fit()")
 })
-e_c <- estimand(m_c, chord_type, bounds = FALSE, self_check = FALSE)
+e_c <- nest_estimand(m_c, chord_type, bounds = FALSE, self_check = FALSE)
 chk("estimand: the fit is shown in the code but not re-run",
     counted == 0 && nrow(as.data.frame(e_c)) == 6)
 chk("estimand: the code view still contains the fit",
@@ -1549,15 +1573,15 @@ if (requireNamespace("brms", quietly = TRUE)) {
 
 ## ---- the multi-target object prints, and interactions pass their check -----
 chk("interaction: the reorder check runs rather than erroring",
-    identical(attr(estimand(mf, chord_type:inversion, bounds = FALSE),
+    identical(attr(nest_estimand(mf, chord_type:inversion, bounds = FALSE),
                    "nestimand")$self_check$status, "passed"))
 chk("targets: the collection prints even without names",
-    { e <- suppressMessages(estimand(mf, chord_type * inversion,
+    { e <- suppressMessages(nest_estimand(mf, chord_type * inversion,
              policy = "proportional", bounds = FALSE, self_check = FALSE))
       length(capture.output(print(unname(e)))) > 0 &&
       length(capture.output(print(e))) > 0 })
 chk("targets: show_code covers the collection without names too",
-    { e <- suppressMessages(estimand(mf, chord_type * inversion, bounds = FALSE,
+    { e <- suppressMessages(nest_estimand(mf, chord_type * inversion, bounds = FALSE,
                                      self_check = FALSE))
       length(capture.output(show_code(unname(e)))) > 0 })
 chk("targets: an empty collection says so rather than printing nothing",
@@ -1586,9 +1610,9 @@ if (requireNamespace("lme4", quietly = TRUE)) {
 ## ---- the latent route covers what the prediction route covers --------------
 ## the linear predictor on an lm is reached by the package's own default,
 ## since marginaleffects does not accept "link" for that class
-lat <- function(...) as.data.frame(estimand(mf, ..., bounds = FALSE,
+lat <- function(...) as.data.frame(nest_estimand(mf, ..., bounds = FALSE,
                                             self_check = FALSE))
-res <- function(...) as.data.frame(estimand(mf, ..., bounds = FALSE,
+res <- function(...) as.data.frame(nest_estimand(mf, ..., bounds = FALSE,
                                             self_check = FALSE))
 chk("latent: an interaction is available, and matches the prediction route",
     { a <- res(chord_type:inversion); b <- lat(chord_type:inversion)
@@ -1598,15 +1622,15 @@ chk("latent: a nested target is restricted here too",
       identical(a$term, b$term) && nrow(b) == 3 &&
       max(abs(a$estimate - b$estimate)) < 1e-8 })
 chk("latent: the interaction passes its reorder check",
-    identical(attr(estimand(mf, chord_type:inversion,
+    identical(attr(nest_estimand(mf, chord_type:inversion,
                             bounds = FALSE), "nestimand")$self_check$status,
               "passed"))
 chk("latent: the emitted code names the interaction route",
     any(grepl('contrast = "interaction"',
-        attr(estimand(mf, chord_type:inversion, bounds = FALSE,
+        attr(nest_estimand(mf, chord_type:inversion, bounds = FALSE,
                       self_check = FALSE), "nestimand")$code, fixed = TRUE)))
 chk("latent: an ordinal star form gives all three, correctly sized",
-    { eo2 <- suppressMessages(estimand(mo, chord_type * inversion,
+    { eo2 <- suppressMessages(nest_estimand(mo, chord_type * inversion,
                policy = "proportional", bounds = FALSE,
                self_check = FALSE))
       identical(unname(vapply(eo2, function(z) nrow(as.data.frame(z)), 1L)),
@@ -1644,7 +1668,7 @@ chk("print: every numeric column is right-aligned, character or not",
         substr(r, i, i) != " " }
       endsw(ln[1], ln[2], "estimate") && endsw(ln[1], ln[2], "pd") })
 chk("print: numeric headers sit over their columns, right-aligned",
-    { ln <- capture.output(print(estimand(mf, chord_type, bounds = FALSE,
+    { ln <- capture.output(print(nest_estimand(mf, chord_type, bounds = FALSE,
                                           self_check = FALSE)))
       hdr <- ln[1]; row <- ln[2]
       ## the header and the values end at the same column for a numeric field
@@ -1656,12 +1680,12 @@ chk("print: the label column stays left-aligned, header included",
     { ln <- capture.output(print(nest_summary(mf, "cells")))
       any(grepl("^ term ", ln)) })
 chk("print: alignment does not disturb the values",
-    { d <- as.data.frame(estimand(mf, chord_type, bounds = FALSE,
+    { d <- as.data.frame(nest_estimand(mf, chord_type, bounds = FALSE,
                                   self_check = FALSE))
       abs(d$estimate[3] - 0.677885742) < 1e-8 })
 
 chk("ordinal: the latent scale needs no engine support at all",
-    nrow(as.data.frame(estimand(mo, chord_type,
+    nrow(as.data.frame(nest_estimand(mo, chord_type,
                                 bounds = FALSE, self_check = FALSE))) == 6)
 chk("ordinal: the probe reports which names it tried",
     { e <- err_of(ordinal_response_type(mo, spo, spo$data))
@@ -1669,29 +1693,29 @@ chk("ordinal: the probe reports which names it tried",
 
 ## ---- the default scale depends on the family --------------------------------
 chk("scale: an ordinal fit defaults to the latent scale",
-    identical(attr(estimand(mo, chord_type, bounds = FALSE, self_check = FALSE),
+    identical(attr(nest_estimand(mo, chord_type, bounds = FALSE, self_check = FALSE),
                    "nestimand")$scale, "latent"))
 chk("scale: a linear fit still asks for the response scale by default",
-    identical(attr(estimand(mf, chord_type, bounds = FALSE, self_check = FALSE),
+    identical(attr(nest_estimand(mf, chord_type, bounds = FALSE, self_check = FALSE),
                    "nestimand")$type, "response"))
 chk("scale: the ordinal default gives one number per contrast",
-    nrow(as.data.frame(estimand(mo, chord_type, bounds = FALSE,
+    nrow(as.data.frame(nest_estimand(mo, chord_type, bounds = FALSE,
                                 self_check = FALSE))) == 6)
 chk("type: response resolves to the name this engine accepts",
-    { cd <- suppressMessages(estimand(mo, chord_type, type = "response",
+    { cd <- suppressMessages(nest_estimand(mo, chord_type, type = "response",
               bounds = FALSE, self_check = FALSE, dry_run = TRUE))
       grepl('type = "prob"', cd, fixed = TRUE) ||
       grepl('type = "response"', cd, fixed = TRUE) })
 
 ## ---- the default scale follows the family -----------------------------------
 chk("scale: an ordinal fit defaults to the latent scale",
-    identical(attr(estimand(mo, chord_type, bounds = FALSE, self_check = FALSE),
+    identical(attr(nest_estimand(mo, chord_type, bounds = FALSE, self_check = FALSE),
                    "nestimand")$scale, "latent"))
 chk("scale: everything else defaults to the response scale",
-    identical(attr(estimand(mf, chord_type, bounds = FALSE, self_check = FALSE),
+    identical(attr(nest_estimand(mf, chord_type, bounds = FALSE, self_check = FALSE),
                    "nestimand")$type, "response"))
 chk("scale: an explicit choice is honoured either way",
-    identical(attr(estimand(mf, chord_type, bounds = FALSE,
+    identical(attr(nest_estimand(mf, chord_type, bounds = FALSE,
                             self_check = FALSE), "nestimand")$scale, "latent"))
 
 chk("class: the engine's own class comes first, so dispatch is undisturbed",
@@ -1703,65 +1727,65 @@ chk("class: the engine's own class comes first, so dispatch is undisturbed",
 ## nowhere to go; an ordinal fit defaults to that route, which makes this easy
 ## to hit by accident.
 chk("latent: conf_level does apply, and widens the interval",
-    { a <- as.data.frame(estimand(mf, chord_type,
+    { a <- as.data.frame(nest_estimand(mf, chord_type,
              conf_level = 0.99, bounds = FALSE, self_check = FALSE))
-      b <- as.data.frame(estimand(mf, chord_type,
+      b <- as.data.frame(nest_estimand(mf, chord_type,
              conf_level = 0.90, bounds = FALSE, self_check = FALSE))
       all(a$conf.low < b$conf.low) && all(a$conf.high > b$conf.high) })
 chk("latent: the response route still takes them",
-    nrow(as.data.frame(estimand(mf, chord_type, p_adjust = "holm",
+    nrow(as.data.frame(nest_estimand(mf, chord_type, p_adjust = "holm",
                                 bounds = FALSE, self_check = FALSE))) == 6)
 
 ## ---- one argument names the quantity ---------------------------------------
-meta_of <- function(...) attr(estimand(mf, chord_type, bounds = FALSE,
+meta_of <- function(...) attr(nest_estimand(mf, chord_type, bounds = FALSE,
                                        self_check = FALSE, ...), "nestimand")
 chk("type: eta is computed from the coefficients, on any class",
     identical(meta_of(type = "eta")$scale, "latent") &&
-    identical(attr(estimand(mo, chord_type, type = "eta", bounds = FALSE,
+    identical(attr(nest_estimand(mo, chord_type, type = "eta", bounds = FALSE,
                             self_check = FALSE), "nestimand")$scale, "latent"))
 chk("type: an engine name is not reinterpreted as eta",
-    { e <- err_of(suppressMessages(estimand(mo, chord_type, type = "latent",
+    { e <- err_of(suppressMessages(nest_estimand(mo, chord_type, type = "latent",
                     bounds = FALSE, self_check = FALSE)))
       identical(e, "") || grepl("type", e) })
 chk("type: anything but the linear predictor goes to the prediction function",
     identical(meta_of(type = "response", p_adjust = "none")$scale, "response"))
 chk("type: the default is the response scale, and eta for an ordinal fit",
     identical(meta_of()$type, "response") &&
-    identical(attr(estimand(mo, chord_type, bounds = FALSE, self_check = FALSE),
+    identical(attr(nest_estimand(mo, chord_type, bounds = FALSE, self_check = FALSE),
                    "nestimand")$type, "eta"))
 chk("type: the two agree in a linear model, whichever machinery is used",
-    { a <- as.data.frame(estimand(mf, chord_type, bounds = FALSE,
+    { a <- as.data.frame(nest_estimand(mf, chord_type, bounds = FALSE,
                                   self_check = FALSE))
-      b <- as.data.frame(estimand(mf, chord_type, type = "response",
+      b <- as.data.frame(nest_estimand(mf, chord_type, type = "response",
                                   bounds = FALSE, self_check = FALSE))
       max(abs(a$estimate - b$estimate[match(a$term, b$term)])) < 1e-8 })
 chk("type: it is recorded and printed",
     any(grepl("type: eta",
-        capture.output(print(estimand(mf, chord_type, type = "eta",
+        capture.output(print(nest_estimand(mf, chord_type, type = "eta",
                                       bounds = FALSE, self_check = FALSE))))))
 
 ## ---- the response scale on an ordinal fit is worth a word ------------------
 chk("ordinal: the response scale says what it gives and what to do instead",
     { msg <- NULL
       withCallingHandlers(
-        tryCatch(estimand(mo, chord_type, type = "response", bounds = FALSE,
+        tryCatch(nest_estimand(mo, chord_type, type = "response", bounds = FALSE,
                           self_check = FALSE), error = function(e) NULL),
         message = function(m) { msg <<- conditionMessage(m)
                                 invokeRestart("muffleMessage") })
       grepl("one per outcome category", msg) && grepl("pairwise", msg) })
 chk("ordinal: an engine refusal on that scale is explained, not passed on raw",
-    { e <- err_of(suppressMessages(estimand(mo, chord_type, type = "response",
+    { e <- err_of(suppressMessages(nest_estimand(mo, chord_type, type = "response",
                     bounds = FALSE, self_check = FALSE)))
       identical(e, "") || (grepl("one value per outcome category", e) &&
                            grepl("The engine said", e)) })
 chk("ordinal: the default route is unaffected by any of this",
-    nrow(as.data.frame(estimand(mo, chord_type, bounds = FALSE,
+    nrow(as.data.frame(nest_estimand(mo, chord_type, bounds = FALSE,
                                 self_check = FALSE))) == 6)
 
 chk("ordinal: the predictive type warns that codes are being averaged",
     { msgs <- character(0)
       withCallingHandlers(
-        tryCatch(estimand(mo, chord_type, type = "prediction", bounds = FALSE,
+        tryCatch(nest_estimand(mo, chord_type, type = "prediction", bounds = FALSE,
                           self_check = FALSE), error = function(e) NULL),
         message = function(m) { msgs <<- c(msgs, conditionMessage(m))
                                 invokeRestart("muffleMessage") })
@@ -1769,7 +1793,7 @@ chk("ordinal: the predictive type warns that codes are being averaged",
 chk("prediction: a non-ordinal fit draws no such note",
     { msg <- NULL
       withCallingHandlers(
-        tryCatch(estimand(mf, chord_type, type = "prediction", bounds = FALSE,
+        tryCatch(nest_estimand(mf, chord_type, type = "prediction", bounds = FALSE,
                           self_check = FALSE), error = function(e) NULL),
         message = function(m) { msg <<- conditionMessage(m)
                                 invokeRestart("muffleMessage") })
@@ -1778,7 +1802,7 @@ chk("prediction: a non-ordinal fit draws no such note",
 chk("ordinal: the size of the comparison set is stated before the work starts",
     { msgs <- character(0)
       withCallingHandlers(
-        tryCatch(estimand(mo, chord_type, type = "response", bounds = FALSE,
+        tryCatch(nest_estimand(mo, chord_type, type = "response", bounds = FALSE,
                           self_check = FALSE), error = function(e) NULL),
         message = function(m) { msgs <<- c(msgs, conditionMessage(m))
                                 invokeRestart("muffleMessage") })
@@ -1786,7 +1810,7 @@ chk("ordinal: the size of the comparison set is stated before the work starts",
 chk("ordinal: the linear predictor draws no such warning",
     { msgs <- character(0)
       withCallingHandlers(
-        estimand(mo, chord_type, bounds = FALSE, self_check = FALSE),
+        nest_estimand(mo, chord_type, bounds = FALSE, self_check = FALSE),
         message = function(m) { msgs <<- c(msgs, conditionMessage(m))
                                 invokeRestart("muffleMessage") })
       !any(grepl("contrasts where the linear predictor", msgs)) })
@@ -1795,22 +1819,22 @@ chk("ordinal: the linear predictor draws no such warning",
 ## The package forms one from `contrast`; supplying another would give the
 ## engine two, so the user's replaces it, and the substitution is announced.
 chk("hypothesis: a supplied one replaces the contrast's, without colliding",
-    { e <- suppressMessages(estimand(mf, chord_type, hypothesis = "reference",
+    { e <- suppressMessages(nest_estimand(mf, chord_type, hypothesis = "reference",
                                      bounds = FALSE, self_check = FALSE))
       nrow(as.data.frame(e)) == 3 &&
       sum(grepl("hypothesis", attr(e, "nestimand")$code)) == 1 })
 chk("hypothesis: the substitution is reported, with what it costs",
     { msg <- NULL
-      withCallingHandlers(estimand(mf, chord_type, hypothesis = "reference",
+      withCallingHandlers(nest_estimand(mf, chord_type, hypothesis = "reference",
                                    bounds = FALSE, self_check = FALSE),
         message = function(m) { msg <<- conditionMessage(m)
                                 invokeRestart("muffleMessage") })
       grepl("instead of contrast", msg) && grepl("subtraction", msg) })
 chk("hypothesis: it is refused alongside an interaction, which defines its own",
     grepl("both define which comparisons",
-          err_of(estimand(mf, chord_type:inversion, hypothesis = "reference"))))
+          err_of(nest_estimand(mf, chord_type:inversion, hypothesis = "reference"))))
 chk("hypothesis: the emitted code runs",
-    { e <- suppressMessages(estimand(mf, chord_type, hypothesis = "reference",
+    { e <- suppressMessages(nest_estimand(mf, chord_type, hypothesis = "reference",
                                      bounds = FALSE, self_check = FALSE))
       env <- new.env(); assign("mf", mf, env); assign("sp", sp, env)
       r <- tryCatch(eval(parse(text = paste(attr(e, "nestimand")$code,
@@ -1820,11 +1844,11 @@ chk("hypothesis: the emitted code runs",
 
 chk("messages: one note on the response scale, and none once a hypothesis is given",
     { m1 <- character(0); m2 <- character(0)
-      withCallingHandlers(tryCatch(estimand(mo, chord_type, type = "response",
+      withCallingHandlers(tryCatch(nest_estimand(mo, chord_type, type = "response",
           bounds = FALSE, self_check = FALSE), error = function(e) NULL),
         message = function(x) { m1 <<- c(m1, conditionMessage(x))
                                 invokeRestart("muffleMessage") })
-      withCallingHandlers(tryCatch(estimand(mo, chord_type, type = "response",
+      withCallingHandlers(tryCatch(nest_estimand(mo, chord_type, type = "response",
           hypothesis = "reference", bounds = FALSE, self_check = FALSE),
           error = function(e) NULL),
         message = function(x) { m2 <<- c(m2, conditionMessage(x))
@@ -1832,22 +1856,22 @@ chk("messages: one note on the response scale, and none once a hypothesis is giv
       length(m1) == 1 && !any(grepl("comparing them all", m2)) })
 chk("messages: the default scale is silent",
     { m <- character(0)
-      withCallingHandlers(estimand(mo, chord_type, bounds = FALSE,
+      withCallingHandlers(nest_estimand(mo, chord_type, bounds = FALSE,
                                    self_check = FALSE),
         message = function(x) { m <<- c(m, conditionMessage(x))
                                 invokeRestart("muffleMessage") })
       length(m) == 0 })
 chk("self-check: runs on one row per condition, so its cost does not grow",
-    { r <- attr(estimand(mo, chord_type, bounds = FALSE), "nestimand")$self_check
+    { r <- attr(nest_estimand(mo, chord_type, bounds = FALSE), "nestimand")$self_check
       identical(r$status, "passed") })
 
 chk("messages: one note on the response scale, and none once a hypothesis is given",
     { m1 <- character(0); m2 <- character(0)
-      withCallingHandlers(tryCatch(estimand(mo, chord_type, type = "response",
+      withCallingHandlers(tryCatch(nest_estimand(mo, chord_type, type = "response",
           bounds = FALSE, self_check = FALSE), error = function(e) NULL),
         message = function(x) { m1 <<- c(m1, conditionMessage(x))
                                 invokeRestart("muffleMessage") })
-      withCallingHandlers(tryCatch(estimand(mo, chord_type, type = "response",
+      withCallingHandlers(tryCatch(nest_estimand(mo, chord_type, type = "response",
           hypothesis = "reference", bounds = FALSE, self_check = FALSE),
           error = function(e) NULL),
         message = function(x) { m2 <<- c(m2, conditionMessage(x))
@@ -1855,18 +1879,18 @@ chk("messages: one note on the response scale, and none once a hypothesis is giv
       length(m1) == 1 && !any(grepl("comparing them all", m2)) })
 chk("messages: the default scale is silent",
     { m <- character(0)
-      withCallingHandlers(estimand(mo, chord_type, bounds = FALSE,
+      withCallingHandlers(nest_estimand(mo, chord_type, bounds = FALSE,
                                    self_check = FALSE),
         message = function(x) { m <<- c(m, conditionMessage(x))
                                 invokeRestart("muffleMessage") })
       length(m) == 0 })
 chk("self-check: runs on one row per condition, so its cost does not grow",
-    { r <- attr(estimand(mo, chord_type, bounds = FALSE), "nestimand")$self_check
+    { r <- attr(nest_estimand(mo, chord_type, bounds = FALSE), "nestimand")$self_check
       identical(r$status, "passed") })
 
 chk("messages: the substitution note says what changes, in plain terms",
     { msg <- NULL
-      withCallingHandlers(estimand(mf, chord_type, hypothesis = "reference",
+      withCallingHandlers(nest_estimand(mf, chord_type, hypothesis = "reference",
                                    bounds = FALSE, self_check = FALSE),
         message = function(m) { msg <<- conditionMessage(m)
                                 invokeRestart("muffleMessage") })
@@ -1874,7 +1898,7 @@ chk("messages: the substitution note says what changes, in plain terms",
       grepl("which way round each subtraction goes", msg) })
 chk("messages: a small job draws no size warning",
     { msg <- character(0)
-      withCallingHandlers(tryCatch(estimand(mo, chord_type, type = "response",
+      withCallingHandlers(tryCatch(nest_estimand(mo, chord_type, type = "response",
           route = "cells", hypothesis = "reference", bounds = FALSE,
           self_check = FALSE), error = function(e) NULL),
         message = function(m) { msg <<- c(msg, conditionMessage(m))
@@ -1884,19 +1908,19 @@ chk("messages: a small job draws no size warning",
 ## ---- the star form with a hypothesis of the user's own ---------------------
 chk("targets: a * b with a hypothesis returns all three, and says how they divide",
     { z <- character(0)
-      r <- withCallingHandlers(estimand(mf, chord_type * inversion,
+      r <- withCallingHandlers(nest_estimand(mf, chord_type * inversion,
              hypothesis = "reference", bounds = FALSE, self_check = FALSE),
            message = function(m) { z <<- c(z, conditionMessage(m))
                                    invokeRestart("muffleMessage") })
       identical(names(r), c("chord_type", "inversion", "chord_type:inversion")) &&
       any(grepl("expands as a formula does: 3 results", z)) })
 chk("targets: without a hypothesis all three parts come back",
-    { r <- estimand(mf, chord_type * inversion, bounds = FALSE,
+    { r <- nest_estimand(mf, chord_type * inversion, bounds = FALSE,
                     self_check = FALSE)
       length(r) == 3 })
 chk("messages: a note is said once, not once per part",
     { z <- character(0)
-      withCallingHandlers(estimand(mf, chord_type * inversion,
+      withCallingHandlers(nest_estimand(mf, chord_type * inversion,
         hypothesis = "reference", bounds = FALSE, self_check = FALSE),
         message = function(m) { z <<- c(z, conditionMessage(m))
                                 invokeRestart("muffleMessage") })
@@ -1904,7 +1928,7 @@ chk("messages: a note is said once, not once per part",
       !any(grepl("using your `hypothesis`", z)) })
 chk("messages: the ordinal note does not fire on a gaussian fit",
     { z <- character(0)
-      withCallingHandlers(estimand(mf, chord_type, type = "response",
+      withCallingHandlers(nest_estimand(mf, chord_type, type = "response",
         bounds = FALSE, self_check = FALSE),
         message = function(m) { z <<- c(z, conditionMessage(m))
                                 invokeRestart("muffleMessage") })
@@ -1935,18 +1959,18 @@ chk("interaction: ungrouped output is unchanged",
 ## route = "cells" the marginal contrasts used 9 rows while the interaction
 ## quietly built the whole G-computation grid.
 chk("route: the interaction honours it too",
-    { cd <- suppressMessages(estimand(mf, chord_type:inversion, route = "cells",
+    { cd <- suppressMessages(nest_estimand(mf, chord_type:inversion, route = "cells",
               dry_run = TRUE, bounds = FALSE, p_adjust = "none"))
       grepl("cell_grid(sp)", cd, fixed = TRUE) &&
       !grepl("counterfactual_grid", cd, fixed = TRUE) })
 chk("route: and gives the same answer either way in a linear model",
-    { a <- as.data.frame(estimand(mf, chord_type:inversion, route = "cells",
+    { a <- as.data.frame(nest_estimand(mf, chord_type:inversion, route = "cells",
                                   bounds = FALSE, self_check = FALSE))
-      b <- as.data.frame(estimand(mf, chord_type:inversion, bounds = FALSE,
+      b <- as.data.frame(nest_estimand(mf, chord_type:inversion, bounds = FALSE,
                                   self_check = FALSE))
       max(abs(a$estimate - b$estimate)) < 1e-8 })
 chk("dry_run: several targets give one script, not a list of them",
-    { cd <- suppressMessages(estimand(mf, chord_type * inversion,
+    { cd <- suppressMessages(nest_estimand(mf, chord_type * inversion,
               dry_run = TRUE, bounds = FALSE))
       inherits(cd, "nestimand_code") &&
       length(capture.output(show_code(cd))) > 10 &&
@@ -1962,13 +1986,13 @@ do3$z <- as.numeric(scale(do3$training))
 sp3 <- nesting_spec(do3, rating ~ chord_type * inversion + z,
                     "inversion %in% chord_type", fit = "clm")
 m3 <- nest_fit(sp3)
-lat3 <- function(rt) as.data.frame(estimand(m3, chord_type, route = rt,
+lat3 <- function(rt) as.data.frame(nest_estimand(m3, chord_type, route = rt,
                                             bounds = FALSE, self_check = FALSE))
 chk("routes: identical on the link scale, to machine precision",
     { a <- lat3("cells"); b <- lat3("g_computation")
       max(abs(a$estimate - b$estimate[match(a$term, b$term)])) < 1e-12 })
 resp3 <- function(...) suppressMessages(as.data.frame(
-  estimand(m3, chord_type, type = "response", hypothesis = "reference",
+  nest_estimand(m3, chord_type, type = "response", hypothesis = "reference",
            bounds = FALSE, self_check = FALSE, ...)))
 chk("routes: they differ on the response scale, as a nonlinear link requires",
     { a <- resp3(route = "cells"); b <- resp3()
@@ -1978,7 +2002,7 @@ chk("subsample: estimates the same quantity as the full grid",
       max(abs(resp3()$estimate - resp3(subsample = 200)$estimate)) < 0.02 })
 chk("subsample: the emitted script draws the same rows again",
     { set.seed(2)
-      e1 <- suppressMessages(estimand(m3, chord_type, subsample = 50,
+      e1 <- suppressMessages(nest_estimand(m3, chord_type, subsample = 50,
               bounds = FALSE, self_check = FALSE))
       env <- new.env(parent = globalenv())
       assign("m3", m3, env); assign("sp3", sp3, env)
@@ -1988,7 +2012,7 @@ chk("subsample: the emitted script draws the same rows again",
                        as.data.frame(e1)$estimate)) })
 chk("subsample: it is announced, since it trades exactness for time",
     { msg <- character(0); set.seed(2)
-      withCallingHandlers(tryCatch(estimand(m3, chord_type, type = "response",
+      withCallingHandlers(tryCatch(nest_estimand(m3, chord_type, type = "response",
           subsample = 50, bounds = FALSE, self_check = FALSE),
           error = function(e) NULL),
         message = function(m) { msg <<- c(msg, conditionMessage(m))
@@ -2004,11 +2028,11 @@ chk("print: the outcome category is shown where the output is grouped",
 
 ## ---- Bayesian summaries on the prediction route too ------------------------
 chk("posterior: a frequentist fit keeps its statistic and p-value",
-    { d <- as.data.frame(estimand(mf, chord_type, bounds = FALSE,
+    { d <- as.data.frame(nest_estimand(mf, chord_type, bounds = FALSE,
                                   self_check = FALSE))
       all(c("statistic", "p.value") %in% names(d)) && !"pd" %in% names(d) })
 chk("posterior: the summariser leaves a non-Bayesian fit alone",
-    { e0 <- estimand(mf, chord_type, bounds = FALSE, self_check = FALSE)
+    { e0 <- nest_estimand(mf, chord_type, bounds = FALSE, self_check = FALSE)
       identical(names(as.data.frame(add_posterior_summary(e0, mf))),
                 names(as.data.frame(e0))) })
 chk("posterior: pd is the larger tail, computed from draws",
@@ -2018,26 +2042,26 @@ chk("posterior: pd is the larger tail, computed from draws",
 ## ---- the two levers on a large posterior -----------------------------------
 chk("subsample: the counts reported respect it",
     { z <- character(0)
-      withCallingHandlers(estimand(mf, chord_type, subsample = 50,
+      withCallingHandlers(nest_estimand(mf, chord_type, subsample = 50,
                                    bounds = FALSE, self_check = FALSE),
         message = function(m) { z <<- c(z, conditionMessage(m))
                                 invokeRestart("muffleMessage") })
       any(grepl("random 50 of", z)) })
 chk("subsample: the code records the draw so the same rows come back",
-    { cd <- suppressMessages(estimand(mf, chord_type, subsample = 50,
+    { cd <- suppressMessages(nest_estimand(mf, chord_type, subsample = 50,
               dry_run = TRUE, bounds = FALSE))
       grepl("set.seed(", cd, fixed = TRUE) &&
       grepl("sample.int(nrow(sp$data), 50)", cd, fixed = TRUE) &&
       max(nchar(strsplit(as.character(cd), "\n")[[1]])) < 200 })
 chk("subsample: it estimates the same quantity",
     { set.seed(11)
-      a <- as.data.frame(estimand(mf, chord_type, bounds = FALSE,
+      a <- as.data.frame(nest_estimand(mf, chord_type, bounds = FALSE,
                                   self_check = FALSE))$estimate
-      b <- suppressMessages(as.data.frame(estimand(mf, chord_type,
+      b <- suppressMessages(as.data.frame(nest_estimand(mf, chord_type,
              subsample = 200, bounds = FALSE, self_check = FALSE))$estimate)
       max(abs(a - b)) < 0.05 })
 chk("ndraws: harmless where there is no posterior to thin",
-    nrow(as.data.frame(suppressMessages(estimand(mf, chord_type,
+    nrow(as.data.frame(suppressMessages(nest_estimand(mf, chord_type,
       ndraws = 100, bounds = FALSE, self_check = FALSE)))) == 6)
 
 ## ---- the reorder check should not cry wolf ---------------------------------
@@ -2046,14 +2070,14 @@ chk("reorder: a non-convergent shadow gives inconclusive, not failed",
       body <- paste(deparse(reorder_check), collapse = " ")
       grepl("inconclusive", body) && grepl("did not", body) })
 chk("reorder: the note records the scale and grid it used",
-    { r <- attr(estimand(mf, chord_type, bounds = FALSE), "nestimand")$self_check
+    { r <- attr(nest_estimand(mf, chord_type, bounds = FALSE), "nestimand")$self_check
       identical(r$status, "passed") })
 chk("reorder: a genuine failure still warns",
     { body <- paste(deparse(reorder_check), collapse = " ")
       grepl("Do not report it", body) })
 
 chk("arguments: subsample, ndraws and a hypothesis together",
-    { r <- suppressMessages(estimand(mf, chord_type, type = "response",
+    { r <- suppressMessages(nest_estimand(mf, chord_type, type = "response",
              subsample = 100, ndraws = 100, hypothesis = "reference",
              bounds = FALSE, self_check = FALSE))
       nrow(as.data.frame(r)) == 3 })
@@ -2061,7 +2085,7 @@ chk("arguments: every combination of the levers runs",
     { ok <- TRUE
       for (sub in list(NULL, 100)) for (dr in list(NULL, 100))
         for (hyp in list(NULL, "reference")) {
-          cl <- quote(estimand(mf, "chord_type", bounds = FALSE,
+          cl <- quote(nest_estimand(mf, "chord_type", bounds = FALSE,
                                self_check = FALSE))
           if (!is.null(sub)) cl$subsample <- sub
           if (!is.null(dr))  cl$ndraws <- dr
@@ -2072,25 +2096,25 @@ chk("arguments: every combination of the levers runs",
       ok })
 
 chk("ndraws: the note quotes the number asked for, not a fixed one",
-    { body <- paste(deparse(estimand), collapse = " ")
+    { body <- paste(deparse(nest_estimand), collapse = " ")
       grepl("1/sqrt", body) && !grepl("sqrt\\(500\\)", body) })
 chk("ndraws: the size note counts the draws in use",
-    { body <- paste(deparse(estimand), collapse = " ")
+    { body <- paste(deparse(nest_estimand), collapse = " ")
       grepl("dots\\$ndraws", body) })
 chk("messages: advice already taken is not repeated",
-    { body <- paste(deparse(estimand), collapse = " ")
+    { body <- paste(deparse(nest_estimand), collapse = " ")
       grepl("is.null\\(subsample\\)", body) &&
       grepl("is.null\\(dots\\$ndraws\\)", body) })
 
 chk("ndraws: the engine's own spelling works on either route",
-    { a <- suppressMessages(estimand(mo, chord_type, ndraws = 500, dry_run = TRUE, bounds = FALSE))
-      b <- suppressMessages(estimand(mf, chord_type, type = "response",
+    { a <- suppressMessages(nest_estimand(mo, chord_type, ndraws = 500, dry_run = TRUE, bounds = FALSE))
+      b <- suppressMessages(nest_estimand(mf, chord_type, type = "response",
              ndraws = 500, dry_run = TRUE, bounds = FALSE))
       grepl("ndraws = 500", a, fixed = TRUE) &&
       grepl("ndraws = 500", b, fixed = TRUE) })
 chk("hypothesis: refused on the linear predictor, for the reason that applies",
     grepl("no groups to compare within",
-          err_of(estimand(mf, chord_type, type = "eta",
+          err_of(nest_estimand(mf, chord_type, type = "eta",
                           hypothesis = ~ pairwise | group))))
 
 ## ---- a model class the prediction machinery does not handle ----------------
@@ -2102,10 +2126,10 @@ if (requireNamespace("ordinal", quietly = TRUE)) {
                        "inversion %in% chord_type", fit = "clmm")
   mmm <- suppressWarnings(nest_fit(spmm))
   chk("clmm: the linear predictor works",
-      nrow(as.data.frame(estimand(mmm, chord_type, bounds = FALSE,
+      nrow(as.data.frame(nest_estimand(mmm, chord_type, bounds = FALSE,
                                   self_check = FALSE))) == 6)
   chk("clmm: the response scale says the class is unsupported, and what does work",
-      { e <- err_of(estimand(mmm, chord_type, type = "response", bounds = FALSE,
+      { e <- err_of(nest_estimand(mmm, chord_type, type = "response", bounds = FALSE,
                              self_check = FALSE))
         grepl("does not support models of class", e) &&
         grepl('type = "eta" works', e) })
@@ -2116,7 +2140,7 @@ if (requireNamespace("ordinal", quietly = TRUE)) {
 
 chk("messages: a star call says once what its parts would each repeat",
     { z <- character(0)
-      withCallingHandlers(estimand(mf, chord_type * inversion,
+      withCallingHandlers(nest_estimand(mf, chord_type * inversion,
         policy = "proportional", hypothesis = "reference", bounds = FALSE,
         self_check = FALSE),
         message = function(m) { z <<- c(z, conditionMessage(m))
@@ -2125,15 +2149,15 @@ chk("messages: a star call says once what its parts would each repeat",
       grepl("hypothesis", z) && grepl("policy", z) })
 chk("messages: a single target still explains itself",
     { z <- character(0)
-      withCallingHandlers(estimand(mf, chord_type, hypothesis = "reference",
+      withCallingHandlers(nest_estimand(mf, chord_type, hypothesis = "reference",
         bounds = FALSE, self_check = FALSE),
         message = function(m) { z <<- c(z, conditionMessage(m))
                                 invokeRestart("muffleMessage") })
       length(z) == 1 && grepl("using your `hypothesis`", z) })
 chk("messages: the star flag is cleared afterwards",
-    { estimand(mf, chord_type * inversion, bounds = FALSE, self_check = FALSE)
+    { nest_estimand(mf, chord_type * inversion, bounds = FALSE, self_check = FALSE)
       z <- character(0)
-      withCallingHandlers(estimand(mf, chord_type, hypothesis = "reference",
+      withCallingHandlers(nest_estimand(mf, chord_type, hypothesis = "reference",
         bounds = FALSE, self_check = FALSE),
         message = function(m) { z <<- c(z, conditionMessage(m))
                                 invokeRestart("muffleMessage") })
@@ -2146,11 +2170,11 @@ chk("messages: the star flag is cleared afterwards",
 ## cell, and a spec rebuilt from it would have fewer of them.
 chk("reorder: a subsample does not make the check fail",
     all(vapply(c(20, 50, 200), function(n)
-      identical(attr(suppressMessages(estimand(mo, chord_type, subsample = n,
+      identical(attr(suppressMessages(nest_estimand(mo, chord_type, subsample = n,
                        bounds = FALSE)), "nestimand")$self_check$status,
                 "passed"), TRUE)))
 chk("reorder: nor in a star call",
-    { r <- suppressMessages(estimand(mo, chord_type * inversion, subsample = 50,
+    { r <- suppressMessages(nest_estimand(mo, chord_type * inversion, subsample = 50,
              bounds = FALSE))
       all(vapply(r, function(z)
         identical(attr(z, "nestimand")$self_check$status, "passed"), TRUE)) })
@@ -2168,15 +2192,15 @@ chk("subsample: cell coverage in the sample does not matter",
       length(unique(as.character(g$cell))) == nrow(sp$cells) })
 chk("subsample: a proportional policy is taken from the whole data",
     { set.seed(4)
-      a <- as.data.frame(estimand(mf, chord_type, policy = "proportional",
+      a <- as.data.frame(nest_estimand(mf, chord_type, policy = "proportional",
              bounds = FALSE, self_check = FALSE))
-      b <- suppressMessages(as.data.frame(estimand(mf, chord_type,
+      b <- suppressMessages(as.data.frame(nest_estimand(mf, chord_type,
              policy = "proportional", subsample = 40, bounds = FALSE,
              self_check = FALSE)))
       !anyNA(b$estimate) &&
       max(abs(a$estimate - b$estimate[match(a$term, b$term)])) < 1e-10 })
 chk("subsample: the reorder check is unaffected by it",
-    { r <- attr(suppressMessages(estimand(mf, chord_type, subsample = 20,
+    { r <- attr(suppressMessages(nest_estimand(mf, chord_type, subsample = 20,
                   bounds = FALSE)), "nestimand")$self_check
       identical(r$status, "passed") })
 chk("subsample: the check works from the declaration's own data",
@@ -2191,7 +2215,7 @@ chk("emitted code: runs for every target, scale and bounds setting",
       for (tgt in c("chord_type", "inversion"))
         for (ty in c("link", "response"))
           for (bd in c(TRUE, FALSE)) {
-            cl <- bquote(estimand(mf, .(tgt), type = .(ty), bounds = .(bd),
+            cl <- bquote(nest_estimand(mf, .(tgt), type = .(ty), bounds = .(bd),
                                   self_check = FALSE))
             e <- tryCatch(suppressMessages(eval(cl)), error = function(x) NULL)
             if (is.null(e)) next
@@ -2204,7 +2228,7 @@ chk("emitted code: runs for every target, scale and bounds setting",
           }
       ok })
 chk("emitted code: the latent branch writes the restriction it uses",
-    { cd <- estimand(mf, inversion, bounds = TRUE,
+    { cd <- nest_estimand(mf, inversion, bounds = TRUE,
                      dry_run = TRUE)
       grepl("cells <- subset(", cd, fixed = TRUE) &&
       grepl("cells = cells", cd, fixed = TRUE) })
@@ -2252,20 +2276,20 @@ chk("nest_summary: the engine names map to real functions",
 ## design matrix rather than one prediction per row. Gated on the link, not the
 ## family: gaussian(link = "log") is not identity.
 chk("shortcut: an identity link routes the response scale through the coefficients",
-    identical(attr(estimand(mf, chord_type, type = "response", bounds = FALSE,
+    identical(attr(nest_estimand(mf, chord_type, type = "response", bounds = FALSE,
                             self_check = FALSE), "nestimand")$scale, "latent"))
 chk("shortcut: the type asked for is still what is reported",
-    identical(attr(estimand(mf, chord_type, type = "response", bounds = FALSE,
+    identical(attr(nest_estimand(mf, chord_type, type = "response", bounds = FALSE,
                             self_check = FALSE), "nestimand")$type, "response"))
 chk("shortcut: it gives the same numbers as the prediction route",
-    { a <- as.data.frame(estimand(mf, chord_type, type = "response",
+    { a <- as.data.frame(nest_estimand(mf, chord_type, type = "response",
                                   bounds = FALSE, self_check = FALSE))
-      b <- as.data.frame(estimand(mf, chord_type, bounds = FALSE,
+      b <- as.data.frame(nest_estimand(mf, chord_type, bounds = FALSE,
                                   self_check = FALSE))
       max(abs(a$estimate - b$estimate[match(a$term, b$term)])) < 1e-10 })
 chk("shortcut: the emitted code says why it was taken",
     any(grepl("the link is the identity",
-              attr(estimand(mf, chord_type, type = "response", bounds = FALSE,
+              attr(nest_estimand(mf, chord_type, type = "response", bounds = FALSE,
                             self_check = FALSE), "nestimand")$code)))
 chk("shortcut: a non-identity link does not take it",
     { d3 <- dat; d3$y <- exp(dat$response / 3)
@@ -2273,23 +2297,23 @@ chk("shortcut: a non-identity link does not take it",
                            "inversion %in% chord_type", fit = "glm",
                            family = gaussian(link = "log"))
       m3b <- nest_fit(sp3b)
-      identical(attr(estimand(m3b, chord_type, type = "response", bounds = FALSE,
+      identical(attr(nest_estimand(m3b, chord_type, type = "response", bounds = FALSE,
                               self_check = FALSE), "nestimand")$scale,
                 "response") })
 chk("shortcut: it stands aside for a hypothesis of the user's own",
-    identical(attr(suppressMessages(estimand(mf, chord_type, type = "response",
+    identical(attr(suppressMessages(nest_estimand(mf, chord_type, type = "response",
                      hypothesis = "reference", bounds = FALSE,
                      self_check = FALSE)), "nestimand")$scale, "response"))
 chk("model_link: reads the link, defaulting to identity where there is none",
     identical(model_link(mf), "identity"))
 
 chk("shortcut: unit weights are folded into the design-row average",
-    identical(attr(estimand(mw, chord_type, weights = "wt_hi", bounds = FALSE,
+    identical(attr(nest_estimand(mw, chord_type, weights = "wt_hi", bounds = FALSE,
                             self_check = FALSE), "nestimand")$scale, "latent"))
 chk("weights: the two routes agree once they are",
-    { a <- as.data.frame(estimand(mw, chord_type, weights = "wt_hi",
+    { a <- as.data.frame(nest_estimand(mw, chord_type, weights = "wt_hi",
              bounds = FALSE, self_check = FALSE))
-      b <- as.data.frame(estimand(mw, chord_type, weights = "wt_hi",
+      b <- as.data.frame(nest_estimand(mw, chord_type, weights = "wt_hi",
              bounds = FALSE, self_check = FALSE, p_adjust = "none"))
       max(abs(a$estimate - b$estimate[match(a$term, b$term)])) < 1e-8 })
 chk("weights: a wrong length is refused on this route too",
@@ -2302,9 +2326,9 @@ chk("shortcut: a self-fitted model without cell coefficients cannot take it",
     !linear_map_available(lm(response ~ chord_type * inversion, data = sp$data),
                           sp, sp$data))
 chk("latent: `data` reaches the contrast, so a subset restricts it",
-    { a <- as.data.frame(estimand(mw, chord_type, weights = "wt_hi",
+    { a <- as.data.frame(nest_estimand(mw, chord_type, weights = "wt_hi",
              bounds = FALSE, self_check = FALSE))$estimate
-      b <- as.data.frame(estimand(mw, chord_type,
+      b <- as.data.frame(nest_estimand(mw, chord_type,
              data = subset(mw_data_hi <- spw$data, training > 7),
              bounds = FALSE, self_check = FALSE))$estimate
       max(abs(a - b)) < 1e-8 })
@@ -2324,9 +2348,9 @@ mu3 <- nest_fit(spu2)
 chk("shortcut: agrees with the prediction route on badly unbalanced data",
     { ok <- TRUE
       for (pol in c("equal", "proportional")) {
-        a <- as.data.frame(estimand(mu3, chord_type, policy = pol, bounds = FALSE,
+        a <- as.data.frame(nest_estimand(mu3, chord_type, policy = pol, bounds = FALSE,
                                     self_check = FALSE, p_adjust = "none"))
-        b <- as.data.frame(estimand(mu3, chord_type, policy = pol, bounds = FALSE,
+        b <- as.data.frame(nest_estimand(mu3, chord_type, policy = pol, bounds = FALSE,
                                     self_check = FALSE))
         if (max(abs(a$estimate - b$estimate[match(a$term, b$term)])) > 1e-10)
           ok <- FALSE
@@ -2340,7 +2364,7 @@ chk("shortcut: agrees with the prediction route on badly unbalanced data",
 ## vocabulary. A type the package chooses for itself is not checked, since some
 ## classes the engine cannot predict from at all.
 chk("type: an engine name it rejects reaches it",
-    { e <- err_of(suppressMessages(estimand(mf, chord_type, type = "link",
+    { e <- err_of(suppressMessages(nest_estimand(mf, chord_type, type = "link",
                     bounds = FALSE, self_check = FALSE)))
       grepl("Assertion on 'type'", e) || grepl("Must be element of set", e) })
 chk("type: an engine name it accepts is used",
@@ -2348,12 +2372,12 @@ chk("type: an engine name it accepts is used",
       sp_b <- nesting_spec(d_b, bin ~ chord_type * inversion,
                            "inversion %in% chord_type", fit = "glm",
                            family = binomial())
-      nrow(as.data.frame(suppressMessages(estimand(nest_fit(sp_b), chord_type,
+      nrow(as.data.frame(suppressMessages(nest_estimand(nest_fit(sp_b), chord_type,
              type = "link", bounds = FALSE, self_check = FALSE)))) == 6 })
 chk("type: the package's own default is not put to that test",
-    nrow(as.data.frame(estimand(mf, chord_type, bounds = FALSE,
+    nrow(as.data.frame(nest_estimand(mf, chord_type, bounds = FALSE,
                                 self_check = FALSE))) == 6 &&
-    nrow(as.data.frame(estimand(mo, chord_type, bounds = FALSE,
+    nrow(as.data.frame(nest_estimand(mo, chord_type, bounds = FALSE,
                                 self_check = FALSE))) == 6)
 chk("engine_accepts: reports what this class takes",
     engine_accepts(mf, sp, "response") && !engine_accepts(mf, sp, "link"))
@@ -2365,7 +2389,7 @@ chk("type: a slower engine equivalent draws a note pointing at eta",
       sp_g <- nesting_spec(d_g, response ~ chord_type * inversion,
                            "inversion %in% chord_type", fit = "glm",
                            family = gaussian())
-      withCallingHandlers(estimand(nest_fit(sp_g), chord_type, type = "link",
+      withCallingHandlers(nest_estimand(nest_fit(sp_g), chord_type, type = "link",
                                    bounds = FALSE, self_check = FALSE),
         message = function(m) { z <<- c(z, conditionMessage(m))
                                 invokeRestart("muffleMessage") })
@@ -2374,7 +2398,7 @@ chk("type: a slower engine equivalent draws a note pointing at eta",
 chk("type: no equivalence is offered for a type about to be refused",
     { z <- character(0)
       withCallingHandlers(
-        tryCatch(estimand(mf, chord_type, type = "link", bounds = FALSE,
+        tryCatch(nest_estimand(mf, chord_type, type = "link", bounds = FALSE,
                           self_check = FALSE), error = function(e) NULL),
         message = function(m) { z <<- c(z, conditionMessage(m))
                                 invokeRestart("muffleMessage") })
@@ -2385,7 +2409,7 @@ chk("type: the equivalence is offered where the engine will produce it",
                             family = gaussian())
       z <- character(0)
       withCallingHandlers(
-        estimand(nest_fit(sp_g2), chord_type, type = "link", bounds = FALSE,
+        nest_estimand(nest_fit(sp_g2), chord_type, type = "link", bounds = FALSE,
                  self_check = FALSE),
         message = function(m) { z <<- c(z, conditionMessage(m))
                                 invokeRestart("muffleMessage") })
@@ -2400,11 +2424,11 @@ if (requireNamespace("lme4", quietly = TRUE)) {
       { V <- vcov_beta(mm2, names(coef_vector(mm2)))
         is.matrix(V) && !isS4(V) })
   chk("vcov: standard errors come through finite on a mixed fit",
-      { d <- as.data.frame(estimand(mm2, chord_type, bounds = FALSE,
+      { d <- as.data.frame(nest_estimand(mm2, chord_type, bounds = FALSE,
                                     self_check = FALSE))
         all(is.finite(d$std.error)) && all(d$std.error > 0) })
   chk("vcov: the bounds path works on one too",
-      { b <- attr(estimand(mm2, chord_type, bounds = TRUE, self_check = FALSE),
+      { b <- attr(nest_estimand(mm2, chord_type, bounds = TRUE, self_check = FALSE),
                   "nestimand")$bounds
         nrow(b) == 6 && all(is.finite(b$policy_low)) })
 }
@@ -2464,7 +2488,7 @@ chk("eta: route reaches the contrast matrix",
       nrow(Mc) == nrow(Mg) && max(abs(Mc - Mg)) < 1e-8 })
 chk("eta: and the emitted code records it",
     grepl('route = "cells"',
-          estimand(mf, chord_type, type = "eta", route = "cells",
+          nest_estimand(mf, chord_type, type = "eta", route = "cells",
                    dry_run = TRUE, bounds = FALSE), fixed = TRUE))
 
 ## ---- the engines are named for their fitting functions ---------------------
@@ -2488,14 +2512,14 @@ chk("declaration: every engine name maps to a fitting function",
 ## describes a typical group or the sampled ones.
 if (requireNamespace("lme4", quietly = TRUE)) {
   chk("re.form: nothing is injected into the call",
-      { cd <- attr(suppressMessages(suppressWarnings(estimand(mm2, chord_type,
+      { cd <- attr(suppressMessages(suppressWarnings(nest_estimand(mm2, chord_type,
                      type = "response", p_adjust = "none", bounds = FALSE,
                      self_check = FALSE))), "nestimand")$code
         call_lines <- grep("avg_predictions|hypothesis =", cd, value = TRUE)
         !any(grepl("re.form", call_lines, fixed = TRUE)) })
   chk("re.form: the default in force is announced",
       { z <- character(0)
-        withCallingHandlers(suppressWarnings(estimand(mm2, chord_type,
+        withCallingHandlers(suppressWarnings(nest_estimand(mm2, chord_type,
           type = "response", p_adjust = "none", bounds = FALSE,
           self_check = FALSE)),
           message = function(m) { z <<- c(z, conditionMessage(m))
@@ -2503,7 +2527,7 @@ if (requireNamespace("lme4", quietly = TRUE)) {
         any(grepl("default stands", z)) && any(grepl("re.form = NA", z)) })
   chk("re.form: supplying one silences the note and reaches the engine",
       { z <- character(0)
-        cd <- attr(withCallingHandlers(suppressWarnings(estimand(mm2, chord_type,
+        cd <- attr(withCallingHandlers(suppressWarnings(nest_estimand(mm2, chord_type,
                 type = "response", re.form = NA, p_adjust = "none",
                 bounds = FALSE, self_check = FALSE)),
                 message = function(m) { z <<- c(z, conditionMessage(m))
@@ -2515,7 +2539,7 @@ if (requireNamespace("lme4", quietly = TRUE)) {
                   fixed = TRUE)) })
   chk("re.form: the question does not arise on the linear predictor",
       { z <- character(0)
-        withCallingHandlers(suppressWarnings(estimand(mm2, chord_type,
+        withCallingHandlers(suppressWarnings(nest_estimand(mm2, chord_type,
           type = "eta", bounds = FALSE, self_check = FALSE)),
           message = function(m) { z <<- c(z, conditionMessage(m))
                                   invokeRestart("muffleMessage") })
@@ -2528,7 +2552,7 @@ if (requireNamespace("lme4", quietly = TRUE)) {
 ## since the group deviations average to zero.
 if (requireNamespace("lme4", quietly = TRUE)) {
   g_re <- function(...) as.data.frame(suppressMessages(suppressWarnings(
-    estimand(mm2, chord_type, bounds = FALSE, self_check = FALSE, ...))))$estimate
+    nest_estimand(mm2, chord_type, bounds = FALSE, self_check = FALSE, ...))))$estimate
   chk("eta: equals the prediction route with the deviations held at zero",
       max(abs(g_re(type = "eta") -
               g_re(type = "response", p_adjust = "none", re.form = NA))) < 1e-8)
@@ -2539,7 +2563,7 @@ if (requireNamespace("lme4", quietly = TRUE)) {
       max(abs(colMeans(lme4::ranef(mm2)[[1]]))) < 1e-6)
   chk("re.form: the note says eta is the typical group, not the sampled ones",
       { z <- character(0)
-        withCallingHandlers(suppressWarnings(estimand(mm2, chord_type,
+        withCallingHandlers(suppressWarnings(nest_estimand(mm2, chord_type,
           type = "response", p_adjust = "none", bounds = FALSE,
           self_check = FALSE)),
           message = function(m) { z <<- c(z, conditionMessage(m))
@@ -2549,7 +2573,7 @@ if (requireNamespace("lme4", quietly = TRUE)) {
 
 if (requireNamespace("lme4", quietly = TRUE)) {
   se_of <- function(rf) as.data.frame(suppressMessages(suppressWarnings(
-    estimand(mm2, chord_type, type = "response", p_adjust = "none",
+    nest_estimand(mm2, chord_type, type = "response", p_adjust = "none",
              re.form = rf, bounds = FALSE, self_check = FALSE))))$std.error
   ## marginaleffects forms the interval by the delta method from the
   ## fixed-effect covariance, so the two settings give the same standard error
@@ -2562,10 +2586,10 @@ if (requireNamespace("lme4", quietly = TRUE)) {
 if (requireNamespace("lme4", quietly = TRUE)) {
   chk("eta: a random-effects form is refused, since eta is the average group",
       grepl("ask for different things",
-            err_of(estimand(mm2, chord_type, type = "eta", re.form = NULL))))
+            err_of(nest_estimand(mm2, chord_type, type = "eta", re.form = NULL))))
   chk("eta: on a frequentist fit the refusal says nothing is lost",
       grepl("not available on any route",
-            err_of(estimand(mm2, chord_type, type = "eta", re.form = NULL))))
+            err_of(nest_estimand(mm2, chord_type, type = "eta", re.form = NULL))))
 }
 
 ## ---- eta over the sampled groups, where the draws allow it -----------------
@@ -2593,7 +2617,7 @@ chk("group draws: a coefficient with no group-level counterpart contributes noth
     all(group_mean_draws(Dg, "b_training") == 0))
 chk("eta: a non-Bayesian fit still refuses the sampled-group request",
     grepl("ask for different things",
-          err_of(estimand(mf, chord_type, type = "eta", re.form = NULL))))
+          err_of(nest_estimand(mf, chord_type, type = "eta", re.form = NULL))))
 
 ## ---- deeper and branching structures --------------------------------------
 ## Two things the one-level chain never exercises: a stratum key with more than
@@ -2672,22 +2696,22 @@ sp_z <- nesting_spec(subset(deep, X1 %in% c("none", "a")),
                      c("inversion %in% chord_type", "Z %in% inversion"))
 m_z <- nest_fit(sp_z)
 chk("depth: the pooled estimand of the deepest variable runs, with bounds",
-    { e <- estimand(m_z, Z, policy = "equal")
+    { e <- nest_estimand(m_z, Z, policy = "equal")
       b <- attr(e, "nestimand_bounds")
       !is.null(b) && b$policy_low < b$estimate && b$estimate < b$policy_high })
 chk("depth: its emitted code runs on its own and gives the same estimate",
-    { e <- estimand(m_z, Z, policy = "equal")
-      cd <- attr(estimand(m_z, Z, policy = "equal", dry_run = TRUE),
+    { e <- nest_estimand(m_z, Z, policy = "equal")
+      cd <- attr(nest_estimand(m_z, Z, policy = "equal", dry_run = TRUE),
                  "nestimand_code")
       en <- new.env(parent = globalenv())
       assign("sp_z", sp_z, en); assign("m_z", m_z, en)
       out <- eval(parse(text = paste(c(cd, "est"), collapse = "\n")), envir = en)
       isTRUE(all.equal(as.data.frame(out)$estimate, as.data.frame(e)$estimate)) })
 chk("depth: the reorder self-check passes at depth three",
-    identical(attr(estimand(m_z, Z, policy = "equal"),
+    identical(attr(nest_estimand(m_z, Z, policy = "equal"),
                    "nestimand")$self_check$status, "passed"))
 chk("branching: contrasts of a sibling group by its own parent, not its sibling",
-    { w <- as.data.frame(suppressMessages(estimand(m_d, X1, by = "chord_type",
+    { w <- as.data.frame(suppressMessages(nest_estimand(m_d, X1, by = "chord_type",
                                                    bounds = FALSE)))
       setequal(w$chord_type, c("dim", "min", "maj")) })
 chk("branching: the declaration round-trips through spec_nests()",
@@ -2819,11 +2843,11 @@ chk("crossed: it joins the cell factor, which stays full rank",
     { A <- effect_basis(sp_x)
       nrow(A) == 20 && qr(A)$rank == 20 && !anyNA(coef(m_x)) })
 chk("crossed: and is a target like any other",
-    { e <- as.data.frame(estimand(m_x, top, policy = "equal", bounds = FALSE))
+    { e <- as.data.frame(nest_estimand(m_x, top, policy = "equal", bounds = FALSE))
       identical(e$term, "t2 - t1") })
 chk("crossed: the declaration round-trips, so the reorder check can run",
     { setequal(spec_nests(sp_x), c("inversion %in% chord_type", "top")) &&
-      identical(attr(estimand(m_x, top, policy = "equal", bounds = FALSE),
+      identical(attr(nest_estimand(m_x, top, policy = "equal", bounds = FALSE),
                      "nestimand")$self_check$status, "passed") })
 chk("crossed: a numeric one is refused, since that is a covariate",
     grepl("is a covariate",
@@ -2853,17 +2877,17 @@ sp_undeclared <- nesting_spec(cross_dat, response ~ chord_type * inversion + top
                               "inversion %in% chord_type")
 m_undeclared <- nest_fit(sp_undeclared)
 chk("target: an additive factor is told how to become a target",
-    { e <- err_of(estimand(m_undeclared, top, policy = "equal"))
+    { e <- err_of(nest_estimand(m_undeclared, top, policy = "equal"))
       grepl("additively", e, fixed = TRUE) })
 
 ## `a * b * c` parses as `(a * b) * c`, so the operands have to be gathered
 ## through the nesting: reading the top call alone left `a * b` as a name.
 chk("target: a * b * c names three targets, not two",
-    { e <- err_of(estimand(mf, chord_type * inversion * training,
+    { e <- err_of(nest_estimand(mf, chord_type * inversion * training,
                            policy = "equal", bounds = FALSE, self_check = FALSE))
       grepl("`training` is not among", e, fixed = TRUE) })
 chk("target: a * b still names two",
-    inherits(estimand(mf, chord_type * inversion, policy = "equal",
+    inherits(nest_estimand(mf, chord_type * inversion, policy = "equal",
                       bounds = FALSE, self_check = FALSE), "nestimand_estimands"))
 
 ## A factor covariate crossed with the cells is named `cell<k>:x<level>`, one
@@ -2945,27 +2969,27 @@ chk("interaction: it matches the cell means it is a combination of",
                k("dim","0","t2") + k("dim","0","t1"))
       isTRUE(all.equal(as.numeric(mu %*% H[, cn]), hand)) })
 chk("interaction: `a * b * c` crosses, as a formula does",
-    { e <- estimand(m_i3, chord_type * inversion * top, policy = "equal",
+    { e <- nest_estimand(m_i3, chord_type * inversion * top, policy = "equal",
                     bounds = FALSE, self_check = FALSE)
       identical(names(e), c("chord_type", "inversion", "top",
                             "chord_type:inversion", "chord_type:top",
                             "inversion:top", "chord_type:inversion:top")) })
 chk("interaction: the sentinel never enters, whichever target is named last",
-    { e <- as.data.frame(estimand(m_i3, inversion:top, type = "eta",
+    { e <- as.data.frame(nest_estimand(m_i3, inversion:top, type = "eta",
                                   bounds = FALSE, self_check = FALSE))
       nrow(e) == 3 && !any(grepl("none", e$term)) })
 chk("interaction: the restriction is the targets' together, not the last one's",
     { d <- degenerate_strata_multi(sp_i3, c("inversion", "top"))
       !any(grepl("aug", d$keep)) && any(grepl("aug", d$drop)) })
 chk("interaction: a stratum keeps its place where every target does vary in it",
-    { e <- as.data.frame(estimand(m_i3, chord_type:top, type = "eta",
+    { e <- as.data.frame(nest_estimand(m_i3, chord_type:top, type = "eta",
                                   bounds = FALSE, self_check = FALSE))
       nrow(e) == 6 && any(grepl("aug", e$term)) })
 chk("interaction: an interaction over some of the design variables averages over the rest",
     { ## the target names two of the three cell variables, so each combination
       ## covers two cells; the contrast is formed on their average, and taking
       ## one of them would answer at an arbitrary level of the third
-      e <- as.data.frame(estimand(m_i3, chord_type:inversion, type = "eta",
+      e <- as.data.frame(nest_estimand(m_i3, chord_type:inversion, type = "eta",
                                   bounds = FALSE, self_check = FALSE))
       b <- coef(m_i3)
       av <- function(a, i) mean(c(b[[paste0("cell", a, ".", i, ".t1")]],
@@ -2973,9 +2997,9 @@ chk("interaction: an interaction over some of the design variables averages over
       hand <- (av("min", "1") - av("min", "0")) - (av("dim", "1") - av("dim", "0"))
       isTRUE(all.equal(e$estimate[e$term == "(min - dim) x (1 - 0)"], hand)) })
 chk("interaction: the two routes agree on it, as they must on a linear scale",
-    { a <- as.data.frame(estimand(m_i3, chord_type:inversion, type = "eta",
+    { a <- as.data.frame(nest_estimand(m_i3, chord_type:inversion, type = "eta",
                                   bounds = FALSE, self_check = FALSE))
-      b <- as.data.frame(estimand(m_i3, chord_type:inversion,
+      b <- as.data.frame(nest_estimand(m_i3, chord_type:inversion,
                                   bounds = FALSE, self_check = FALSE))
       isTRUE(all.equal(a$estimate[order(a$term)], b$estimate[order(b$term)])) })
 chk("interaction: a design with no such set of corners says so, and why",
@@ -3098,9 +3122,9 @@ chk("restricted: the aliased columns the chain form carries are dropped, not fit
     { b <- coef(res_m)
       sum(!is.na(b)) == term_span(res_sp, declared_terms(res_sp)) })
 chk("restricted: estimands run, and the two routes agree",
-    { a <- as.data.frame(estimand(res_m, chord_type, policy = "equal",
+    { a <- as.data.frame(nest_estimand(res_m, chord_type, policy = "equal",
                                   bounds = FALSE, self_check = FALSE))
-      b <- as.data.frame(estimand(res_m, chord_type, type = "eta",
+      b <- as.data.frame(nest_estimand(res_m, chord_type, type = "eta",
                                   policy = "equal", bounds = FALSE,
                                   self_check = FALSE))
       nrow(a) == 6 && isTRUE(all.equal(a$estimate, b$estimate)) })
@@ -3240,7 +3264,7 @@ chk("target: and reported before the engine is looked at",
       grepl("nesting_spec was passed in its place", e, fixed = TRUE) })
 chk("target: several variables are refused with the function that takes them",
     { e <- err_of(nest_policy(res_sp, c("chord_type", "top")))
-      grepl("of length 2", e, fixed = TRUE) && grepl("estimand()", e, fixed = TRUE) })
+      grepl("of length 2", e, fixed = TRUE) && grepl("nest_estimand()", e, fixed = TRUE) })
 chk("target: a non-string says what it was",
     grepl("numeric of length 1", err_of(nest_policy(res_sp, 3)), fixed = TRUE))
 ## `latent_draws()` left the cells unresolved and passed NULL on, where
@@ -3345,22 +3369,22 @@ chk("random reduced: the covariance is reported in the effects, not the columns"
 ## to the wrong documentation - `method` was described as an argument of
 ## avg_predictions, which has no such argument.
 chk("dots: an argument of the prediction function is named as one",
-    { e <- err_of(estimand(m_i3, top, type = "eta", vcov = "HC3"))
+    { e <- err_of(nest_estimand(m_i3, top, type = "eta", vcov = "HC3"))
       grepl("is an argument of marginaleffects", e, fixed = TRUE) })
 chk("dots: an argument of neither is named as neither",
-    { e <- err_of(estimand(m_i3, top, type = "eta", method = "within"))
-      grepl("is not an argument of estimand() or of marginaleffects", e,
+    { e <- err_of(nest_estimand(m_i3, top, type = "eta", method = "within"))
+      grepl("is not an argument of nest_estimand() or of marginaleffects", e,
             fixed = TRUE) })
 chk("dots: a near miss of a real argument is suggested",
     grepl("did you mean `contrast`",
-          err_of(estimand(m_i3, top, type = "eta", contrst = "within")),
+          err_of(nest_estimand(m_i3, top, type = "eta", contrst = "within")),
           fixed = TRUE))
 chk("dots: a name close to nothing draws no guess",
     !grepl("did you mean",
-           err_of(estimand(m_i3, top, type = "eta", method = "within")),
+           err_of(nest_estimand(m_i3, top, type = "eta", method = "within")),
            fixed = TRUE))
 chk("dots: the message names the vocabulary that does exist",
-    { e <- err_of(estimand(m_i3, top, type = "eta", method = "within"))
+    { e <- err_of(nest_estimand(m_i3, top, type = "eta", method = "within"))
       grepl("`contrast`", e, fixed = TRUE) && grepl("`by`", e, fixed = TRUE) &&
         grepl("`:` target", e, fixed = TRUE) })
 
@@ -3368,7 +3392,7 @@ chk("dots: the message names the vocabulary that does exist",
 ## As marginaleffects groups an average, `by` groups an estimand: the target's
 ## contrasts are formed inside each group, the policy weighted over that group's
 ## conditions alone. It is the only way to group an estimand.
-by_e <- suppressMessages(estimand(m_i3, top, by = chord_type, policy = "proportional",
+by_e <- suppressMessages(nest_estimand(m_i3, top, by = chord_type, policy = "proportional",
                                   bounds = FALSE, self_check = FALSE))
 chk("by: one row per group, labelled by the grouping variable",
     { d <- as.data.frame(by_e)
@@ -3384,23 +3408,23 @@ chk("by: each group is the estimand computed over that group's cells",
       isTRUE(all.equal(d$estimate[match(names(hand), d$chord_type)],
                        unname(hand))) })
 chk("by: the two routes agree on it",
-    { a <- as.data.frame(suppressMessages(estimand(m_i3, top, by = chord_type,
+    { a <- as.data.frame(suppressMessages(nest_estimand(m_i3, top, by = chord_type,
              policy = "proportional", bounds = FALSE, self_check = FALSE)))
-      b <- as.data.frame(suppressMessages(estimand(m_i3, top, by = chord_type,
+      b <- as.data.frame(suppressMessages(nest_estimand(m_i3, top, by = chord_type,
              policy = "proportional", type = "eta", bounds = FALSE,
              self_check = FALSE)))
       isTRUE(all.equal(a$estimate, b$estimate)) })
 chk("by: on a nested target it groups by the parent, as `within` used to",
-    { a <- as.data.frame(suppressMessages(estimand(m_i3, inversion, by = chord_type,
+    { a <- as.data.frame(suppressMessages(nest_estimand(m_i3, inversion, by = chord_type,
              bounds = FALSE, self_check = FALSE)))
       nrow(a) == 9 && setequal(a$chord_type, c("dim", "min", "maj")) })
 chk("by: several grouping variables give one row per realized combination",
-    { d <- as.data.frame(suppressMessages(estimand(m_i3, top,
+    { d <- as.data.frame(suppressMessages(nest_estimand(m_i3, top,
              by = c(chord_type, inversion), bounds = FALSE, self_check = FALSE)))
       all(c("chord_type", "inversion") %in% names(d)) &&
         nrow(d) == nrow(unique(sp_i3$cells[, c("chord_type", "inversion")])) })
 chk("by: a nested target's own restriction still applies inside the grouping",
-    { d <- as.data.frame(suppressMessages(estimand(m_i3, inversion,
+    { d <- as.data.frame(suppressMessages(nest_estimand(m_i3, inversion,
              by = chord_type, bounds = FALSE, self_check = FALSE)))
       !("aug" %in% as.character(d$chord_type)) })
 chk("by: a group in which the target does not vary is left out, and said",
@@ -3411,22 +3435,22 @@ chk("by: a group in which the target does not vary is left out, and said",
       m2 <- nest_fit(sp2)
       z <- character(0)
       d <- as.data.frame(withCallingHandlers(
-        estimand(m2, top, by = chord_type, bounds = FALSE, self_check = FALSE),
+        nest_estimand(m2, top, by = chord_type, bounds = FALSE, self_check = FALSE),
         message = function(m) { z <<- c(z, conditionMessage(m))
                                 invokeRestart("muffleMessage") }))
       !("aug" %in% as.character(d$chord_type)) &&
         any(grepl("does not vary", z)) })
 chk("by: the bounds are reported per group",
-    { e <- suppressMessages(estimand(m_i3, top, by = chord_type,
+    { e <- suppressMessages(nest_estimand(m_i3, top, by = chord_type,
              policy = "proportional"))
       b <- attr(e, "nestimand")$bounds
       !is.null(b) && "chord_type" %in% names(b) && nrow(b) == 4 })
 chk("by: a covariate cannot group an estimand",
-    grepl("not one", err_of(estimand(m_i3, top, by = response))))
+    grepl("not one", err_of(nest_estimand(m_i3, top, by = response))))
 chk("by: nor can the target group itself",
-    grepl("also the target", err_of(estimand(m_i3, top, by = top))))
+    grepl("also the target", err_of(nest_estimand(m_i3, top, by = top))))
 chk("by: the emitted code is one runnable block per group",
-    { cd <- attr(suppressMessages(estimand(m_i3, top, by = chord_type,
+    { cd <- attr(suppressMessages(nest_estimand(m_i3, top, by = chord_type,
              bounds = FALSE, self_check = FALSE, dry_run = TRUE)),
              "nestimand_code")
       sum(grepl("^## group:", cd)) == 4 &&
@@ -3447,12 +3471,12 @@ for (.tg in list(quote(chord_type * inversion),
     paste("~", paste(deparse(.tg), collapse = " ")))), "term.labels")
   chk(paste0("target `", paste(deparse(.tg), collapse = " "),
              "` gives the formula's terms"),
-      { e <- suppressMessages(eval(bquote(estimand(m_i3, .(.tg), policy = "equal",
+      { e <- suppressMessages(eval(bquote(nest_estimand(m_i3, .(.tg), policy = "equal",
                bounds = FALSE, self_check = FALSE))))
         identical(names(e), .labs) })
 }
 chk("target: a bare interaction is still one result, not a list",
-    { e <- suppressMessages(estimand(m_i3, chord_type:inversion, bounds = FALSE,
+    { e <- suppressMessages(nest_estimand(m_i3, chord_type:inversion, bounds = FALSE,
                                      self_check = FALSE))
       !inherits(e, "nestimand_estimands") &&
         identical(attr(e, "nestimand")$contrast, "interaction") })
@@ -3480,7 +3504,7 @@ for (.lev in list(c("none", "0", "1", "2"), c("0", "1", "2", "none"))) {
   .m_r <- nest_fit(.sp_r)                       # restricted: effects
   .m_c <- nest_fit(.sp_s)                       # saturated: cells
   .m_e <- nest_fit(.sp_s, mode = "effects")     # saturated: effects
-  .est <- function(m, ...) as.data.frame(estimand(m, chord_type, policy = "equal",
+  .est <- function(m, ...) as.data.frame(nest_estimand(m, chord_type, policy = "equal",
                             bounds = FALSE, self_check = FALSE, ...))$estimate
   chk(paste0("parameterization (", .tag, "): a restricted fit answers on both routes"),
       { a <- .est(.m_r); b <- .est(.m_r, type = "eta")

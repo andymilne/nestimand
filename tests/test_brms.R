@@ -185,7 +185,7 @@ e_chain <- as.data.frame(marginaleffects::avg_predictions(
         nest_policy(spb, "chord_type", "equal"))$.w,
   hypothesis = mfx_hypothesis("pairwise")))
 e_chain <- mfx_canonical(e_chain, levels(factor(dat$chord_type)))
-e_cell <- as.data.frame(estimand(mb, chord_type, policy = "equal",
+e_cell <- as.data.frame(nest_estimand(mb, chord_type, policy = "equal",
                                  bounds = FALSE, self_check = FALSE))
 v <- function(d) d$estimate[d$term == "maj - aug"]
 cat(sprintf("  maj - aug: chain %.4f, cell %.4f\n", v(e_chain), v(e_cell)))
@@ -210,7 +210,7 @@ chk("the probability of direction is the larger tail, so at least a half",
     abs(le$pd[le$term == "maj - aug"] -
         max(mean(dr[["maj - aug"]] > 0), mean(dr[["maj - aug"]] < 0))) < 1e-8)
 chk("the prediction route is summarized from the posterior as well",
-    { pr <- suppressMessages(estimand(mb, chord_type, route = "cells",
+    { pr <- suppressMessages(nest_estimand(mb, chord_type, route = "cells",
               type = "response", bounds = FALSE, self_check = FALSE))
       d <- as.data.frame(pr)
       "pd" %in% names(d) && !any(c("statistic", "p.value") %in% names(d)) &&
@@ -230,7 +230,7 @@ chk("the estimate is unchanged, the deviations averaging to zero across draws",
 chk("the posterior is wider, as the sampled-group question implies",
     all(grp$std.error >= avg$std.error))
 chk("and it agrees with the prediction route asked the same question",
-    { pr <- as.data.frame(suppressMessages(estimand(mb, chord_type,
+    { pr <- as.data.frame(suppressMessages(nest_estimand(mb, chord_type,
               route = "cells", type = "response", re_formula = NULL,
               bounds = FALSE, self_check = FALSE)))
       max(abs(pr$estimate - grp$estimate[match(pr$term, grp$term)])) < 0.05 })

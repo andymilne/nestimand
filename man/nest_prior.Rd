@@ -85,5 +85,5 @@ both spaces and over the full coefficient vector. \code{prior_audit} and
 \code{prior_stanvars} and \code{prior_statement} return the \pkg{brms} objects.
 }
 \seealso{
-\code{\link{chain_priors}}, \code{\link{nest_fit}}, \code{\link{estimand}}
+\code{\link{chain_priors}}, \code{\link{nest_fit}}, \code{\link{nest_estimand}}
 }

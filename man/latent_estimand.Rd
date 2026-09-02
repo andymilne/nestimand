@@ -16,8 +16,7 @@ latent_estimand(model, target, policy = "equal", at = NULL, contrast = "pairwise
                 ndraws = NULL, weights = NULL, route = "g_computation", re_formula = NA)
 
 latent_draws(model, target, policy = "equal", at = NULL, contrast = "pairwise", 
-             data = NULL, spec = NULL, cells = NULL, weights = NULL, 
-             route = "g_computation")
+             data = NULL, spec = NULL, cells = NULL)
 
 policy_contrast_matrix(spec, target, policy, data = spec$data, model = NULL, 
                        cells = spec$cells, weights = NULL, route = "g_computation")
@@ -34,7 +33,7 @@ policy_contrast_matrix(spec, target, policy, data = spec$data, model = NULL,
   \item{cells}{the realized cells to work over. Chosen automatically: a marginal contrast of a nested variable is pooled only over the strata in which it varies, and an interaction over those in which every target varies.}
   \item{ndraws}{thin the posterior of a \pkg{brms} fit to this many draws. The engine's own spelling, so the same argument serves on either route.}
   \item{weights}{unit weights, as a column name or one value per row. They multiply the row weights, standardizing the estimand to another population; the contrast is a weighted average of design rows either way.}
-  \item{route}{over which rows the design is averaged, as in \code{\link{estimand}}. The two coincide unless a design column is a nonlinear function of a covariate.}
+  \item{route}{over which rows the design is averaged, as in \code{\link{nest_estimand}}. The two coincide unless a design column is a nonlinear function of a covariate.}
   \item{re_formula}{\code{NA}, the default, evaluates the contrast at the average group. \code{NULL} averages over the groups in the data instead, by adding their draw-wise mean deviation before the contrast is taken; available for a \pkg{brms} fit, where the group-level parameters are in the draws.}
 }
 \details{
@@ -62,8 +61,8 @@ frame of posterior draws, one column per contrast; \code{policy_contrast_matrix}
 weighted design-matrix rows, one per stratum.
 }
 \seealso{
-\code{marginaleffects::avg_predictions}, which \code{\link{estimand}} uses on
+\code{marginaleffects::avg_predictions}, which \code{\link{nest_estimand}} uses on
 the response scale, where this route uses the coefficients directly.
 
-\code{\link{estimand}}, \code{\link{nest_policy}}
+\code{\link{nest_estimand}}, \code{\link{nest_policy}}
 }

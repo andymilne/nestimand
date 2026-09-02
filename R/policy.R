@@ -25,7 +25,7 @@ check_target <- function(spec, target) {
     stop("`target` names one categorical design variable, as a single string. ",
          "What was passed is ", paste(class(target), collapse = "/"),
          " of length ", length(target), ". One variable at a time here; ",
-         "estimand() is the function that takes several, written as a formula ",
+         "nest_estimand() is the function that takes several, written as a formula ",
          "would write them.")
   invisible(TRUE)
 }

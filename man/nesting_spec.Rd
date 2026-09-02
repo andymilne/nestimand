@@ -2,20 +2,20 @@
 \alias{nesting_spec}
 \alias{infer_nests}
 \alias{print.nesting_spec}
-\alias{apply_sentinel}
 \title{Declare a partially nested design}
 \description{
 \code{nesting_spec} validates a declared design, records its nesting families, and
 constructs the factor of realized cells that the fitting functions use.
-\code{apply_sentinel} converts structurally undefined \code{NA} values to an explicit
-sentinel level, refusing genuine missingness.
+Structurally undefined \code{NA} values are converted to an explicit sentinel by
+\code{nesting_spec} itself, checked against the structure - declared or inferred -
+that says which rows should be undefined; an \code{NA} that structure does not
+account for is refused, since \R would otherwise delete the row casewise and
+silently.
 }
 \usage{
 nesting_spec(data, formula, nests = NULL, fit = c("lm", "glm", "lmer", 
              "glmer", "clm", "clmm", "brm"), family = NULL, random = NULL,
              cell_name = "cell")
-
-apply_sentinel(data, var, where = NULL, sentinel = "none") 
 
 infer_nests(data, vars, max_parents = 2) 
 }
@@ -24,14 +24,11 @@ infer_nests(data, vars, max_parents = 2)
   \item{formula}{the desired model, written freely in ordinary R syntax; crossed terms are welcome and are transformed rather than fitted as given. Random-effects terms may be written here in \code{lme4}/\code{brms} syntax.}
   \item{vars}{for \code{infer_nests}, the design variables among which to look for structure.}
   \item{max_parents}{for \code{infer_nests}, the largest number of variables a nesting is allowed to be inside.}
-  \item{nests}{the categorical design - which variable sits inside which, and which sit inside nothing. May be omitted, in which case it is read off the data: a variable is taken to be nested within the smallest set of design variables such that, within every combination of their levels, it is either always \code{NA} or never \code{NA}. What is inferred is reported in the syntax you would have written, and the undefined rows are given a sentinel automatically, so a data frame carrying \code{NA} where a variable does not apply needs no declaration at all. Where the gaps are not structural - an \code{NA} pattern no combination of the other variables picks out - it stops rather than inventing a structure, which is the distinction \code{apply_sentinel} exists to draw; and where two variables explain the same gaps equally well it says so and asks for a declaration, that being something the data cannot settle. Inference sees the sample rather than the design, so gaps that are regular but not structural would be read as a nesting: that is why it is announced. Quoted or bare: \code{"inversion \%in\% chord_type"}, or \code{c(inv \%in\% chord, doub \%in\% inv)} for a chain. A parent may hold several nested variables, declared one per entry or together as \code{c(inversion, X1) \%in\% chord_type}; \code{inversion + X1 \%in\% chord_type} and \code{(inversion + X1) \%in\% chord_type} read the same way, the brackets being optional since the left side is a list of names rather than a model term. Anything that is not a list of names - an interaction, say - is refused. Each variable is nested in exactly one parent, and \code{\%in\%} is not chained within one entry - \code{Z \%in\% inversion \%in\% chord_type} is two entries, since R would read it as \code{(Z \%in\% inversion) \%in\% chord_type}. Only the nesting has to be declared: a categorical variable the formula crosses with the declared structure - \code{chord_type * inversion * top_note} - is part of the design and joins the cell factor without being named here. An entry with no \code{\%in\%} folds one in deliberately, which is how an ordered factor or a variable entering additively is made a design variable rather than a covariate.}
+  \item{nests}{the categorical design - which variable sits inside which, and which sit inside nothing. May be omitted, in which case it is read off the data: a variable is taken to be nested within the smallest set of design variables such that, within every combination of their levels, it is either always \code{NA} or never \code{NA}. What is inferred is reported in the syntax you would have written, and the undefined rows are given a sentinel automatically, so a data frame carrying \code{NA} where a variable does not apply needs no declaration at all. Where the gaps are not structural - an \code{NA} pattern no combination of the other variables picks out - it stops rather than inventing a structure, which is the one judgement here that must not be got wrong quietly; and where two variables explain the same gaps equally well it says so and asks for a declaration, that being something the data cannot settle. Inference sees the sample rather than the design, so gaps that are regular but not structural would be read as a nesting: that is why it is announced. Quoted or bare: \code{"inversion \%in\% chord_type"}, or \code{c(inv \%in\% chord, doub \%in\% inv)} for a chain. A parent may hold several nested variables, declared one per entry or together as \code{c(inversion, X1) \%in\% chord_type}; \code{inversion + X1 \%in\% chord_type} and \code{(inversion + X1) \%in\% chord_type} read the same way, the brackets being optional since the left side is a list of names rather than a model term. Anything that is not a list of names - an interaction, say - is refused. Each variable is nested in exactly one parent, and \code{\%in\%} is not chained within one entry - \code{Z \%in\% inversion \%in\% chord_type} is two entries, since R would read it as \code{(Z \%in\% inversion) \%in\% chord_type}. Only the nesting has to be declared: a categorical variable the formula crosses with the declared structure - \code{chord_type * inversion * top_note} - is part of the design and joins the cell factor without being named here. An entry with no \code{\%in\%} folds one in deliberately, which is how an ordered factor or a variable entering additively is made a design variable rather than a covariate.}
   \item{fit}{the modelling engine, named for its fitting function: \code{"lm"}, \code{"glm"}, \code{"lmer"}, \code{"glmer"}, \code{"clm"}, \code{"clmm"}, \code{"brm"}. \code{"brms"} is accepted for the last, being the package's name rather than the function's.}
   \item{family}{family for the engines that need one, quoted or as a bare call, e.g. \code{cumulative("probit")}.}
   \item{random}{random-effects terms, if not written into \code{formula}.}
   \item{cell_name}{name for the constructed cell factor. An existing column of that name is refused rather than overwritten.}
-  \item{var}{for \code{apply_sentinel}, the variable to convert.}
-  \item{where}{logical vector marking the rows in which \code{var} is structurally undefined. Optional: when omitted, every \code{NA} is converted and a warning is given, since any that were genuine missing data are then coded as an existing condition. When supplied, an \code{NA} outside those rows is refused as genuine missingness, and a non-\code{NA} inside them is refused as inconsistent coding.}
-  \item{sentinel}{the sentinel value; numeric variables default to \code{0}.}
   \item{x}{an object to print.}
 }
 \details{
@@ -96,10 +93,10 @@ covariance over every realized condition. See \code{random_structure} in
 \code{nesting_spec} returns an object of class \code{nesting_spec}: a list whose
 \code{data} element is the supplied data with the cell factor added, together with the
 nesting families, the realized-cell table, the covariates, and the declared engine.
-\code{apply_sentinel} returns the modified data frame.
+
 }
 \seealso{
-\code{\link{nest_fit}}, \code{\link{estimand}}, \code{\link{cell_formula}}
+\code{\link{nest_fit}}, \code{\link{nest_estimand}}, \code{\link{cell_formula}}
 }
 \examples{
 \dontrun{

@@ -1,5 +1,5 @@
-\name{estimand}
-\alias{estimand}
+\name{nest_estimand}
+\alias{nest_estimand}
 \alias{print.nestimand_estimand}
 \alias{add_bounds}
 \alias{show_code}
@@ -9,13 +9,13 @@
 \alias{print.nestimand_types}
 \title{Estimands in the original variable space}
 \description{
-\code{estimand} returns a labelled contrast table in the original variable names, under
+\code{nest_estimand} returns a labelled contrast table in the original variable names, under
 a stated weighting policy, with partial-identification bounds over all admissible
 policies and a reorder self-check. The analysis is assembled as text and then evaluated,
 so \code{show_code} returns the code that ran rather than a reconstruction of it.
 }
 \usage{
-estimand(model, target, policy = "equal", at = NULL, contrast = c("pairwise", 
+nest_estimand(model, target, policy = "equal", at = NULL, contrast = c("pairwise", 
          "reference", "sequential"), route = c("g_computation",
          "cells"), weights = NULL, type = NULL, subsample = NULL,
          data = NULL, bounds = TRUE, self_check = TRUE, dry_run = FALSE,
@@ -56,7 +56,7 @@ spelling for it is resolved against the model, since it differs between classes
 and releases.}
   \item{route}{over which rows the model is evaluated. \code{"g_computation"} crosses every observed row with every realized cell, so each condition is averaged over the same covariate distribution, giving the population-averaged effect. \code{"cells"} uses one row per realized cell with covariates at their means: the conditional effect at an average covariate value.}
   \item{weights}{unit weights, as a column name or a numeric vector of one weight per row. Where the policy weights the versions of a condition, these weight the rows, standardizing the estimand to a population other than the sample: survey weights, or post-stratification to a target distribution of the covariates. Not available on the \code{"cells"} route, which evaluates one row per condition and so has no units to weight.}
-  \item{contrast}{which comparisons to form among the target's levels: all pairs, each against the first, or each against the one before. That is all it decides. An interaction - a difference of differences - is asked for by the shape of the target, \code{estimand(m, a:b)}, which crosses no structural boundary and so takes no policy; and the levels an estimand is computed within are named by \code{by}.}
+  \item{contrast}{which comparisons to form among the target's levels: all pairs, each against the first, or each against the one before. That is all it decides. An interaction - a difference of differences - is asked for by the shape of the target, \code{nest_estimand(m, a:b)}, which crosses no structural boundary and so takes no policy; and the levels an estimand is computed within are named by \code{by}.}
   \item{bounds}{attach the partial-identification region. It is computed on the same route as the estimand, one evaluation per single-version policy, so its cost grows with the number of versions: on a design admitting many, \code{bounds = FALSE} is the way to skip it.}
   \item{self_check}{re-run the estimand with nested factor levels permuted, and warn if it moves. For a mixed or Bayesian fit the check runs on the fixed-effects shadow model - the same cell formula without the random terms - because order instability is a fixed-effects phenomenon, and refitting a large random structure is both expensive and liable to settle on a different optimum, which would report a failure having nothing to do with level order.}
   \item{dry_run}{return the code without computing anything. \code{show_code()} prints the code of a result that has already been computed, since the inner call is evaluated first; this is the way to see the code beforehand.}
@@ -66,7 +66,7 @@ and releases.}
   \item{cells}{the realized cells the bounds are computed over, matching any restriction applied to the estimand itself.}
   \item{x}{an object carrying code, for \code{show_code}.}
   \item{digits}{decimal places for the printed table. The object keeps full precision; only the display is rounded.}
-  \item{scale}{internal, for \code{add_bounds}: whether the bounds are computed from the coefficients or through the prediction function. \code{\link{estimand}} sets it from \code{type}.}
+  \item{scale}{internal, for \code{add_bounds}: whether the bounds are computed from the coefficients or through the prediction function. \code{\link{nest_estimand}} sets it from \code{type}.}
 }
 \section{Mixed models}{
 Whether the group-level effects enter the predictions is the engine's default to
@@ -177,7 +177,7 @@ installed version returns. Without this, the same analysis could report opposite
 effects on two machines.
 }
 \value{
-\code{estimand} an estimand table of class \code{nestimand_estimand}, carrying the
+\code{nest_estimand} an estimand table of class \code{nestimand_estimand}, carrying the
 policy, contrast, scale, bounds, self-check result, and code in its \code{nestimand}
 attribute. \code{show_code} prints the code and returns it invisibly.
 }
@@ -189,7 +189,7 @@ attribute. \code{show_code} prints the code and returns it invisibly.
 sp <- nesting_spec(dat, response ~ chord_type * inversion + training,
                    "inversion %in% chord_type")
 m  <- nest_fit(sp)
-e  <- estimand(m, chord_type, policy = "equal")   # the fit carries its spec
+e  <- nest_estimand(m, chord_type, policy = "equal")   # the fit carries its spec
 e
 show_code(e)
 
@@ -200,13 +200,13 @@ sp2 <- nesting_spec(dat, response ~ chord_type * inversion * X1 * Z,
                     c("inversion %in% chord_type", "X1 %in% chord_type",
                       "Z %in% inversion"))
 m2 <- nest_fit(sp2)
-estimand(m2, X1, by = "chord_type")               # one contrast per chord type
-estimand(m2, top_note, by = chord_type)           # the same, strata named, for a
+nest_estimand(m2, X1, by = "chord_type")               # one contrast per chord type
+nest_estimand(m2, top_note, by = chord_type)           # the same, strata named, for a
                                                   # variable that has no ancestors
-estimand(m2, top_note, by = c(chord_type, inversion))
-estimand(m2, Z,  by = c("chord_type", "inversion"))  # per chord type and inversion
-estimand(m2, Z,  policy = "equal")                # pooled, and so needs a policy
-estimand(m2, chord_type, policy = "nominated",
+nest_estimand(m2, top_note, by = c(chord_type, inversion))
+nest_estimand(m2, Z,  by = c("chord_type", "inversion"))  # per chord type and inversion
+nest_estimand(m2, Z,  policy = "equal")                # pooled, and so needs a policy
+nest_estimand(m2, chord_type, policy = "nominated",
          at = c(inversion = "0", X1 = "a", Z = "z1"))
 }
 }

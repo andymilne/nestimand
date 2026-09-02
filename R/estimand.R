@@ -5,13 +5,13 @@
 ## are deparsed into that text and so reach the destination function - brms,
 ## marginaleffects, emmeans - unaltered, and appear in the saved code.
 
-estimand <- function(model, target, policy = "equal", at = NULL,
-                     contrast = c("pairwise", "reference", "sequential"),
-                     route = c("g_computation", "cells"),
-                     weights = NULL, type = NULL, subsample = NULL,
-                     data = NULL, bounds = TRUE, self_check = TRUE,
-                     dry_run = FALSE, by = NULL, ..., spec = NULL,
-                     .env = parent.frame(), .restrict = NULL) {
+nest_estimand <- function(model, target, policy = "equal", at = NULL,
+                          contrast = c("pairwise", "reference", "sequential"),
+                          route = c("g_computation", "cells"),
+                          weights = NULL, type = NULL, subsample = NULL,
+                          data = NULL, bounds = TRUE, self_check = TRUE,
+                          dry_run = FALSE, by = NULL, ..., spec = NULL,
+                          .env = parent.frame(), .restrict = NULL) {
   ## The declaration travels with a fit from nest_fit(); `spec` is needed only
   ## for a model fitted by calling the engine directly.
   spec_expr <- substitute(spec)
@@ -229,7 +229,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
     ## a dry run returns the scripts, one block per group, each of which stands
     ## on its own: the groups differ only in the cells they restrict to
     ## One block per group, each of which stands on its own - and then the
-    ## stacking, so that running the whole thing gives back what `estimand()`
+    ## stacking, so that running the whole thing gives back what `nest_estimand()`
     ## returned. Without it the last group's table was the value of the script,
     ## and the code view quietly failed to reproduce its own result.
     lab_txt <- function(lab) paste(vapply(names(lab), function(v)
@@ -276,7 +276,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   }
 
   ## The model and the declaration may be supplied as expressions rather than
-  ## as named objects - estimand(nest_fit(sp), ...) - and an expression cannot
+  ## as named objects - nest_estimand(nest_fit(sp), ...) - and an expression cannot
   ## be assigned to in the emitted code.
   syntactic <- function(x) grepl("^[.A-Za-z][.A-Za-z0-9._]*$", x)
   model_name <- deparse(substitute(model))
@@ -548,7 +548,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
   if (identical(contrast, "interaction")) {
     if (length(target) < 2)
       stop("an interaction contrast needs at least two targets, e.g. ",
-           "estimand(model, chord_type:inversion). This is a bug in nestimand: ",
+           "nest_estimand(model, chord_type:inversion). This is a bug in nestimand: ",
            "the mode is set from the shape of the target, so it should not be ",
            "reachable with one.")
     ## A policy weights the versions of a compound condition. An interaction
@@ -627,7 +627,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
       known <- if (length(mfx_args)) intersect(other, mfx_args) else other
       unknown <- setdiff(other, known)
       near <- function(x) {
-        cand <- setdiff(names(formals(estimand)),
+        cand <- setdiff(names(formals(nest_estimand)),
                         c("...", ".env", ".restrict", "model", "spec"))
         hit <- cand[agrepl(x, cand, max.distance = 0.25, ignore.case = TRUE)]
         if (!length(hit)) "" else
@@ -644,7 +644,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
           paste0("`", paste(unknown, collapse = "`, `"), "` ",
                  if (length(unknown) > 1) "are not arguments"
                  else "is not an argument",
-                 " of estimand() or of marginaleffects::avg_predictions",
+                 " of nest_estimand() or of marginaleffects::avg_predictions",
                  paste(vapply(unknown, near, ""), collapse = ""), ". "),
         "`conf_level` and `ndraws` work on either route; the estimand's own ",
         "vocabulary is `contrast` for which comparisons are formed among the ",
@@ -696,7 +696,7 @@ estimand <- function(model, target, policy = "equal", at = NULL,
     fit_code <- sub("^m <- ", paste0(model_name, " <- "), fit_code)
     code <- c(fit_code, "", code)
   }
-  ## `show_code(estimand(...))` computes first and prints after, because the
+  ## `show_code(nest_estimand(...))` computes first and prints after, because the
   ## inner call is evaluated first: show_code() is a printer, not a preview.
   ## dry_run returns the code without running anything, as nest_fit() does.
   if (isTRUE(dry_run))
@@ -1188,7 +1188,7 @@ show_code.default <- function(x, ...) {
   code <- attr(x, "nestimand_code")
   if (is.null(code))
     stop("no code is attached to this object. Code is attached by nest_fit() ",
-         "and estimand(); a model fitted by calling the engine directly ",
+         "and nest_estimand(); a model fitted by calling the engine directly ",
          "carries none.")
   cat(paste(code, collapse = "\n"), "\n", sep = "")
   invisible(structure(paste(code, collapse = "\n"), class = "nestimand_code"))

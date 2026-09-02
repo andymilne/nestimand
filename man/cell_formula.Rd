@@ -66,5 +66,5 @@ object holding A and its inverse; \code{fitting_mode} a string with the reason i
 \code{reason} attribute.
 }
 \seealso{
-\code{\link{nesting_spec}}, \code{\link{nest_fit}}, \code{\link{estimand}}
+\code{\link{nesting_spec}}, \code{\link{nest_fit}}, \code{\link{nest_estimand}}
 }
