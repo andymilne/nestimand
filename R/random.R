@@ -6,10 +6,9 @@
 ## full, in the original labels, and translates it into effect space where that
 ## is meaningful.
 
-random_covariance <- function(model, spec = NULL,
-                              space = c("cells", "effects")) {
+random_covariance <- function(model, space = c("cells", "effects")) {
   space <- match.arg(space)
-  spec <- resolve_spec(model, spec)
+  spec <- resolve_spec(model)
   cn <- spec$cell_name
   cells <- as.character(spec$cells[[cn]])
 
@@ -38,6 +37,19 @@ random_covariance <- function(model, spec = NULL,
     ## label by the conditions rather than by the fitted factor
     plain <- sub(paste0("^", cn), "", nm)
     is_cells <- setequal(plain, cells)
+    ## A bar that reaches across the structure is fitted on the design's own
+    ## columns. A group's deviation in a condition is that condition's row of
+    ## the design times the group's coefficients, so the covariance over the
+    ## realized conditions is Z S Z' - and both spaces are read from that, as
+    ## they are for a covariance fitted on the conditions directly.
+    Z <- tryCatch(reduced_design(spec), error = function(e) NULL)
+    if (!is_cells && !is.null(Z) && all(nm %in% colnames(Z))) {
+      Zk <- Z[, nm, drop = FALSE]
+      S <- Zk %*% S %*% t(Zk)
+      dimnames(S) <- list(rownames(Z), rownames(Z))
+      plain <- rownames(Z)
+      is_cells <- setequal(plain, cells)
+    }
     ## a reduced random structure is labelled by the design's own columns; the
     ## report names the effect each one stands for, as it does on the fixed side
     if (!is_cells)
@@ -69,11 +81,11 @@ random_covariance <- function(model, spec = NULL,
 ## that defines the corresponding fixed-effect contrast. This is the quantity a
 ## report needs, and it is not a coefficient of the fitted model.
 random_heterogeneity <- function(model, target, policy = "equal", at = NULL,
-                                 contrast = "pairwise", spec = NULL) {
-  spec <- resolve_spec(model, spec)
+                                 contrast = "pairwise") {
+  spec <- resolve_spec(model)
   cv <- attr(latent_estimand(model, target, policy, at, contrast, spec = spec),
              "nestimand_cvecs")
-  S <- random_covariance(model, spec, "cells")
+  S <- random_covariance(model, "cells")
   cells <- as.character(spec$cells[[spec$cell_name]])
   do.call(rbind, lapply(names(S), function(g) {
     M <- S[[g]]

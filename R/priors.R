@@ -303,28 +303,26 @@ parse_normal_prior <- function(txt) {
 
 ## The whole thing: a brms prior in, a nestimand prior out, with the rest of the
 ## specification carried alongside it.
-prior_from_brms <- function(spec, prior, space = c("effects", "cells"),
-                            covariate_mean = 0, covariate_sd = NULL) {
-  space <- match.arg(space)
+prior_from_brms <- function(spec, prior, covariate_mean = 0,
+                            covariate_sd = NULL) {
+  space <- "effects"
   sp <- split_brms_prior(prior)
   if (!nrow(sp$b)) return(list(translated = NULL, other = prior))
   if (any(nzchar(sp$b$coef)))
     stop("a `class = \"b\"` prior naming individual coefficients cannot be ",
          "translated as it stands: the translation is a joint one, so the whole ",
-         "mean structure has to be described. State one prior for the class - ",
-         "set_prior(\"normal(0, 1)\", class = \"b\") - or state it in cell space ",
-         "with prior_space = \"cells\", where each coefficient is its own.")
+         "mean structure has to be described. State one prior for the class: ",
+         "set_prior(\"normal(0, 1)\", class = \"b\").")
   if (nrow(sp$b) > 1)
     stop("several `class = \"b\"` priors were given; the translation needs one ",
-         "description of the mean structure. Combine them into one, or state ",
-         "them in cell space with prior_space = \"cells\".")
+         "description of the mean structure. Combine them into one.")
   pr <- parse_normal_prior(sp$b$prior[1])
   if (is.null(pr))
     stop("`", sp$b$prior[1], "` is not an elliptical prior, and only those ",
          "translate exactly: a normal or student_t prior on the effects induces ",
-         "a normal or student_t prior on the cells, mu ~ N(A m, A D A'). For a ",
-         "prior of another shape, state it in cell space with ",
-         "prior_space = \"cells\", where it reaches brms as written.")
+         "a normal or student_t prior on the coefficients the model is fitted ",
+         "on, mu ~ N(A m, A D A'). A prior of another shape has no exact ",
+         "counterpart there.")
   np <- nest_prior(spec, mean = pr$mean, sd = pr$sd, on = space,
                    family = pr$family, df = pr$df,
                    covariate_mean = covariate_mean,

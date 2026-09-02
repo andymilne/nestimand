@@ -12,10 +12,9 @@
 ## equals, so no label has to be read in isolation.
 
 nest_summary <- function(model, space = c("effects", "cells"),
-                         conf_level = 0.95, random = FALSE, data = NULL,
-                         spec = NULL) {
+                         conf_level = 0.95, random = FALSE, data = NULL) {
   space <- match.arg(space)
-  spec <- resolve_spec(model, spec)
+  spec <- resolve_spec(model)
   if (is.null(data)) data <- spec$data
   b <- coef_vector(model)
   V <- as.matrix(stats::vcov(model))
@@ -157,7 +156,7 @@ nest_summary <- function(model, space = c("effects", "cells"),
   if (isTRUE(random))
     attr(out, "nestimand_random") <-
       ## the reduced form leaves the random side in the cell parameterization
-      tryCatch(random_covariance(model, spec, "cells"),
+      tryCatch(random_covariance(model, "cells"),
                error = function(e) structure(list(), note = conditionMessage(e)))
   attr(out, "nestimand_space") <- space
   ## which engine produced the coefficients being translated: the same table
@@ -216,7 +215,7 @@ reduced_fit_summary <- function(model, spec, conf_level = 0.95, random = FALSE) 
   if (isTRUE(random))
     attr(out, "nestimand_random") <-
       ## the reduced form leaves the random side in the cell parameterization
-      tryCatch(random_covariance(model, spec, "cells"),
+      tryCatch(random_covariance(model, "cells"),
                error = function(e) structure(list(), note = conditionMessage(e)))
   class(out) <- c("nestimand_summary", class(out))
   out

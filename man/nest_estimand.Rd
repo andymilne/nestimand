@@ -14,7 +14,7 @@ nest_estimand(model, target, policy = "equal", at = NULL, contrast = c("pairwise
          "reference", "sequential"), route = c("g_computation",
          "cells"), weights = NULL, type = NULL, subsample = NULL,
          data = NULL, bounds = TRUE, self_check = TRUE, dry_run = FALSE,
-         by = NULL, ..., spec = NULL, .env = parent.frame(), .restrict = NULL)
+         by = NULL, ..., .env = parent.frame(), .restrict = NULL)
 
 add_bounds(est, model, spec, target, contrast = "pairwise", scale = c("response", 
            "latent"), cells = spec$cells, route = c("g_computation",
@@ -179,8 +179,8 @@ attribute; \code{\link{show_code}} prints it.
 }
 \examples{
 \dontrun{
-m <- nest_fit(dat, response ~ chord_type * inversion + training,
-              "inversion %in% chord_type")
+m <- nest_fit("lm", response ~ chord_type * inversion + training, dat,
+              nests = "inversion %in% chord_type")
 e <- nest_estimand(m, chord_type, policy = "equal")    # the fit carries its declaration
 e
 show_code(e)
@@ -188,9 +188,9 @@ show_code(e)
 ## A branching, three-deep structure. The target decides which strata the
 ## contrast is pooled over: X1 within each chord type, Z within each chord
 ## type and inversion.
-m2 <- nest_fit(dat, response ~ chord_type * inversion * X1 * Z,
-               c("inversion %in% chord_type", "X1 %in% chord_type",
-                 "Z %in% inversion"))
+m2 <- nest_fit("lm", response ~ chord_type * inversion * X1 * Z, dat,
+               nests = c("inversion %in% chord_type", "X1 %in% chord_type",
+                         "Z %in% inversion"))
 nest_estimand(m2, X1, by = "chord_type")               # one contrast per chord type
 nest_estimand(m2, top_note, by = chord_type)           # the same, strata named, for a
                                                   # variable that has no ancestors

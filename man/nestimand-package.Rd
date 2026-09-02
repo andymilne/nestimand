@@ -25,7 +25,7 @@ An analysis is three calls.
   \code{\link{nest_summary}} \tab the coefficient table, read back as effects \cr
 }
 
-\preformatted{m <- nest_fit(dat, rating ~ chord_type * inversion + training)
+\preformatted{m <- nest_fit("lm", rating ~ chord_type * inversion + training, dat)
 e <- nest_estimand(m, chord_type, policy = "equal")
 nest_summary(m)}
 
@@ -39,7 +39,7 @@ out, so \code{\link{nest_fit}} reads the structure off a data frame carrying
 \code{NA}:
 
 \preformatted{## inversion is NA wherever chord_type is "aug"
-m <- nest_fit(dat, rating ~ chord_type * inversion)
+m <- nest_fit("lm", rating ~ chord_type * inversion, dat)
 #> nesting structure read from the data: nests = "inversion \%in\% chord_type"}
 
 What was inferred is always said, in the syntax you would have written, and an
@@ -47,11 +47,12 @@ What was inferred is always said, in the syntax you would have written, and an
 as missing data rather than read as structure. Declare it yourself when the data
 cannot settle it, or when you mean something else:
 
-\preformatted{m <- nest_fit(dat, rating ~ chord_type * inversion,
-              "inversion \%in\% chord_type")}
+\preformatted{m <- nest_fit("lm", rating ~ chord_type * inversion, dat,
+              nests = "inversion \%in\% chord_type")}
 
-\code{\link{nesting_spec}} makes the declaration without fitting, for looking at
-before committing to a long fit; \code{nest_fit} accepts either it or the data.
+\code{\link{nesting_spec}} makes the declaration without fitting, which is a way
+of seeing the structure and the conditions it realizes before committing to a
+long fit.
 }
 \section{Deeper and branching structures}{
 A nested variable may itself hold nested variables, to any depth, and one parent
@@ -60,9 +61,9 @@ be gathered:
 
 \preformatted{## inversion and X1 are both undefined for augmented triads;
 ## Z exists only within an inversion
-nest_fit(dat, rating ~ chord_type * inversion * X1 * Z,
-         c("inversion \%in\% chord_type", "X1 \%in\% chord_type",
-           "Z \%in\% inversion"))
+nest_fit("lm", rating ~ chord_type * inversion * X1 * Z, dat,
+         nests = c("inversion \%in\% chord_type", "X1 \%in\% chord_type",
+                   "Z \%in\% inversion"))
 
 ## the two siblings, gathered - these four are the same declaration
 c(inversion, X1) \%in\% chord_type
@@ -75,8 +76,8 @@ the declared structure is part of the design and joins the cell factor by
 itself - \code{top_note} below needs no entry - so it can be the target of an
 estimand like any other design variable:
 
-\preformatted{nest_fit(dat, rating ~ chord_type * inversion * top_note,
-         "inversion \%in\% chord_type")}
+\preformatted{nest_fit("lm", rating ~ chord_type * inversion * top_note, dat,
+         nests = "inversion \%in\% chord_type")}
 
 Three kinds of variable stay covariates: one entering additively, whose effect
 is thereby declared common to every condition; a numeric one; and an ordered
@@ -96,7 +97,8 @@ The model is fitted over the conditions the design realizes rather than over the
 full crossing, so every coefficient is estimable and none is aliased. Where the
 formula crosses the structure fully, the coefficients are the condition means
 themselves; where it asks for less, there is one coefficient per effect the
-formula names.
+formula names. The random side follows the formula in the same way: a bar is
+fitted on the effects it names, and nothing is added to it.
 
 This does not change how results are read. Everything \code{\link{nest_estimand}}
 and \code{\link{nest_summary}} report is stated in the variables you wrote, and

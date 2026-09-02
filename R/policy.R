@@ -17,10 +17,9 @@ policy_aliases <- c("equal", "proportional", "hierarchical",
 check_target <- function(spec, target) {
   if (inherits(target, "nesting_spec"))
     stop("`target` names the variable the estimand is about, and a nesting_spec ",
-         "was passed in its place. The declaration is not a positional argument ",
-         "here: a model fitted by nest_fit() carries it, so the call is ",
-         "f(model, \"", spec$cell_vars[1], "\", \"equal\"). A spec is passed by ",
-         "name, as spec = , and only for a model nest_fit() did not produce.")
+         "was passed in its place. The declaration is not an argument here at ",
+         "all: a model fitted by nest_fit() carries it, so the call is ",
+         "f(model, \"", spec$cell_vars[1], "\", \"equal\").")
   if (!is.character(target) || length(target) != 1L || is.na(target))
     stop("`target` names one categorical design variable, as a single string. ",
          "What was passed is ", paste(class(target), collapse = "/"),
@@ -235,7 +234,7 @@ counterfactual_grid <- function(spec, data = spec$data, policy = NULL,
   if (!is.null(policy)) g[[".w"]] <- policy_weights(spec, g, policy)
   ## a restricted declaration is fitted on the design's own columns, so the grid
   ## carries them too, recomputed from the cell each row has been moved to
-  if (is_reduced(spec)) g <- reduced_augment(spec, g)
+  if (uses_reduced(spec)) g <- reduced_augment(spec, g)
   g
 }
 

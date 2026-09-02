@@ -10,13 +10,10 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
                           route = c("g_computation", "cells"),
                           weights = NULL, type = NULL, subsample = NULL,
                           data = NULL, bounds = TRUE, self_check = TRUE,
-                          dry_run = FALSE, by = NULL, ..., spec = NULL,
+                          dry_run = FALSE, by = NULL, ...,
                           .env = parent.frame(), .restrict = NULL) {
-  ## The declaration travels with a fit from nest_fit(); `spec` is needed only
-  ## for a model fitted by calling the engine directly.
-  spec_expr <- substitute(spec)
-  recovered <- is.null(spec)
-  spec <- resolve_spec(model, spec)
+  ## The declaration travels with the fit, so the model alone is enough.
+  spec <- resolve_spec(model)
   check_model_spec(model, spec)
   ## `contrast` decides one thing: which comparisons are formed among the
   ## target's levels. What is contrasted comes from the target - a `:` target is
@@ -279,13 +276,12 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
   ## as named objects - nest_estimand(nest_fit(sp), ...) - and an expression cannot
   ## be assigned to in the emitted code.
   syntactic <- function(x) grepl("^[.A-Za-z][.A-Za-z0-9._]*$", x)
-  model_name <- deparse(substitute(model))
+  model_name <- paste(deparse(substitute(model)), collapse = " ")
   if (!syntactic(model_name)) model_name <- "model"
   ## When the declaration came from the fit, refer to it by the name it had
   ## when the model was fitted, so the emitted code reads as the user wrote it.
-  spec_name  <- if (recovered)
-    (if (is.null(attr(model, "nestimand_spec_name"))) "spec"
-     else attr(model, "nestimand_spec_name")) else paste(deparse(spec_expr), collapse = "")
+  spec_name  <- if (is.null(attr(model, "nestimand_spec_name"))) "spec"
+                else attr(model, "nestimand_spec_name")
   if (!syntactic(spec_name)) spec_name <- "spec"
   data_name <- if (missing(data)) paste0(spec_name, "$data")
                else paste(deparse(substitute(data)), collapse = " ")
@@ -293,7 +289,7 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
   ## A fit in the reduced form has the design's own columns as predictors, so
   ## any frame handed to the engine must carry them - the data as well as the
   ## grids built from it.
-  if (identical(fit_mode(model), "reduced"))
+  if (uses_reduced(spec))
     data <- reduced_augment(spec, add_cells(spec, data))
   ## Under an identity link the response scale and the linear predictor are the
   ## same quantity, so the contrast can be taken from the coefficients: the
@@ -1050,7 +1046,9 @@ reorder_check <- function(model, spec, target, policy, at, contrast, dots_txt, d
     TRUE
   }
   fit_shadow <- function(spx, dta) {
-    f <- cell_formula(spx)
+    md <- as.character(fitting_mode(spx))
+    if (identical(md, "reduced")) dta <- with_reduced(spx, dta)
+    f <- cell_formula(spx, md)
     switch(shadow,
       lm  = stats::lm(f, data = dta),
       glm = stats::glm(f, data = dta,
@@ -1070,7 +1068,9 @@ reorder_check <- function(model, spec, target, policy, at, contrast, dots_txt, d
   out <- tryCatch({
     sp2 <- nesting_spec_quiet(spec, d2)
     if (is.null(shadow)) {
-      m1 <- model; m2 <- stats::update(model, data = sp2$data)
+      m1 <- model
+      m2 <- stats::update(model, data = if (uses_reduced(sp2))
+        with_reduced(sp2, sp2$data) else sp2$data)
     } else {
       m1 <- fit_shadow(spec, spec$data); m2 <- fit_shadow(sp2, sp2$data)
     }
@@ -1084,10 +1084,12 @@ reorder_check <- function(model, spec, target, policy, at, contrast, dots_txt, d
                                "converge, so a difference between the two",
                                "orderings would say more about the optimizer",
                                "than about the parameterization")))
+    d1 <- if (uses_reduced(spec)) with_reduced(spec, spec$data) else spec$data
+    d2b <- if (uses_reduced(sp2)) with_reduced(sp2, sp2$data) else sp2$data
     e1 <- unname(estimand_values(m1, spec, target, policy, at, contrast,
-                                 spec$data, scale, route))
+                                 d1, scale, route))
     e2 <- unname(estimand_values(m2, sp2, target, policy, at, contrast,
-                                 sp2$data, scale, route))
+                                 d2b, scale, route))
     note <- if (is.null(shadow)) "estimand unchanged under level permutation"
             else paste0("estimand unchanged under level permutation (checked on ",
                         "the fixed-effects shadow model, since order instability ",
@@ -1125,7 +1127,7 @@ in_star <- function() isTRUE(get0("star", envir = nestimand_env, ifnotfound = FA
 nesting_spec_quiet <- function(spec, data) {
   suppressMessages(nesting_spec(data, spec$formula_in,
     nests = spec_nests(spec), fit = spec$fit, family = spec$family,
-    random = spec$random_original, cell_name = spec$cell_name))
+    random = spec$random_original))
 }
 ## The declarations, rebuilt from the parent map rather than from adjacency in
 ## the family vector, which is not ancestry once a parent holds two children.

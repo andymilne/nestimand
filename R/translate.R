@@ -215,8 +215,16 @@ reduced_columns <- function(spec, terms = NULL) {
   cols <- setdiff(colnames(X), "(Intercept)")
   if (is.null(terms)) return(cols)
   tm <- attr(X, "term_of")
-  cols[tm[cols] %in% terms]
+  cols[term_key(tm[cols]) %in% term_key(terms)]
 }
+
+## A term is the set of variables it names. R writes that set in whichever order
+## the variables first appear in the formula it was read from, so `chord_type:X1`
+## and `X1:chord_type` are the same term written twice, and two terms() calls on
+## two formulas will not always agree. Comparisons go through this.
+term_key <- function(z)
+  vapply(strsplit(z, ":", fixed = TRUE),
+         function(v) paste(sort(v), collapse = ":"), "", USE.NAMES = FALSE)
 
 ## The readable name of a reduced column, for reporting. Unknown names - the
 ## covariate crossings the fitting formula forms, and anything the engine adds -
@@ -289,6 +297,17 @@ is_reduced <- function(spec)
   isTRUE(tryCatch(term_span(spec, declared_terms(spec)) < nrow(spec$cells),
                   error = function(e) FALSE))
 
+## Does the fit this declaration produces use the design's own columns? The
+## fixed side does when the formula asks for less than the saturated structure;
+## the random side does whenever a bar reaches across the structure, whatever
+## the fixed side is doing. Grids handed to the engine have to carry them in
+## either case.
+uses_reduced <- function(spec) {
+  if (is_reduced(spec)) return(TRUE)
+  re <- tryCatch(random_terms(spec), error = function(e) NULL)
+  !is.null(re) && grepl("dm_", re, fixed = TRUE)
+}
+
 ## --- grid translation ------------------------------------------------------
 
 ## Recompute the cell factor from the crossed original factors. Mandatory for
@@ -337,6 +356,7 @@ cell_grid <- function(spec, data = spec$data, covariates = c("mean", "keep")) {
   for (gv in grouping_vars(spec))
     if (gv %in% names(data) && !gv %in% names(g))
       g[[gv]] <- stats::na.omit(data[[gv]])[1]
+  if (uses_reduced(spec)) g <- reduced_augment(spec, g)
   g
 }
 

@@ -11,11 +11,10 @@ standard errors that follow from the fit, and without refitting anything.
 }
 \usage{
 nest_summary(model, space = c("effects", "cells"), conf_level = 0.95, 
-             random = FALSE, data = NULL, spec = NULL)
+             random = FALSE, data = NULL)
 }
 \arguments{
   \item{model}{a fitted model, ideally from \code{\link{nest_fit}}.}
-  \item{spec}{a \code{nesting_spec} object, needed only for a model fitted outside \code{\link{nest_fit}}.}
   \item{space}{\code{"effects"} for coefficients read as effects of the original variables, \code{"cells"} for the realized-cell means.}
   \item{conf_level}{confidence level for the intervals.}
   \item{data}{data from which the cell grid is built; the spec's data by default.}
@@ -62,8 +61,8 @@ in the \code{nestimand_map} attribute.
 }
 \examples{
 \dontrun{
-m <- nest_fit(dat, response ~ chord_type * inversion + training,
-              "inversion \%in\% chord_type")
+m <- nest_fit("lm", response ~ chord_type * inversion + training, dat,
+              nests = "inversion \%in\% chord_type")
 nest_summary(m)                # effect coefficients, with their meanings
 nest_summary(m, "cells")       # the realized-cell means
 }

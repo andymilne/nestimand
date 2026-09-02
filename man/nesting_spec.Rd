@@ -14,8 +14,7 @@ the structure does not account for is reported as missing data rather than conve
 }
 \usage{
 nesting_spec(data, formula, nests = NULL, fit = c("lm", "glm", "lmer", 
-             "glmer", "clm", "clmm", "brm"), family = NULL, random = NULL,
-             cell_name = "cell")
+             "glmer", "clm", "clmm", "brm"), family = NULL, random = NULL)
 
 infer_nests(data, vars, max_parents = 2) 
 }
@@ -28,7 +27,6 @@ infer_nests(data, vars, max_parents = 2)
   \item{fit}{the modelling engine, named for its fitting function: \code{"lm"}, \code{"glm"}, \code{"lmer"}, \code{"glmer"}, \code{"clm"}, \code{"clmm"}, \code{"brm"}. \code{"brms"} is accepted for the last, being the package's name rather than the function's.}
   \item{family}{family for the engines that need one, quoted or as a bare call, e.g. \code{cumulative("probit")}.}
   \item{random}{random-effects terms, if not written into \code{formula}.}
-  \item{cell_name}{name for the constructed cell factor. An existing column of that name is refused rather than overwritten.}
   \item{x}{an object to print.}
 }
 \details{
@@ -71,8 +69,8 @@ levels that exist - in \code{chord_type + inversion} they read as second inversi
 versus root position, shared across chord types, rather than involving the augmented
 triads in which inversion has no meaning.
 
-A random structure is translated the same way, to conditions that exist. See
-\code{random_structure} in \code{\link{nest_fit}}.
+A random structure follows the formula the same way, and is written over the
+conditions that exist. See \code{\link{nest_fit}}.
 }
 \section{Reading the structure from the data}{
 Where a variable is structurally undefined it has no value, and those rows are

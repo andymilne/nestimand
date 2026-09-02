@@ -13,14 +13,13 @@ that is meaningful. \code{random_heterogeneity} gives the spread of a named
 effect across units.
 }
 \usage{
-random_covariance(model, spec = NULL, space = c("cells", "effects")) 
+random_covariance(model, space = c("cells", "effects")) 
 
-random_heterogeneity(model, target, policy = "equal", at = NULL, contrast = "pairwise", 
-                     spec = NULL)
+random_heterogeneity(model, target, policy = "equal", at = NULL,
+                     contrast = "pairwise")
 }
 \arguments{
   \item{model}{a mixed fit, from \code{\link{nest_fit}} or otherwise.}
-  \item{spec}{a \code{nesting_spec}, needed only if the fit does not carry one.}
   \item{space}{\code{"cells"} keeps one dimension per realized condition; \code{"effects"} translates the covariance to the identified effects, as A^-1 Sigma A^-T.}
   \item{target}{the variable whose contrasts are of interest.}
   \item{policy}{the weighting policy defining those contrasts.}

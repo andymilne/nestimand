@@ -69,12 +69,16 @@ chk <- function(label, expr) {
   if (ok) pass <<- pass + 1 else fail <<- fail + 1
 }
 
-spb <- nesting_spec(dat, response ~ chord_type * inversion + training,
-                    "inversion %in% chord_type", fit = "brm")
+f_b <- response ~ chord_type * inversion + training
+n_b <- "inversion %in% chord_type"
+## the declaration on its own, for the prior audit below: nest_fit() builds one
+## of its own from the same three arguments
+spb <- nesting_spec(dat, f_b, n_b, fit = "brm")
 
 ## ---- 1. the cell parameterization samples, and the fit is the expected one
-cat("\n[1/7] fitting the cell parameterization (compilation takes a few minutes)\n")
-mb <- nest_fit(spb, chains = 2, iter = 1000, warmup = 500, seed = 1, refresh = 0)
+cat("\n[1/6] fitting the cell parameterization (compilation takes a few minutes)\n")
+mb <- nest_fit("brm", f_b, dat, nests = n_b,
+               chains = 2, iter = 1000, warmup = 500, seed = 1, refresh = 0)
 chk("cells sample without divergences or rank warnings",
     inherits(mb, "brmsfit") && nrow(brms::fixef(mb)) == 11)
 chk("the fitted call travels with the model",
@@ -84,14 +88,14 @@ chk("the fitted call travels with the model",
 ## latent_draws() assumes brms names the cell coefficients `b_` followed by the
 ## cell label with non-alphanumeric characters stripped. Cell labels contain
 ## full stops (`maj.0`), so this assumption is the one most likely to be wrong.
-cat("\n[2/7] draw-wise translation\n")
+cat("\n[2/6] draw-wise translation\n")
 cat("  brms coefficient names:", paste(head(rownames(brms::fixef(mb)), 4),
                                        collapse = ", "), "\n")
-dr <- try(latent_draws(mb, "chord_type", "equal", spec = spb), silent = TRUE)
+dr <- try(latent_draws(mb, "chord_type", "equal"), silent = TRUE)
 chk("latent_draws() finds the cell coefficients among the draws",
     is.data.frame(dr) && ncol(dr) == 6 && nrow(dr) > 100)
 if (is.data.frame(dr)) {
-  le <- latent_estimand(mb, "chord_type", "equal", spec = spb)
+  le <- latent_estimand(mb, "chord_type", "equal")
   cat(sprintf("  posterior mean %.4f (sd %.4f) vs point estimate %.4f (se %.4f)\n",
               mean(dr[["maj - aug"]]), sd(dr[["maj - aug"]]),
               le$estimate[le$term == "maj - aug"], le$std.error[le$term == "maj - aug"]))
@@ -100,21 +104,25 @@ if (is.data.frame(dr)) {
 }
 
 ## ---- 3. the translated prior samples, and matches its audit table
-## The prior is stated on cell means and translated to mu ~ N(A m, A D A').
+## The prior is written in brms syntax, in the user's own variables, and
+## translated to mu ~ N(A m, A D A') on the coefficients the model is fitted on.
 ## Sampling from the prior alone must reproduce the audit table's numbers.
-cat("\n[3/7] translated prior, sampled with no data\n")
-## the prior must span every population-level coefficient, `training` included:
-## a brms prior of class "b" applies to all of them
-pri <- nest_prior(spb, mean = 4, sd = 1.5, on = "cells", covariate_sd = 1)
+## A `class = "b"` prior spans every population-level coefficient, `training`
+## included. `pri` is the same translation nest_fit() applies below, so the
+## audit table and what Stan sampled from describe one object.
+cat("\n[3/6] translated prior, sampled with no data\n")
+pri_b <- brms::prior_string("normal(4, 1.5)", class = "b")
+pri <- prior_from_brms(spb, pri_b)$translated
 cat("  prior spans", length(pri$full_mean), "coefficients:",
     paste(names(pri$full_mean), collapse = ", "), "\n")
 ## More draws here than elsewhere: this check compares a sampled standard
 ## deviation against a stated one, and the sampling error of an sd is roughly
 ## 1/sqrt(2n), so 1000 draws leave about 2% of noise on the ratio - enough to
 ## make a real 5% discrepancy indistinguishable from chance.
-mp <- nest_fit(spb, priors = pri, sample_prior = "only",
+mp <- nest_fit("brm", f_b, dat, nests = n_b, prior = pri_b,
+               sample_prior = "only",
                chains = 4, iter = 3000, warmup = 500, seed = 2, refresh = 0)
-dp <- latent_draws(mp, "chord_type", "equal", spec = spb)
+dp <- latent_draws(mp, "chord_type", "equal")
 cat("  prior draws:", nrow(dp), "\n")
 want <- prior_for_estimand(pri, "chord_type", "equal")
 cat(sprintf("  maj - aug: stated sd %.3f, sampled sd %.3f\n",
@@ -149,51 +157,20 @@ chk("the prior mean on the contrast is centred where stated",
 ## ---- 4. brms needs its own spelling for conditional predictions
 ## Frequentist and Bayesian engines disagree on how random effects are excluded,
 ## and a silently wrong spelling produces a different estimand, not an error.
-cat("\n[4/7] conditional predictions on a mixed model\n")
+cat("\n[4/6] conditional predictions on a mixed model\n")
 dat3 <- do.call(rbind, lapply(1:3, function(i) {
   d <- dat; d$response <- d$response + rnorm(nrow(d), 0, 0.3); d }))
-spm <- nesting_spec(dat3, response ~ chord_type * inversion + training +
-                    (1 | participant), "inversion %in% chord_type",
-                    fit = "brm")
-mm <- nest_fit(spm, chains = 2, iter = 1000, warmup = 500, seed = 3, refresh = 0)
-e_re  <- latent_estimand(mm, "chord_type", "equal", spec = spm)
+mm <- nest_fit("brm", response ~ chord_type * inversion + training +
+                 (1 | participant), dat3, nests = n_b,
+               chains = 2, iter = 1000, warmup = 500, seed = 3, refresh = 0)
+e_re  <- latent_estimand(mm, "chord_type", "equal")
 chk("the latent route is unaffected by random effects (fixed effects only)",
     is.finite(e_re$estimate[3]))
 cat("  NOTE: compare against marginaleffects with re_formula = NA, which is the\n")
 cat("        brms spelling; re.form = NA is silently ignored on a brmsfit.\n")
 
-## ---- 5. chain mode: does the declared chain fit match the cell fit? -------
-## The chain parameterization keeps the original factors as predictors and holds
-## the uninformative coefficients at zero by prior. The estimands must agree
-## with the cell fit to Monte Carlo error; if they do not, the declarations are
-## wrong rather than the theory.
-cat("\n[5/7] chain mode against cell mode\n")
-cp <- chain_priors(spb)
-cat("  held at zero:", sum(cp$table$kind == "structural zero"), "structural,",
-    sum(cp$table$kind == "identification constraint"), "identification\n")
-mc <- nest_fit(spb, mode = "effects", priors = cp,
-               chains = 2, iter = 1000, warmup = 500, seed = 4, refresh = 0)
-chk("the declared chain model samples", inherits(mc, "brmsfit"))
-fx <- brms::fixef(mc)
-zeroed <- rownames(fx) %in% cp$table$coef[cp$table$part == "fixed"]
-chk("the declared coefficients are exactly zero in every draw",
-    all(abs(fx[zeroed, "Estimate"]) < 1e-12) && all(fx[zeroed, "Est.Error"] < 1e-12))
-e_chain <- as.data.frame(marginaleffects::avg_predictions(
-  mc, newdata = counterfactual_grid(spb, spb$data,
-        nest_policy(spb, "chord_type", "equal")),
-  by = "chord_type", wts = counterfactual_grid(spb, spb$data,
-        nest_policy(spb, "chord_type", "equal"))$.w,
-  hypothesis = mfx_hypothesis("pairwise")))
-e_chain <- mfx_canonical(e_chain, levels(factor(dat$chord_type)))
-e_cell <- as.data.frame(nest_estimand(mb, chord_type, policy = "equal",
-                                 bounds = FALSE, self_check = FALSE))
-v <- function(d) d$estimate[d$term == "maj - aug"]
-cat(sprintf("  maj - aug: chain %.4f, cell %.4f\n", v(e_chain), v(e_cell)))
-chk("chain and cell estimands agree to Monte Carlo error",
-    abs(v(e_chain) - v(e_cell)) < 0.05)
-
-## ---- 6. Bayesian summaries: posterior, not delta method --------------------
-cat("\n[6/7] posterior summaries on the latent scale\n")
+## ---- 5. Bayesian summaries: posterior, not delta method --------------------
+cat("\n[5/6] posterior summaries on the latent scale\n")
 le <- latent_estimand(mb, "chord_type", "equal")
 print(le)
 chk("the summary is posterior: no test statistic, no p-value",
@@ -220,8 +197,8 @@ chk("interactions are summarized the same way",
                             contrast = "interaction")
       nrow(li) == 9 && "pd" %in% names(li) && !"p.value" %in% names(li) })
 
-## ---- 7. eta over the sampled groups ----------------------------------------
-cat("\n[7/7] the linear predictor over the sampled groups\n")
+## ---- 6. eta over the sampled groups ----------------------------------------
+cat("\n[6/6] the linear predictor over the sampled groups\n")
 avg <- latent_estimand(mb, "chord_type", "equal")
 grp <- latent_estimand(mb, "chord_type", "equal", re_formula = NULL)
 print(grp)

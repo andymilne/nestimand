@@ -53,12 +53,48 @@ for (fl in pages) {
         say(basename(fl), ": `", a, "` usage gives a stale default, not ", d, "\n")
   }
 }
+## 1c. and the usage names no argument the function has dropped.
+for (fl in pages) {
+  x <- readLines(fl)
+  for (a in al_of(fl)) {
+    if (!exists(a) || !is.function(get(a))) next
+    u <- usage_of(x, a); if (is.null(u)) next
+    inner <- sub("^[^(]*\\(", "", u); inner <- sub("\\)\\s*$", "", inner)
+    ## a default may itself be a call - c("a", "b"), requireNamespace(x,
+    ## quietly = TRUE) - whose argument names are not this function's, so the
+    ## nested groups come out before the names are read
+    repeat { nx <- gsub("\\([^()]*\\)", "", inner)
+             if (identical(nx, inner)) break else inner <- nx }
+    nms <- regmatches(inner, gregexpr("(?<=[(,] )[A-Za-z._][A-Za-z0-9._]*(?= *[=,)])",
+                                      inner, perl = TRUE))[[1]]
+    nms <- unique(c(nms, regmatches(inner,
+      gregexpr("^[A-Za-z._][A-Za-z0-9._]*(?= *[=,])", inner, perl = TRUE))[[1]]))
+    for (p in setdiff(nms, names(formals(get(a)))))
+      say(basename(fl), ": `", a, "` usage names `", p,
+          "`, which is not one of its arguments\n")
+  }
+}
 ## 2a. no argument documented twice
 for (fl in pages) {
   it <- sub("^\\s*\\\\item\\{([^}]*)\\}.*", "\\1",
             grep("\\\\item\\{", readLines(fl), value = TRUE))
   for (d in names(which(table(it) > 1)))
     say(basename(fl), ": `", d, "` is documented twice\n")
+}
+## 2b. and no \item documents an argument that no longer exists. The omission
+## check runs one way only, so an argument removed from a signature left its
+## \item and its usage entry behind - which is how nest_fit's page went on
+## describing `mode` and `random_structure` after both were gone.
+for (fl in pages) {
+  x <- readLines(fl)
+  it <- unlist(strsplit(sub("^\\s*\\\\item\\{([^}]*)\\}.*", "\\1",
+                            grep("\\\\item\\{", x, value = TRUE)), ",\\s*"))
+  fns <- Filter(function(a) exists(a) && is.function(get(a)), al_of(fl))
+  if (!length(fns) || length(fns) < length(al_of(fl))) next   # methods, data, S3
+  have <- unique(c(unlist(lapply(fns, function(a) names(formals(get(a))))), "x", "..."))
+  for (p in setdiff(it, have))
+    say(basename(fl), ": `", p, "` is documented but is not an argument of ",
+        paste(fns, collapse = ", "), "\n")
 }
 ## 2. every argument has an \item
 for (fl in pages) {

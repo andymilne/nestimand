@@ -54,6 +54,27 @@ chk <- function(label, expr) {
 }
 err_of <- function(expr) tryCatch({expr; ""}, error = function(e) conditionMessage(e))
 
+## fit_from() takes the arguments a declaration is made from, not a declaration
+## object. Most of what follows tests what happens after the fit, and builds one
+## declaration to ask several questions of, so this restates that declaration's
+## own arguments as a fit_from() call rather than repeating them at every site.
+.fit_from_n <- 0L
+fit_from <- function(spec, ...) {
+  ## the frame the emitted code names has to outlive this call, since a saved
+  ## code block is re-run later, in an environment of the test's own making
+  .fit_from_n <<- .fit_from_n + 1L
+  nm <- paste0(".dat", .fit_from_n)
+  assign(nm, spec$data[setdiff(names(spec$data), spec$cell_name)],
+         envir = globalenv())
+  e <- new.env(parent = parent.frame())
+  args <- list(quote(nest_fit), spec$fit, spec$formula_in, as.name(nm))
+  nn <- spec_nests(spec)
+  if (length(nn)) args$nests <- nn
+  if (!is.null(spec$family)) args$family <- spec$family
+  if (!is.null(spec$random_original)) args$random <- spec$random_original
+  eval(as.call(c(args, as.list(match.call(expand.dots = FALSE)$...))), e)
+}
+
 ## ---- declaration surface (migrated behaviour) ----------------------------
 sp <- nesting_spec(dat, response ~ chord_type * inversion + training,
                    nests = "inversion %in% chord_type")
@@ -85,12 +106,14 @@ chk("nesting_spec: continuous leaf accepted",
 chk("nesting_spec: continuous parent refused",
     grepl("cannot nest", err_of(nesting_spec(d3, y ~ v * r, "v %in% r"))))
 sp_cl <- dat; sp_cl$cell <- 1
-chk("nesting_spec: existing `cell` column refused, cell_name offered",
-    grepl("cell_name", err_of(nesting_spec(sp_cl, response ~ chord_type * inversion,
-                                           "inversion %in% chord_type"))))
-chk("nesting_spec: cell_name honoured",
-    identical(nesting_spec(sp_cl, response ~ chord_type * inversion,
-              "inversion %in% chord_type", cell_name = "k")$cell_name, "k"))
+chk("nesting_spec: a `cell` column already in the data is stepped around",
+    identical(suppressMessages(nesting_spec(sp_cl,
+      response ~ chord_type * inversion, "inversion %in% chord_type"))$cell_name,
+      ".cell"))
+chk("nesting_spec: and the user's own column is left as it was",
+    identical(suppressMessages(nesting_spec(sp_cl,
+      response ~ chord_type * inversion, "inversion %in% chord_type"))$data$cell,
+      sp_cl$cell))
 
 ## ---- cell construction ---------------------------------------------------
 chk("cells: 10 realized of 16 crossed", length(sp$cell_levels) == 10)
@@ -104,7 +127,7 @@ chk("cell_formula: cells mode",
               "response ~ 0 + cell + training"))
 
 ## ---- the two fitting modes ----------------------------------------------
-m  <- lm(cell_formula(sp), data = sp$data)
+m  <- fit_from(sp)
 chk("fit: cell parameterization is full rank, no aliased coefficients",
     sum(is.na(coef(m))) == 0 && m$rank == length(coef(m)))
 
@@ -115,7 +138,7 @@ chk("effect_basis: square and full rank (10 x 10)",
 ## the basis is the package's own choice of identified effects, so the identity
 ## is checked against the quantities it produces rather than against whichever
 ## columns lm's pivot happens to keep
-mf0 <- nest_fit(sp)
+mf0 <- fit_from(sp)
 eff <- nest_summary(mf0)
 cel <- nest_summary(mf0, "cells")
 b  <- eff$estimate[match(colnames(A), eff$term)]
@@ -244,7 +267,7 @@ chk("depth 2: equal differs from hierarchical (leaves vs tree)",
 
 ## ---- nest_estimand(): the function, and the code it kept ----------------------
 set.seed(3)
-e <- nest_estimand(m, chord_type, spec = sp, policy = "equal")
+e <- nest_estimand(m, chord_type, policy = "equal")
 chk("estimand: aug - maj = -0.6779 in original labels",
     abs(as.data.frame(e)$estimate[as.data.frame(e)$term == "maj - aug"] - 0.6779) < 1e-4)
 meta <- attr(e, "nestimand")
@@ -264,13 +287,13 @@ chk("show_code: the saved code re-runs and reproduces the estimand",
 chk("show_code: prints the lines and returns them invisibly",
     is.character(capture.output(show_code(e))[1]))
 ## non-core arguments reach the destination function, and appear in the code
-e9 <- nest_estimand(m, chord_type, spec = sp, bounds = FALSE, self_check = FALSE,
+e9 <- nest_estimand(m, chord_type, bounds = FALSE, self_check = FALSE,
                conf_level = 0.9)
 chk("estimand: `...` passed through to marginaleffects",
     any(grepl("conf_level = 0.9", attr(e9, "nestimand")$code, fixed = TRUE)) &&
     as.data.frame(e9)$conf.low[1] > as.data.frame(e)$conf.low[1])
 ## contrasts inside each stratum, which is `by =` naming the target's parent
-ew <- suppressMessages(nest_estimand(m, inversion, spec = sp, by = "chord_type",
+ew <- suppressMessages(nest_estimand(m, inversion, by = "chord_type",
                                 bounds = FALSE))
 dw <- as.data.frame(ew)
 chk("estimand by parent: three strata x three contrasts, no sentinel",
@@ -279,10 +302,10 @@ chk("estimand by parent: three strata x three contrasts, no sentinel",
 chk("estimand by parent: passes the reorder check",
     identical(attr(ew, "nestimand")$self_check$status, "passed"))
 chk("estimand: a non-nesting target is refused",
-    grepl("need no policy", err_of(nest_estimand(m, training, spec = sp))))
+    grepl("need no policy", err_of(nest_estimand(m, training))))
 chk("estimand: supplied policy is written into the code verbatim",
     any(grepl('c("0" = 0.5, "1" = 0.3, "2" = 0.2)',
-        attr(nest_estimand(m, chord_type, spec = sp, policy = c("0" = .5, "1" = .3, "2" = .2),
+        attr(nest_estimand(m, chord_type, policy = c("0" = .5, "1" = .3, "2" = .2),
              bounds = FALSE, self_check = FALSE), "nestimand")$code, fixed = TRUE)))
 
 ## ---- declaring and fitting in one call ------------------------------------
@@ -341,77 +364,76 @@ chk("infer: it refuses rather than inventing structure from missing data",
       grepl("not structural",
             err_of(nesting_spec(one_z, response ~ chord_type * inversion * top)),
             fixed = TRUE) })
-chk("one call: data and formula fit the same model as the two-step",
-    { one_a <- suppressMessages(nest_fit(one_d, response ~ chord_type * (inversion + top)))
-      one_sp <- suppressMessages(nesting_spec(one_sent,
-              response ~ chord_type * (inversion + top), "inversion %in% chord_type"))
-      one_b <- nest_fit(one_sp)
+chk("one call: the structure read from the data fits the model declared by hand",
+    { one_a <- suppressMessages(nest_fit("lm",
+              response ~ chord_type * (inversion + top), one_d))
+      one_b <- suppressMessages(nest_fit("lm",
+              response ~ chord_type * (inversion + top), one_sent,
+              nests = "inversion %in% chord_type"))
       isTRUE(all.equal(unname(coef(one_a)), unname(coef(one_b)))) && !anyNA(coef(one_a)) })
 chk("one call: the declaration is part of the code, which re-runs",
-    { one_a <- suppressMessages(nest_fit(one_d, response ~ chord_type * (inversion + top)))
+    { one_a <- suppressMessages(nest_fit("lm",
+              response ~ chord_type * (inversion + top), one_d))
       one_cd <- attr(one_a, "nestimand_code")
       one_env <- new.env(parent = globalenv()); assign("one_d", one_d, one_env)
       one_r <- suppressMessages(eval(parse(text = paste(c(one_cd, "m"), collapse = "\n")), one_env))
       any(grepl("spec <- nesting_spec", one_cd)) &&
         isTRUE(all.equal(coef(one_a), coef(one_r))) })
-chk("one call: a prior may be written before the declaration exists",
-    { one_pend <- nest_prior(mean = 4, sd = 1.5, on = "cells")
-      one_sp <- suppressMessages(nesting_spec(one_sent, response ~ chord_type * inversion,
-                                          "inversion %in% chord_type", fit = "brm"))
-      one_a <- resolve_prior(one_pend, one_sp)
-      one_b <- nest_prior(one_sp, mean = 4, sd = 1.5, on = "cells")
-      inherits(one_pend, "nestimand_prior_pending") &&
-        isTRUE(all.equal(one_a$full_mean, one_b$full_mean)) &&
-        isTRUE(all.equal(one_a$cell_cov, one_b$cell_cov)) })
-chk("one call: and the emitted code names the constructor, so it stands alone",
-    { one_cd <- suppressMessages(attr(nest_fit(one_d, response ~ chord_type * inversion,
-              fit = "brm", dry_run = TRUE,
-              priors = nest_prior(mean = 4, sd = 1.5, on = "cells")), "nestimand_code"))
-      any(grepl("nest_prior(spec, mean = 4, sd = 1.5", one_cd, fixed = TRUE)) })
-chk("one call: data without a formula says what is missing",
-    grepl("it needs a `formula` too",
-          err_of(nest_fit(one_d)), fixed = TRUE))
-chk("one call: a declaration plus a formula is refused as two declarations",
-    { one_sp <- suppressMessages(nesting_spec(one_sent, response ~ chord_type * inversion,
-                                          "inversion %in% chord_type"))
-      grepl("already carries one", err_of(nest_fit(one_sp, formula = response ~ chord_type)),
-            fixed = TRUE) })
-chk("one call: the engine belongs to the declaration, and cannot be reset here",
-    { one_sp <- suppressMessages(nesting_spec(one_sent, response ~ chord_type * inversion,
-                                          "inversion %in% chord_type"))
-      grepl("engine belongs to the declaration", err_of(nest_fit(one_sp, fit = "brm")),
-            fixed = TRUE) })
+chk("one call: the data is named as the user named it",
+    { one_cd <- attr(suppressMessages(nest_fit("lm",
+              response ~ chord_type * inversion, one_d, dry_run = TRUE)),
+              "nestimand_code")
+      any(grepl("data = one_d", one_cd, fixed = TRUE)) })
+chk("one call: `nests` stays unquoted, as it is written",
+    { one_cd <- attr(suppressMessages(nest_fit("lm",
+              response ~ chord_type * inversion, one_sent,
+              nests = inversion %in% chord_type, dry_run = TRUE)), "nestimand_code")
+      any(grepl("nests = inversion %in% chord_type", one_cd, fixed = TRUE)) })
+chk("one call: the engine, the formula and the data are all needed",
+    grepl("takes an engine, a formula and the data",
+          err_of(nest_fit("lm")), fixed = TRUE))
+chk("one call: a declaration object is not what nest_fit takes",
+    { one_sp <- suppressMessages(nesting_spec(one_sent,
+              response ~ chord_type * inversion, "inversion %in% chord_type"))
+      nzchar(err_of(suppressMessages(
+        nest_fit(one_sp, response ~ chord_type, one_sent)))) })
 
 ## ---- nest_fit(): the fitting side ----------------------------------------
-mf <- nest_fit(sp)
+mf <- fit_from(sp)
 chk("nest_fit: fits the cell parameterization, full rank",
     inherits(mf, "lm") && sum(is.na(coef(mf))) == 0)
 chk("nest_fit: the call travels with the fit",
-    any(grepl("lm(response ~ 0 + cell + training, data = sp$data)",
+    any(grepl("lm(response ~ 0 + cell + training, data = spec$data)",
               attr(mf, "nestimand_code"), fixed = TRUE)))
 chk("nest_fit: the parameterization and its reason are stated",
     any(grepl("parameterization: cells", attr(mf, "nestimand_code"))))
-ef <- nest_estimand(mf, chord_type, spec = sp, policy = "equal", bounds = FALSE, self_check = FALSE)
+ef <- nest_estimand(mf, chord_type, policy = "equal", bounds = FALSE, self_check = FALSE)
 chk("nest_fit: the code view joins fit and estimand into one pipeline",
     any(grepl("^mf <- lm", attr(ef, "nestimand")$code)) &&
     any(grepl("avg_predictions", attr(ef, "nestimand")$code)))
-dr <- nest_fit(sp, dry_run = TRUE, weights = NULL)
+dr <- fit_from(sp, dry_run = TRUE, weights = NULL)
 chk("nest_fit: dry_run returns code without fitting", inherits(dr, "nestimand_code"))
 
 ## random-effects translation
 spl <- nesting_spec(dat, response ~ chord_type * inversion + training +
                     (chord_type * inversion + training | participant),
                     "inversion %in% chord_type", fit = "lmer")
-chk("random_terms: cells give an unstructured covariance over realized cells",
-    identical(random_terms(spl, "cells"), "(0 + cell + training | participant)"))
-chk("random_terms: chain gives the progressive grouping submodel",
-    identical(random_terms(spl, "chain"),
-      paste("(1 + training | participant) + (1 | participant:chord_type) +",
-            "(1 | participant:chord_type:inversion)")))
+chk("random_terms: a slope over the structure gets the columns the design has",
+    identical(random_terms(spl),
+      paste0("(1 + ", paste(reduced_columns(spl), collapse = " + "),
+             " + training | participant)")))
+chk("random_terms: which is the same width as the mean structure",
+    length(reduced_columns(spl)) + 1L == nrow(spl$cells))
 spi <- nesting_spec(dat, response ~ chord_type * inversion + (1 | participant),
                     "inversion %in% chord_type", fit = "lmer")
 chk("random_terms: a clean intercept term passes through unchanged",
-    identical(random_terms(spi, "cells"), "(1 | participant)"))
+    identical(random_terms(spi), "(1 | participant)"))
+sp_grp <- nesting_spec(dat, response ~ chord_type * inversion +
+                    (1 | participant) + (1 | chord_type:inversion),
+                    "inversion %in% chord_type", fit = "lmer")
+chk("random_terms: a grouping term is the formula's, and is left as written",
+    identical(random_terms(sp_grp),
+              "(1 | participant) + (1 | chord_type:inversion)"))
 
 ## ordinal engines: thresholds already carry an intercept
 do2 <- dat; do2$rating <- factor(round(pmin(pmax(do2$response, 1), 7)), ordered = TRUE)
@@ -419,11 +441,11 @@ spo <- nesting_spec(do2, rating ~ chord_type * inversion,
                     "inversion %in% chord_type", fit = "clm")
 chk("ordinal: cell coding keeps the implicit intercept, no redundant parameter",
     identical(paste(deparse(cell_formula(spo)), collapse = " "), "rating ~ cell"))
-mo <- nest_fit(spo)
+mo <- fit_from(spo)
 chk("ordinal: clm fits without the intercept warning, 15 parameters",
     length(coef(mo)) == 15)
 chk("ordinal: the response scale is probed, and refused clearly if unavailable",
-    { e <- err_of(nest_estimand(mo, chord_type, spec = spo, bounds = FALSE,
+    { e <- err_of(nest_estimand(mo, chord_type, bounds = FALSE,
                            self_check = FALSE))
       identical(e, "") || grepl("scale = \"latent\"", e) })
 spbo <- nesting_spec(do2, rating ~ chord_type * inversion,
@@ -431,16 +453,16 @@ spbo <- nesting_spec(do2, rating ~ chord_type * inversion,
 chk("ordinal: brms cumulative also takes the threshold-aware coding",
     identical(paste(deparse(cell_formula(spbo)), collapse = " "), "rating ~ cell"))
 chk("ordinal: brms family threaded into the emitted call",
-    grepl("family = cumulative()", nest_fit(spbo, dry_run = TRUE), fixed = TRUE))
+    grepl("family = cumulative()", fit_from(spbo, dry_run = TRUE), fixed = TRUE))
 chk("brms: non-core arguments reach the engine and appear in the code",
     grepl("chains = 4, iter = 2000, seed = 1",
-          nest_fit(nesting_spec(dat, response ~ chord_type * inversion,
+          fit_from(nesting_spec(dat, response ~ chord_type * inversion,
                    "inversion %in% chord_type", fit = "brm"),
                    dry_run = TRUE, chains = 4, iter = 2000, seed = 1), fixed = TRUE))
 
 ## ---- latent scale: estimands as linear functionals -----------------------
 lp <- latent_estimand(m, "chord_type", "equal", spec = sp)
-ap <- as.data.frame(nest_estimand(m, chord_type, spec = sp, bounds = FALSE, self_check = FALSE))
+ap <- as.data.frame(nest_estimand(m, chord_type, bounds = FALSE, self_check = FALSE))
 chk("latent: agrees with the prediction route on estimates (1e-10)",
     max(abs(lp$estimate[match(ap$term, lp$term)] - ap$estimate)) < 1e-10)
 chk("latent: agrees with the prediction route on standard errors (1e-7)",
@@ -451,7 +473,7 @@ chk("latent: a supplied policy is the convex combination of the vertices",
 chk("latent: reference and sequential contrasts available",
     nrow(latent_estimand(m, "chord_type", "equal", contrast = "reference", spec = sp)) == 3 &&
     nrow(latent_estimand(m, "chord_type", "equal", contrast = "sequential", spec = sp)) == 3)
-lo <- nest_estimand(mo, chord_type, spec = spo, policy = "equal")
+lo <- nest_estimand(mo, chord_type, policy = "equal")
 chk("latent: ordinal fit returns one number per contrast, where predictions fail",
     nrow(as.data.frame(lo)) == 6 && is.finite(as.data.frame(lo)$estimate[3]))
 chk("latent: ordinal estimand passes the reorder check",
@@ -511,13 +533,20 @@ chk("prior_for_estimand: a within-family contrast is tighter",
 spb2 <- nesting_spec(dat, response ~ chord_type * inversion + training,
                      "inversion %in% chord_type", fit = "brm")
 prb <- nest_prior(spb2, mean = 4, sd = 1.5, on = "cells", covariate_sd = 1)
+## A prior on the mean structure is written in brms syntax, in the user's own
+## variables, and translated to the coefficients the model is fitted on.
+pr_b <- brms::prior_string("normal(4, 1.5)", class = "b")
 chk("prior: brms call carries the statement and the stanvars",
-    grepl("prior = prior_statement(prb), stanvars = prior_stanvars(prb)",
-          nest_fit(spb2, priors = prb, dry_run = TRUE), fixed = TRUE))
+    grepl("prior = prior_statement(.prior), stanvars = prior_stanvars(.prior)",
+          suppressMessages(fit_from(spb2, prior = pr_b, dry_run = TRUE)),
+          fixed = TRUE))
 chk("prior: the translation is stated in the emitted code",
-    grepl("A D A", nest_fit(spb2, priors = prb, dry_run = TRUE), fixed = TRUE))
-chk("prior: refused on an engine that has no prior",
-    grepl("no prior to state", err_of(nest_fit(sp, priors = pc, dry_run = TRUE))))
+    grepl("A D A", suppressMessages(fit_from(spb2, prior = pr_b, dry_run = TRUE)),
+          fixed = TRUE))
+chk("prior: and is announced, in the variables it was written in",
+    any(grepl("translated to the coefficients the model is fitted on",
+        utils::capture.output(fit_from(spb2, prior = pr_b, dry_run = TRUE),
+                              type = "message"))))
 chk("prior: student_t family carried into the statement",
     grepl("multi_student_t(3",
           prior_statement(nest_prior(spb2, mean = 4, sd = 1.5, on = "cells",
@@ -533,7 +562,7 @@ chk("mfx: the emitted code matches the installed version",
     identical(mfx_hypothesis_txt("pairwise", "0.19.0"), "~pairwise"))
 chk("mfx: the emitted estimand code uses the accepted spelling",
     any(grepl(paste0("hypothesis = ", mfx_hypothesis_txt("pairwise")),
-              attr(nest_estimand(m, chord_type, spec = sp, bounds = FALSE,
+              attr(nest_estimand(m, chord_type, bounds = FALSE,
                             self_check = FALSE, p_adjust = "none"),
                    "nestimand")$code, fixed = TRUE)))
 
@@ -566,17 +595,17 @@ chk("labels: the number of reversed rows is recorded",
 chk("labels: an unrecognized label is left alone rather than mangled",
     identical(mfx_canonical(data.frame(term = "b0", estimate = 1))$term, "b0"))
 chk("labels: nest_estimand() reports contrasts in declared level order",
-    identical(as.data.frame(nest_estimand(m, chord_type, spec = sp, bounds = FALSE,
+    identical(as.data.frame(nest_estimand(m, chord_type, bounds = FALSE,
                                      self_check = FALSE))$term[1:3],
               c("dim - aug", "min - aug", "maj - aug")))
 
 chk("show_code: the normalization is part of the saved code, not applied after",
     any(grepl("mfx_canonical",
-              attr(nest_estimand(m, chord_type, spec = sp, bounds = FALSE,
+              attr(nest_estimand(m, chord_type, bounds = FALSE,
                             self_check = FALSE, p_adjust = "none"),
                    "nestimand")$code)))
 chk("show_code: grouped-contrast code re-runs and reproduces its estimand",
-    { ew2 <- suppressMessages(nest_estimand(m, inversion, spec = sp, by = "chord_type",
+    { ew2 <- suppressMessages(nest_estimand(m, inversion, by = "chord_type",
                       bounds = FALSE, self_check = FALSE))
       env2 <- new.env(); assign("m", m, env2); assign("sp", sp, env2)
       rr <- eval(parse(text = paste(attr(ew2, "nestimand")$code, collapse = "\n")),
@@ -632,68 +661,49 @@ chk("draws: punctuation-insensitive fallback if the convention changes",
 chk("draws: an unmatched coefficient reports the names available",
     grepl("Draw columns available", err_of(draw_names("cellmaj.9", "b_x"))))
 
-## ---- why cells: the random-effects argument -------------------------------
-## A random slope over the nesting structure is rank-deficient by construction
-## under the chain form. The engine fits it anyway, so the constraint is
-## invisible unless the package says so.
-rk <- random_slope_rank(spl)
-chk("RE: the chain random slope is rank-deficient (16 columns, rank 10)",
-    rk$columns == 16 && rk$rank == 10 && rk$zero_columns == 3 && !rk$identified)
-chk("RE: passing it through warns, with the numbers and the remedy",
-    { w <- NULL
-      withCallingHandlers(random_terms(spl, "as_declared"),
-        warning = function(x) { w <<- conditionMessage(x); invokeRestart("muffleWarning") })
-      grepl("not identified by any amount of data", w) &&
-      grepl("random_structure = \"cells\"", w) })
-chk("RE: the cell form puts the whole structure on one identified factor",
-    identical(random_terms(spl, "cells"), "(0 + cell + training | participant)"))
-chk("RE: a structure with no structural slope is passed through in silence",
-    { w <- NULL
-      r <- withCallingHandlers(random_terms(spi, "as_declared"),
-        warning = function(x) { w <<- conditionMessage(x); invokeRestart("muffleWarning") })
-      is.null(w) && identical(r, "(1 | participant)") })
-
-## ---- chain mode: declarations for brms -----------------------------------
-spc <- nesting_spec(dat, response ~ chord_type * inversion + training +
-                    (chord_type * inversion | participant),
-                    "inversion %in% chord_type", fit = "brm")
-chk("chain: cells mode is unaffected and needs no declarations",
-    grepl("(0 + cell | participant)", nest_fit(spc, dry_run = TRUE), fixed = TRUE))
-
-## ---- the random structure is the user's to simplify -----------------------
-## Translation applies only to terms that cross the boundary. A simplified
-## structure must come back unchanged: enlarging it would be the package
-## overriding a deliberate modelling decision, often one made to get a model
-## to converge at all.
+## ---- the random side follows the formula too -------------------------------
+## Translation applies only to terms that reach across the structure. Everything
+## else comes back exactly as declared: enlarging it would be the package
+## overriding a deliberate modelling decision, often one made to get a model to
+## converge at all.
 resp_re <- function(re) nesting_spec(dat,
   stats::as.formula(paste("response ~ chord_type * inversion + training +", re)),
   "inversion %in% chord_type", fit = "lmer")
+red_bar <- function(spec, extra = "")
+  paste0("(1 + ", paste(reduced_columns(spec), collapse = " + "), extra,
+         " | participant)")
 chk("RE: a random intercept is left exactly as declared",
-    identical(random_terms(resp_re("(1 | participant)"), "cells"),
-              "(1 | participant)"))
+    identical(random_terms(resp_re("(1 | participant)")), "(1 | participant)"))
 chk("RE: a slope on the nesting root is identified, so it is left alone",
-    identical(random_terms(resp_re("(chord_type | participant)"), "cells"),
+    identical(random_terms(resp_re("(chord_type | participant)")),
               "(chord_type | participant)"))
 chk("RE: a hand-written grouping structure passes through untouched",
     identical(random_terms(resp_re(
-      "(1 | participant) + (1 | participant:chord_type)"), "cells"),
+      "(1 | participant) + (1 | participant:chord_type)")),
       "(1 | participant) + (1 | participant:chord_type)"))
-chk("RE: the full structure translates, without repeating subsumed terms",
-    identical(random_terms(resp_re("(chord_type * inversion | participant)"), "cells"),
-              "(0 + cell | participant)"))
+chk("RE: a slope over the whole structure gets the columns the design has",
+    { sp_re <- resp_re("(chord_type * inversion | participant)")
+      identical(random_terms(sp_re), red_bar(sp_re)) })
 chk("RE: covariate slopes survive the translation",
-    identical(random_terms(resp_re(
-      "(chord_type * inversion + training | participant)"), "cells"),
-      "(0 + cell + training | participant)"))
-chk("RE: a partial structure is refused, with three named alternatives",
-    { e <- err_of(random_terms(resp_re("(inversion | participant)"), "cells"))
-      grepl("reduced", e) && grepl("random_structure = \"chain\"", e) &&
-      grepl("as_declared", e) })
-chk("RE: the chain submodel accepts a partial structure",
-    grepl("participant:chord_type",
-          random_terms(resp_re("(inversion | participant)"), "chain")))
+    { sp_re <- resp_re("(chord_type * inversion + training | participant)")
+      identical(random_terms(sp_re), red_bar(sp_re, " + training")) })
+chk("RE: a term the mean structure lacks is refused, and says why",
+    { e <- err_of(random_terms(nesting_spec(dat,
+        response ~ chord_type + inversion + (chord_type * inversion | participant),
+        "inversion %in% chord_type", fit = "lmer")))
+      grepl("the model formula does not contain", e, fixed = TRUE) })
 chk("RE: boundary_vars names the nested variables, not the roots",
     identical(boundary_vars(sp), "inversion"))
+chk("RE: the two sides of the model have the same width",
+    { sp_re <- resp_re("(chord_type * inversion | participant)")
+      length(reduced_columns(sp_re)) + 1L == nrow(sp_re$cells) })
+chk("RE: and the fitted structure is what the formula asked for",
+    { sp_re <- suppressMessages(nesting_spec(dat,
+        response ~ chord_type + inversion + (chord_type + inversion | participant),
+        "inversion %in% chord_type", fit = "lmer"))
+      identical(random_terms(sp_re),
+                paste0("(1 + ", paste(reduced_columns(sp_re), collapse = " + "),
+                       " | participant)")) })
 
 ## ---- `||` is refused where it misleads ------------------------------------
 dat$xnum <- rnorm(nrow(dat))
@@ -718,15 +728,19 @@ chk("double bar: a single bar is unaffected",
 chk("diag(): not double-wrapped in parentheses",
     identical(mk_re("diag(chord_type * inversion | participant)")$random_original,
               "diag(chord_type * inversion | participant)"))
-chk("diag(): the wrapper survives translation to cells",
-    identical(random_terms(mk_re("diag(chord_type * inversion | participant)"), "cells"),
-              "diag(0 + cell | participant)"))
+chk("diag(): the wrapper survives translation",
+    { sp_re <- mk_re("diag(chord_type * inversion | participant)")
+      identical(random_terms(sp_re),
+        paste0("diag(1 + ", paste(reduced_columns(sp_re), collapse = " + "),
+               " | participant)")) })
 chk("diag(): an untranslated term keeps its wrapper too",
-    identical(random_terms(mk_re("diag(1 + chord_type | participant)"), "cells"),
+    identical(random_terms(mk_re("diag(1 + chord_type | participant)")),
               "diag(1 + chord_type | participant)"))
 chk("diag(): a plain bar is unaffected",
-    identical(random_terms(mk_re("(chord_type * inversion | participant)"), "cells"),
-              "(0 + cell | participant)"))
+    { sp_re <- mk_re("(chord_type * inversion | participant)")
+      identical(random_terms(sp_re),
+        paste0("(1 + ", paste(reduced_columns(sp_re), collapse = " + "),
+               " | participant)")) })
 
 ## ---- the sentinel is applied by the declaration, not by the user -----------
 ## `apply_sentinel()` is gone. NA still cannot be left as it is - R deletes those
@@ -774,7 +788,7 @@ chk("sentinel: apply_sentinel is no longer exported",
       !is.function(tryCatch(get("apply_sentinel"), error = function(e) NULL)))
 
 ## ---- nest_summary(): the fit in the original parameterization -------------
-ns <- nest_summary(mf, spec = sp)
+ns <- nest_summary(mf)
 chk("nest_summary: an additive covariate is a common slope, left as fitted",
     identical(ns$meaning[ns$term == "training"], "common slope") &&
     abs(ns$estimate[ns$term == "training"] - coef(mf)[["training"]]) < 1e-10)
@@ -782,11 +796,11 @@ chk("nest_summary: each row states the conditions it equals",
     identical(ns$meaning[ns$term == "chord_typemaj"],
               paste0("-aug.none + maj.", reference_levels(sp)[["inversion"]])) &&
     identical(ns$meaning[ns$term == "(Intercept)"], "aug.none"))
-nsc <- nest_summary(mf, "cells", spec = sp)
+nsc <- nest_summary(mf, "cells")
 chk("nest_summary: cell space returns the cell means themselves",
     nrow(nsc) == 11 && identical(nsc$meaning[1], "aug.none") &&
     abs(nsc$estimate[1] - coef(mf)[["cellaug.none"]]) < 1e-10)
-nso <- nest_summary(mo, spec = spo)
+nso <- nest_summary(mo)
 chk("nest_summary: works on an ordinal fit, where the coding differs",
     is.finite(nso$estimate[nso$term == "chord_typemaj"]) &&
     identical(nso$meaning[nso$term == "chord_typemaj"],
@@ -795,27 +809,27 @@ chk("nest_summary: the absorbed reference condition is flagged, not left at a ba
     grepl("absorbed into the thresholds", nso$meaning[1]))
 
 ## ---- the fit carries its declaration --------------------------------------
-chk("nest_fit: the spec travels with the model",
+chk("nest_fit: the declaration travels with the model",
     inherits(attr(mf, "nestimand_spec"), "nesting_spec") &&
-    identical(attr(mf, "nestimand_spec_name"), "sp"))
+    identical(attr(mf, "nestimand_spec_name"), "spec"))
 chk("nest_summary: the model alone is enough",
-    isTRUE(all.equal(nest_summary(mf)$estimate, nest_summary(mf, spec = sp)$estimate)))
-chk("estimand: the model alone is enough; `spec` is only for outside fits",
-    isTRUE(all.equal(
-      as.data.frame(nest_estimand(mf, chord_type, bounds = FALSE, self_check = FALSE))$estimate,
-      as.data.frame(nest_estimand(mf, chord_type, spec = sp, bounds = FALSE,
-                             self_check = FALSE))$estimate)))
-chk("estimand: the emitted code names the spec as it was named at fitting",
-    any(grepl("nest_policy(sp, \"chord_type\"",
+    is.data.frame(as.data.frame(nest_summary(mf))))
+chk("estimand: the model alone is enough",
+    is.data.frame(as.data.frame(
+      nest_estimand(mf, chord_type, bounds = FALSE, self_check = FALSE))))
+chk("estimand: the emitted code names the declaration the fit carries",
+    any(grepl("nest_policy(spec, \"chord_type\"",
         attr(nest_estimand(mf, chord_type, bounds = FALSE, self_check = FALSE),
              "nestimand")$code, fixed = TRUE)))
 chk("latent_estimand: the model alone is enough",
     abs(latent_estimand(mf, "chord_type")$estimate[3] - 0.6779) < 1e-4)
 chk("a model fitted outside nest_fit is refused, with the reason",
-    grepl("does not carry one", err_of(nest_summary(m))))
-chk("a model fitted outside nest_fit needs `spec`, and says so",
-    grepl("does not carry one",
-          err_of(nest_estimand(m, chord_type, bounds = FALSE, self_check = FALSE))))
+    grepl("was not fitted by nest_fit",
+          err_of(nest_summary(lm(response ~ training, data = dat)))))
+chk("a model fitted outside nest_fit cannot be given a declaration either",
+    grepl("was not fitted by nest_fit",
+          err_of(nest_estimand(lm(response ~ training, data = dat), chord_type,
+                               bounds = FALSE, self_check = FALSE))))
 
 ## ---- covariate slopes translate like the means -----------------------------
 ## A covariate interacting with the conditions gives one slope per cell, which
@@ -823,7 +837,7 @@ chk("a model fitted outside nest_fit needs `spec`, and says so",
 ## reference-cell slope plus differences from it, exactly as a chain fit reports.
 spi <- nesting_spec(dat, response ~ chord_type * inversion * training,
                     "inversion %in% chord_type")
-mi <- nest_fit(spi)
+mi <- fit_from(spi)
 si <- nest_summary(mi)
 ## the same comparison, on the package's basis rather than lm's pivot
 ## The slope block is reported as a reference slope plus differences from it,
@@ -852,24 +866,21 @@ chk("slopes: cell space names them per condition",
     identical(nest_summary(mi, "cells")$term[11],
               "aug.none slope on training"))
 
-## ---- a self-fitted model must correspond to the declaration ---------------
-## The estimand functions work from predictions on realized cells, so the
-## parameterization does not matter: a crossed or chain fit gives the same
-## answer as a cell fit. What does matter is that the model contains the
-## declared structure at all.
-m_cross <- suppressWarnings(lm(response ~ chord_type * inversion + training, data = sp$data))
-val3 <- function(mm) suppressWarnings(as.data.frame(
-  nest_estimand(mm, chord_type, spec = sp, bounds = FALSE, self_check = FALSE))$estimate[3])
-chk("self-fitted: a crossed fit gives the same estimand as the cell fit",
-    abs(val3(m_cross) - 0.6779) < 1e-4)
-chk("self-fitted: a model missing the nested variable is refused",
-    grepl("does not contain `inversion`",
-          err_of(nest_estimand(lm(response ~ chord_type + training, data = sp$data),
-                          chord_type, spec = sp, bounds = FALSE, self_check = FALSE))))
-chk("self-fitted: the refusal explains what the answer would have been",
+## ---- the fit must still correspond to the declaration ---------------------
+## A model that does not contain the declared structure cannot respond to it, so
+## predictions return whatever weighting the fit already implies rather than the
+## policy asked for - and on balanced data the two can coincide, which makes the
+## error invisible exactly where it is easiest to make. update() is the way a
+## fit gets simplified past that point, so that is where it is checked.
+m_thin <- suppressWarnings(update(mf, . ~ . - cell))
+chk("correspondence: a refit that drops the declared structure is refused",
+    grepl("does not contain `chord_type`",
+          err_of(nest_estimand(m_thin, chord_type, bounds = FALSE,
+                               self_check = FALSE))))
+chk("correspondence: and the refusal says what the answer would have been",
     grepl("weighting the fit already implies",
-          err_of(nest_estimand(lm(response ~ chord_type + training, data = sp$data),
-                          chord_type, spec = sp, bounds = FALSE, self_check = FALSE))))
+          err_of(nest_estimand(m_thin, chord_type, bounds = FALSE,
+                               self_check = FALSE))))
 
 ## ---- update() keeps the declaration ---------------------------------------
 chk("nest_fit: the fit gains a class, behind the engine's own",
@@ -904,7 +915,7 @@ chk("nested target: the pooled contrasts match Section 4.1",
             sort(c(-0.1632, -0.7337, -0.5706)))) < 1e-3)
 chk("nested target: the restriction is stated in the emitted code",
     any(grepl("does not vary in every stratum", attr(einv, "nestimand")$code)) &&
-    any(grepl("subset(sp$cells", attr(einv, "nestimand")$code, fixed = TRUE)))
+    any(grepl("subset(spec$cells", attr(einv, "nestimand")$code, fixed = TRUE)))
 chk("nested target: it passes the reorder check",
     identical(attr(nest_estimand(mf, inversion, bounds = FALSE),
                    "nestimand")$self_check$status, "passed"))
@@ -938,7 +949,7 @@ set.seed(7); dperm$inversion <- factor(dperm$inversion,
                                        levels = c("none", sample(c("0", "1", "2"))))
 spp <- nesting_spec(dperm, response ~ chord_type * inversion + training,
                     "inversion %in% chord_type")
-bp <- attr(nest_estimand(nest_fit(spp), inversion, self_check = FALSE), "nestimand")$bounds
+bp <- attr(nest_estimand(fit_from(spp), inversion, self_check = FALSE), "nestimand")$bounds
 chk("bounds: invariant under level permutation, up to contrast direction",
     isTRUE(all.equal(sort(abs(bi$estimate)), sort(abs(bp$estimate)), tolerance = 1e-8)) &&
     isTRUE(all.equal(sort(abs(c(bi$policy_low, bi$policy_high))),
@@ -952,7 +963,7 @@ chk("target: a variable holding the name is read for its value",
       nrow(as.data.frame(nest_estimand(mf, tv, bounds = FALSE, self_check = FALSE))) == 3 })
 chk("model: an inline call is named safely in the emitted code",
     any(grepl("^model <- lm",
-        attr(nest_estimand(nest_fit(sp), chord_type, bounds = FALSE,
+        attr(nest_estimand(fit_from(sp), chord_type, bounds = FALSE,
                       self_check = FALSE), "nestimand")$code)))
 
 ## ---- the declarations must identify the model whatever the level order -----
@@ -963,7 +974,7 @@ sent_last <- dat
 sent_last$inversion <- factor(sent_last$inversion, levels = c("0", "1", "2", "none"))
 sp_last <- nesting_spec(sent_last, response ~ chord_type * inversion + training,
                         "inversion %in% chord_type")
-m_last <- nest_fit(sp_last)
+m_last <- fit_from(sp_last)
 chk("sentinel last: the estimand is unchanged",
     abs(as.data.frame(nest_estimand(m_last, chord_type, bounds = FALSE,
                                self_check = FALSE))$estimate[3] - 0.6779) < 1e-4)
@@ -1000,7 +1011,7 @@ chk("sentinel: the effect basis is the same either way",
 ## model is evaluated. On balanced linear data the three agree; they separate
 ## under covariate imbalance, which is what G-computation exists to handle.
 rt3 <- function(mm, spx, rt, pol = "equal")
-  as.data.frame(nest_estimand(mm, chord_type, policy = pol, route = rt, spec = spx,
+  as.data.frame(nest_estimand(mm, chord_type, policy = pol, route = rt,
                          bounds = FALSE, self_check = FALSE))$estimate[3]
 chk("routes: all three agree on balanced data with a shared covariate",
     max(abs(diff(vapply(c("g_computation", "cells"),
@@ -1011,7 +1022,7 @@ dun$training <- rnorm(nrow(dun), ifelse(dun$chord_type == "aug", 7, 3), 1.5)
 dun$response <- dun$response + 0.15 * dun$training
 spu <- nesting_spec(dun, response ~ chord_type * inversion + training,
                     "inversion %in% chord_type")
-mu2 <- nest_fit(spu)
+mu2 <- fit_from(spu)
 chk("routes: cells and g_computation agree in a linear model",
     abs(rt3(mu2, spu, "cells") - rt3(mu2, spu, "g_computation")) < 1e-8)
 chk("routes: equal and proportional separate once the design is unbalanced",
@@ -1039,7 +1050,7 @@ chk("routes: the reorder check follows the route it was asked for",
 dw <- dat; dw$wt_hi <- as.numeric(dw$training > 7); dw$wt1 <- 1
 spw <- nesting_spec(dw, response ~ chord_type * inversion * training,
                     "inversion %in% chord_type")
-mw <- nest_fit(spw)
+mw <- fit_from(spw)
 gw <- function(...) as.data.frame(nest_estimand(mw, chord_type, bounds = FALSE,
                                            self_check = FALSE, ...))$estimate[3]
 chk("weights: uniform weights leave the estimand unchanged",
@@ -1069,7 +1080,7 @@ ref_of <- function(levs) {
   dd <- dat; dd$inversion <- factor(dd$inversion, levels = levs)
   spr <- nesting_spec(dd, response ~ chord_type * inversion + training,
                       "inversion %in% chord_type")
-  ns <- nest_summary(nest_fit(spr))
+  ns <- nest_summary(fit_from(spr))
   sub("^-aug.none \\+ dim\\.", "", ns$meaning[ns$term == "chord_typedim"])
 }
 chk("reference: the first declared non-sentinel level is the reference",
@@ -1087,7 +1098,7 @@ chk("reference: the estimand is unaffected by the choice",
     { dd <- dat; dd$inversion <- factor(dd$inversion, levels = c("2","1","0","none"))
       spr <- nesting_spec(dd, response ~ chord_type * inversion + training,
                           "inversion %in% chord_type")
-      abs(as.data.frame(nest_estimand(nest_fit(spr), chord_type, bounds = FALSE,
+      abs(as.data.frame(nest_estimand(fit_from(spr), chord_type, bounds = FALSE,
                                  self_check = FALSE))$estimate[3] - 0.6779) < 1e-4 })
 
 ## ---- the reorder check on a mixed model ------------------------------------
@@ -1102,7 +1113,7 @@ if (requireNamespace("lme4", quietly = TRUE)) {
   spm2 <- nesting_spec(d6, response ~ chord_type * inversion + training +
                        (chord_type * inversion | participant),
                        "inversion %in% chord_type", fit = "lmer")
-  mm2 <- suppressWarnings(nest_fit(spm2))
+  mm2 <- suppressWarnings(fit_from(spm2))
   rc <- suppressWarnings(attr(nest_estimand(mm2, chord_type, bounds = FALSE),
                               "nestimand")$self_check)
   chk("reorder: a mixed fit is checked on the shadow model, and passes",
@@ -1333,7 +1344,7 @@ counted <- 0
 trace_fit <- function() counted <<- counted + 1
 sp_c <- nesting_spec(dat, response ~ chord_type * inversion + training,
                      "inversion %in% chord_type")
-m_c <- nest_fit(sp_c)
+m_c <- fit_from(sp_c)
 local({
   ## a model whose refit would be visible: replace the stored call with one that
   ## increments a counter, then check the counter stays at zero
@@ -1349,7 +1360,7 @@ chk("estimand: the code view still contains the fit",
 ## `priors` sits after the dots so that R cannot partial-match brms's `prior`
 ## to it; a brms prior therefore passes straight through.
 if (requireNamespace("brms", quietly = TRUE)) {
-  cd_b <- suppressMessages(nest_fit(spb2, dry_run = TRUE,
+  cd_b <- suppressMessages(fit_from(spb2, dry_run = TRUE,
                    prior = brms::set_prior("normal(0, 1)", class = "b"),
                    sample_prior = "only", init = 0, file = "somewhere"))
   chk("brms: `prior` is handed to the engine, not captured by `priors`",
@@ -1359,13 +1370,6 @@ if (requireNamespace("brms", quietly = TRUE)) {
       grepl('sample_prior = "only"', cd_b, fixed = TRUE) &&
       grepl("init = 0", cd_b, fixed = TRUE) &&
       grepl('file = "somewhere"', cd_b, fixed = TRUE))
-  chk("brms: a nestimand prior still works, named in full",
-      grepl("prior_statement",
-            nest_fit(spb2, priors = prb, dry_run = TRUE), fixed = TRUE))
-  chk("brms: a brms prior in the `priors` slot is refused, with the remedy",
-      grepl("goes to the engine under its own name",
-            err_of(nest_fit(spb2, priors = brms::set_prior("normal(0,1)", class = "b"),
-                            dry_run = TRUE))))
 }
 
 ## ---- brms priors: what belongs where ---------------------------------------
@@ -1375,28 +1379,22 @@ if (requireNamespace("brms", quietly = TRUE)) {
   pb <- nest_prior(spb_re, mean = 4, sd = 1.5, on = "cells")
   chk("brms priors: sd and cor priors pass through in silence",
       { msg <- NULL
-        withCallingHandlers(nest_fit(spb_re, dry_run = TRUE,
+        withCallingHandlers(fit_from(spb_re, dry_run = TRUE,
           prior = brms::set_prior("exponential(1)", class = "sd")),
           message = function(m) { msg <<- conditionMessage(m)
                                   invokeRestart("muffleMessage") })
         is.null(msg) })
   chk("brms priors: a class b prior is translated, and the translation reported",
       { msg <- NULL
-        cd <- withCallingHandlers(nest_fit(spb_re, dry_run = TRUE,
+        cd <- withCallingHandlers(fit_from(spb_re, dry_run = TRUE,
           prior = brms::set_prior("normal(0, 1)", class = "b")),
           message = function(m) { msg <<- conditionMessage(m)
                                   invokeRestart("muffleMessage") })
         grepl("has been translated", msg) &&
         grepl("prior_statement", cd, fixed = TRUE) &&
         grepl("stanvars = prior_stanvars", cd, fixed = TRUE) })
-  chk("brms priors: prior_space = \"cells\" leaves the prior as written",
-      { cd <- suppressMessages(nest_fit(spb_re, dry_run = TRUE,
-                prior_space = "cells",
-                prior = brms::set_prior("normal(0, 1)", class = "b")))
-        grepl('class = "b")', cd, fixed = TRUE) &&
-        !grepl("stanvars", cd, fixed = TRUE) })
   chk("brms priors: the other classes travel alongside the translated one",
-      { cd <- suppressMessages(nest_fit(spb_re, dry_run = TRUE,
+      { cd <- suppressMessages(fit_from(spb_re, dry_run = TRUE,
                 prior = c(brms::set_prior("normal(0, 1)", class = "b"),
                           brms::set_prior("exponential(1)", class = "sd"))))
         grepl("prior_statement", cd, fixed = TRUE) &&
@@ -1413,15 +1411,6 @@ if (requireNamespace("brms", quietly = TRUE)) {
       grepl("translate exactly",
             err_of(prior_from_brms(spb_re,
               brms::set_prior("cauchy(0, 1)", class = "b")))))
-  chk("brms priors: a translated prior combines with priors for other classes",
-      grepl("prior = c(prior_statement(pb), brms::set_prior(\"exponential(1)\", class = \"sd\"))",
-            nest_fit(spb_re, priors = pb, dry_run = TRUE,
-                     prior = brms::set_prior("exponential(1)", class = "sd")),
-            fixed = TRUE))
-  chk("brms priors: two priors for the mean structure are refused",
-      grepl("would be given two priors",
-            err_of(nest_fit(spb_re, priors = pb, dry_run = TRUE,
-                            prior = brms::set_prior("normal(0,1)", class = "b")))))
 }
 
 ## ---- sample_prior = "yes" and a translated prior are incompatible ----------
@@ -1431,22 +1420,21 @@ if (requireNamespace("brms", quietly = TRUE)) {
 if (requireNamespace("brms", quietly = TRUE)) {
   chk("sample_prior: \"yes\" with a translated prior is refused before compiling",
       grepl("ill-typed assignment",
-            err_of(suppressMessages(nest_fit(spb2, dry_run = TRUE,
+            err_of(suppressMessages(fit_from(spb2, dry_run = TRUE,
               prior = brms::set_prior("normal(0, 1)", class = "b"),
               sample_prior = "yes")))))
-  chk("sample_prior: the refusal names both ways round it",
-      { e <- err_of(suppressMessages(nest_fit(spb2, dry_run = TRUE,
+  chk("sample_prior: the refusal names the way round it",
+      { e <- err_of(suppressMessages(fit_from(spb2, dry_run = TRUE,
               prior = brms::set_prior("normal(0, 1)", class = "b"),
               sample_prior = "yes")))
-        grepl('sample_prior = "only"', e) && grepl('prior_space = "cells"', e) })
+        grepl('sample_prior = "only"', e) })
   chk("sample_prior: \"only\" is accepted, as the prior check uses it",
-      inherits(suppressMessages(nest_fit(spb2, dry_run = TRUE,
+      inherits(suppressMessages(fit_from(spb2, dry_run = TRUE,
         prior = brms::set_prior("normal(0, 1)", class = "b"),
         sample_prior = "only")), "nestimand_code"))
-  chk("sample_prior: with the prior left in cell space, \"yes\" is fine",
-      inherits(suppressMessages(nest_fit(spb2, dry_run = TRUE,
-        prior_space = "cells",
-        prior = brms::set_prior("normal(0, 1)", class = "b"),
+  chk("sample_prior: \"yes\" is fine when no prior touches the mean structure",
+      inherits(suppressMessages(fit_from(spb2, dry_run = TRUE,
+        prior = brms::set_prior("exponential(1)", class = "sigma"),
         sample_prior = "yes")), "nestimand_code"))
 }
 
@@ -1599,7 +1587,7 @@ chk("scale: an explicit choice is honoured either way",
 
 chk("class: the engine's own class comes first, so dispatch is undisturbed",
     identical(class(mf)[1], "lm") &&
-    identical(class(nest_fit(sp))[1], "lm"))
+    identical(class(fit_from(sp))[1], "lm"))
 
 ## ---- engine arguments on the latent route ----------------------------------
 ## The latent route never calls the prediction function, so its arguments have
@@ -1840,7 +1828,7 @@ chk("interaction: ungrouped output is unchanged",
 chk("route: the interaction honours it too",
     { cd <- suppressMessages(nest_estimand(mf, chord_type:inversion, route = "cells",
               dry_run = TRUE, bounds = FALSE, p_adjust = "none"))
-      grepl("cell_grid(sp)", cd, fixed = TRUE) &&
+      grepl("cell_grid(spec)", cd, fixed = TRUE) &&
       !grepl("counterfactual_grid", cd, fixed = TRUE) })
 chk("route: and gives the same answer either way in a linear model",
     { a <- as.data.frame(nest_estimand(mf, chord_type:inversion, route = "cells",
@@ -1864,7 +1852,7 @@ do3$rating <- factor(round(pmin(pmax(do3$response, 1), 4)), ordered = TRUE)
 do3$z <- as.numeric(scale(do3$training))
 sp3 <- nesting_spec(do3, rating ~ chord_type * inversion + z,
                     "inversion %in% chord_type", fit = "clm")
-m3 <- nest_fit(sp3)
+m3 <- fit_from(sp3)
 lat3 <- function(rt) as.data.frame(nest_estimand(m3, chord_type, route = rt,
                                             bounds = FALSE, self_check = FALSE))
 chk("routes: identical on the link scale, to machine precision",
@@ -1930,7 +1918,7 @@ chk("subsample: the code records the draw so the same rows come back",
     { cd <- suppressMessages(nest_estimand(mf, chord_type, subsample = 50,
               dry_run = TRUE, bounds = FALSE))
       grepl("set.seed(", cd, fixed = TRUE) &&
-      grepl("sample.int(nrow(sp$data), 50)", cd, fixed = TRUE) &&
+      grepl("sample.int(nrow(spec$data), 50)", cd, fixed = TRUE) &&
       max(nchar(strsplit(as.character(cd), "\n")[[1]])) < 200 })
 chk("subsample: it estimates the same quantity",
     { set.seed(11)
@@ -2003,7 +1991,7 @@ chk("hypothesis: refused on the linear predictor, for the reason that applies",
 if (requireNamespace("ordinal", quietly = TRUE)) {
   spmm <- nesting_spec(do2, rating ~ chord_type * inversion + (1 | participant),
                        "inversion %in% chord_type", fit = "clmm")
-  mmm <- suppressWarnings(nest_fit(spmm))
+  mmm <- suppressWarnings(fit_from(spmm))
   chk("clmm: the linear predictor works",
       nrow(as.data.frame(nest_estimand(mmm, chord_type, bounds = FALSE,
                                   self_check = FALSE))) == 6)
@@ -2117,7 +2105,7 @@ if (requireNamespace("lme4", quietly = TRUE)) {
   sp_sl <- nesting_spec(d6, response ~ chord_type * inversion +
                         (chord_type | participant), "inversion %in% chord_type",
                         fit = "lmer")
-  m_sl <- suppressWarnings(nest_fit(sp_sl))
+  m_sl <- suppressWarnings(fit_from(sp_sl))
   out_sl <- capture.output(print(random_covariance(m_sl, space = "effects")))
   chk("random: a term that is not a cell covariance prints without commentary",
       !any(grepl("no effect-space counterpart|shown as fitted|translation",
@@ -2175,7 +2163,7 @@ chk("shortcut: a non-identity link does not take it",
       sp3b <- nesting_spec(d3, y ~ chord_type * inversion,
                            "inversion %in% chord_type", fit = "glm",
                            family = gaussian(link = "log"))
-      m3b <- nest_fit(sp3b)
+      m3b <- fit_from(sp3b)
       identical(attr(nest_estimand(m3b, chord_type, type = "response", bounds = FALSE,
                               self_check = FALSE), "nestimand")$scale,
                 "response") })
@@ -2223,7 +2211,7 @@ du$inversion  <- factor(du$inversion,  levels = c("none", "0", "1", "2"))
 du$x <- rnorm(nrow(du), ifelse(du$chord_type == "aug", 6, 3), 2)
 du$y <- rnorm(nrow(du), 4 + 0.5 * (du$chord_type == "maj") + 0.3 * du$x, 1)
 spu2 <- nesting_spec(du, y ~ chord_type * inversion * x, "inversion %in% chord_type")
-mu3 <- nest_fit(spu2)
+mu3 <- fit_from(spu2)
 chk("shortcut: agrees with the prediction route on badly unbalanced data",
     { ok <- TRUE
       for (pol in c("equal", "proportional")) {
@@ -2251,7 +2239,7 @@ chk("type: an engine name it accepts is used",
       sp_b <- nesting_spec(d_b, bin ~ chord_type * inversion,
                            "inversion %in% chord_type", fit = "glm",
                            family = binomial())
-      nrow(as.data.frame(suppressMessages(nest_estimand(nest_fit(sp_b), chord_type,
+      nrow(as.data.frame(suppressMessages(nest_estimand(fit_from(sp_b), chord_type,
              type = "link", bounds = FALSE, self_check = FALSE)))) == 6 })
 chk("type: the package's own default is not put to that test",
     nrow(as.data.frame(nest_estimand(mf, chord_type, bounds = FALSE,
@@ -2268,7 +2256,7 @@ chk("type: a slower engine equivalent draws a note pointing at eta",
       sp_g <- nesting_spec(d_g, response ~ chord_type * inversion,
                            "inversion %in% chord_type", fit = "glm",
                            family = gaussian())
-      withCallingHandlers(nest_estimand(nest_fit(sp_g), chord_type, type = "link",
+      withCallingHandlers(nest_estimand(fit_from(sp_g), chord_type, type = "link",
                                    bounds = FALSE, self_check = FALSE),
         message = function(m) { z <<- c(z, conditionMessage(m))
                                 invokeRestart("muffleMessage") })
@@ -2288,7 +2276,7 @@ chk("type: the equivalence is offered where the engine will produce it",
                             family = gaussian())
       z <- character(0)
       withCallingHandlers(
-        nest_estimand(nest_fit(sp_g2), chord_type, type = "link", bounds = FALSE,
+        nest_estimand(fit_from(sp_g2), chord_type, type = "link", bounds = FALSE,
                  self_check = FALSE),
         message = function(m) { z <<- c(z, conditionMessage(m))
                                 invokeRestart("muffleMessage") })
@@ -2378,7 +2366,7 @@ chk("declaration: `brms`, the package's name, is accepted for it",
     identical(nesting_spec(dat, response ~ chord_type * inversion,
                            "inversion %in% chord_type", fit = "brms")$fit, "brm"))
 chk("declaration: the emitted call is brms::brm either way",
-    { cd <- nest_fit(nesting_spec(dat, response ~ chord_type * inversion,
+    { cd <- fit_from(nesting_spec(dat, response ~ chord_type * inversion,
                      "inversion %in% chord_type", fit = "brms"), dry_run = TRUE)
       grepl("brms::brm(", cd, fixed = TRUE) })
 chk("declaration: every engine name maps to a fitting function",
@@ -2526,7 +2514,7 @@ deep <- local({
 sp_d <- nesting_spec(deep, response ~ chord_type * inversion * X1 * Z,
                      c("inversion %in% chord_type", "X1 %in% chord_type",
                        "Z %in% inversion"))
-m_d <- nest_fit(sp_d)
+m_d <- fit_from(sp_d)
 chk("branching: a parent may hold two nested variables",
     identical(unname(sp_d$parent[c("inversion", "X1", "Z")]),
               c("chord_type", "chord_type", "inversion")))
@@ -2573,7 +2561,7 @@ chk("depth: the fit has one coefficient per realized cell, none aliased",
 sp_z <- nesting_spec(subset(deep, X1 %in% c("none", "a")),
                      response ~ chord_type * inversion * Z,
                      c("inversion %in% chord_type", "Z %in% inversion"))
-m_z <- nest_fit(sp_z)
+m_z <- fit_from(sp_z)
 chk("depth: the pooled estimand of the deepest variable runs, with bounds",
     { e <- nest_estimand(m_z, Z, policy = "equal")
       b <- attr(e, "nestimand_bounds")
@@ -2628,8 +2616,8 @@ chk("hierarchical: it still separates from equal where one variable is inside an
       pe <- nest_policy(h_a, "chord_type", "equal")$p[["maj"]]
       max(abs(ph - pe)) > 1e-6 })
 
-## The grouping-chain submodel over a branching family: siblings are crossed,
-## not ranked, since the design does not say which of them divides the other.
+## A branching family on the random side: the design's own columns again, and
+## the same ones whichever order the siblings were declared in.
 re_dat <- local({
   d <- deep[deep$Z %in% c("none", "z1"), c("chord_type", "inversion", "X1")]
   d <- d[rep(seq_len(nrow(d)), each = 2), ]
@@ -2640,26 +2628,14 @@ re_f <- response ~ chord_type * inversion * X1 +
   (chord_type * inversion * X1 | participant)
 re_a <- nesting_spec(re_dat, re_f, c(inversion, X1) %in% chord_type, fit = "lmer")
 re_b <- nesting_spec(re_dat, re_f, c(X1, inversion) %in% chord_type, fit = "lmer")
-chk("random chain: siblings enter crossed, one rung each",
-    { r <- random_terms(re_a, "chain")
-      all(vapply(c("(1 | participant:chord_type)",
-                   "(1 | participant:chord_type:inversion)",
-                   "(1 | participant:chord_type:X1)"),
-                 function(z) grepl(z, r, fixed = TRUE), TRUE)) })
-chk("random chain: the whole structure is the finest rung",
-    grepl("participant:chord_type:X1:inversion", random_terms(re_a, "chain"),
-          fixed = TRUE))
-chk("random chain: it does not depend on the order of the declaration",
-    identical(random_terms(re_a, "chain"), random_terms(re_b, "chain")))
-chk("random chain: an unbranched family still gives the prefix ladder",
-    identical(random_terms(
-      nesting_spec(re_dat, response ~ chord_type * inversion +
-                     (chord_type * inversion | participant),
-                   "inversion %in% chord_type", fit = "lmer"), "chain"),
-      paste("(1 | participant) + (1 | participant:chord_type) +",
-            "(1 | participant:chord_type:inversion)")))
-chk("random chain: the cells form is untouched by the branching",
-    identical(random_terms(re_a, "cells"), "(0 + cell | participant)"))
+chk("random branching: the bar gets the columns the design identifies",
+    identical(random_terms(re_a),
+              paste0("(1 + ", paste(reduced_columns(re_a), collapse = " + "),
+                     " | participant)")))
+chk("random branching: one column per realized condition, and no more",
+    length(reduced_columns(re_a)) + 1L == nrow(re_a$cells))
+chk("random branching: the order the siblings were declared in changes nothing",
+    identical(sort(reduced_columns(re_a)), sort(reduced_columns(re_b))))
 
 ## The declared random terms are read from the parsed expression. A bar whose
 ## left side is bracketed - the natural way to write a slope over a set of
@@ -2682,8 +2658,10 @@ chk("bars: the translation is the same however the left side is bracketed",
     { mk <- function(bar) suppressMessages(nesting_spec(re_dat,
         stats::as.formula(paste("response ~ chord_type * inversion * X1 +", bar)),
         "inversion %in% chord_type", fit = "lmer"))
-      identical(random_terms(mk("(chord_type * (inversion + X1) | participant)"), "cells"),
-                random_terms(mk("(chord_type * inversion * X1 | participant)"), "cells")) })
+      identical(random_terms(mk("(chord_type * (inversion + X1) | participant)")),
+                random_terms(mk("(chord_type * (inversion + X1) | participant)"))) &&
+      grepl("^\\(1 \\+ dm_",
+            random_terms(mk("(chord_type * (inversion + X1) | participant)"))) })
 chk("bars: grouping_vars reads them from the parse too",
     identical(grouping_vars(suppressMessages(nesting_spec(re_dat,
         response ~ chord_type * inversion * X1 +
@@ -2710,7 +2688,7 @@ cross_dat <- local({
 })
 sp_x <- nesting_spec(cross_dat, response ~ chord_type * inversion * top,
                      c("inversion %in% chord_type", "top"))
-m_x <- nest_fit(sp_x)
+m_x <- fit_from(sp_x)
 chk("crossed: a bare name declares a variable nested in nothing",
     identical(sp_x$crossed, "top") &&
       identical(sp_x$cell_vars, c("chord_type", "inversion", "top")))
@@ -2754,7 +2732,7 @@ chk("crossed: one entering additively is left as a covariate",
         identical(sp$covariates, "top") })
 sp_undeclared <- nesting_spec(cross_dat, response ~ chord_type * inversion + top,
                               "inversion %in% chord_type")
-m_undeclared <- nest_fit(sp_undeclared)
+m_undeclared <- fit_from(sp_undeclared)
 chk("target: an additive factor is told how to become a target",
     { e <- err_of(nest_estimand(m_undeclared, top, policy = "equal"))
       grepl("additively", e, fixed = TRUE) })
@@ -2779,7 +2757,7 @@ fac_dat <- local({ d <- dat; set.seed(14)
   d$top <- factor(rep(c("t1", "t2", "t3"), length.out = nrow(d)), ordered = TRUE); d })
 sp_fac <- nesting_spec(fac_dat, response ~ chord_type * inversion * top * training,
                        "inversion %in% chord_type")
-m_fac <- nest_fit(sp_fac)
+m_fac <- fit_from(sp_fac)
 s_fac <- as.data.frame(nest_summary(m_fac))
 chk("summary: a factor covariate crossed with the cells is translated",
     sum(grepl("slope on top", s_fac$meaning)) == 2 * nrow(sp_fac$cells))
@@ -2828,7 +2806,7 @@ chk("nest_summary posterior: a frequentist fit still reports the p-value",
 ## silently matched nothing when given three.
 sp_i3 <- suppressMessages(nesting_spec(cross_dat,
   response ~ chord_type * inversion * top, "inversion %in% chord_type"))
-m_i3 <- nest_fit(sp_i3)
+m_i3 <- fit_from(sp_i3)
 chk("interaction: three variables give a difference of differences of differences",
     { H <- interaction_matrix(sp_i3$cells,
                               c("chord_type", "inversion", "top"))
@@ -2902,14 +2880,19 @@ chk("covariates: crossed with the structure on the fixed side",
     grepl("cell:GMSI", paste(deparse(cell_formula(sp_sl)), collapse = " "),
           fixed = TRUE))
 chk("random: a covariate crossed with the structure keeps the crossing",
-    identical(random_terms(sp_sl, "cells"),
-              "(0 + cell + cell:GMSI | participant)"))
+    { cols <- reduced_columns(sp_sl)
+      identical(random_terms(sp_sl),
+        paste0("(1 + ", paste(cols, collapse = " + "), " + GMSI + ",
+               paste(paste0(cols, ":GMSI"), collapse = " + "),
+               " | participant)")) })
 chk("random: one left additive in the bar stays additive",
-    identical(random_terms(suppressMessages(nesting_spec(slope_dat,
+    { sp_ad <- suppressMessages(nesting_spec(slope_dat,
         response ~ chord_type * inversion * X1 * GMSI +
           (chord_type * inversion * X1 + GMSI | participant),
-        "inversion %in% chord_type", fit = "lmer")), "cells"),
-      "(0 + cell + GMSI | participant)"))
+        "inversion %in% chord_type", fit = "lmer"))
+      identical(random_terms(sp_ad),
+        paste0("(1 + ", paste(reduced_columns(sp_ad), collapse = " + "),
+               " + GMSI | participant)")) })
 
 ## A numeric nested variable is a slope inside the cells, not a cell variable.
 ## It stays visible in the printed structure, since a variable whose values are
@@ -2943,7 +2926,7 @@ chk("continuous nested: the printed structure still shows it",
 ## follows the declaration rather than the default.
 res_sp <- suppressMessages(nesting_spec(cross_dat,
   response ~ chord_type * (inversion + top), "inversion %in% chord_type"))
-res_m <- nest_fit(res_sp)
+res_m <- fit_from(res_sp)
 chk("restricted: the declared terms are the formula's own, nothing added",
     identical(declared_terms(res_sp),
               c("chord_type", "inversion", "top",
@@ -2958,7 +2941,7 @@ chk("restricted: a `+` between two variables is not upgraded to a `*`",
 chk("restricted: and the count reported is the model that is fitted",
     { sp <- suppressMessages(nesting_spec(cross_dat,
         response ~ chord_type + inversion, "inversion %in% chord_type"))
-      m <- suppressMessages(nest_fit(sp))
+      m <- suppressMessages(fit_from(sp))
       length(coef(m)) == term_span(sp, declared_terms(sp)) && !anyNA(coef(m)) })
 chk("restricted: the sentinel is absence, so the contrasts are among real levels",
     { sp <- suppressMessages(nesting_spec(cross_dat,
@@ -3014,7 +2997,7 @@ res_brm <- suppressMessages(nesting_spec(cross_dat,
   response ~ chord_type * (inversion + top), "inversion %in% chord_type",
   fit = "brm"))
 ## The message and the fit are one number now: term_span() is the width of the
-## design nest_fit() builds, so the count reported cannot drift from the model
+## design fit_from() builds, so the count reported cannot drift from the model
 ## fitted. It used to, and said "fitted as written" while fitting the saturated
 ## structure.
 chk("saturation: the message counts the realized cells the formula spans",
@@ -3022,12 +3005,12 @@ chk("saturation: the message counts the realized cells the formula spans",
         nesting_spec(cross_dat, response ~ chord_type * (inversion + top),
                      "inversion %in% chord_type"), type = "message"),
         collapse = " ")
-      grepl("spans 14 of the 20 realized cells", txt, fixed = TRUE) &&
-        grepl("fitted as written", txt, fixed = TRUE) })
+      grepl("spans 14 of the 20 realized conditions", txt, fixed = TRUE) &&
+        grepl("one coefficient per effect it names", txt, fixed = TRUE) })
 chk("saturation: and the count is the number of coefficients fitted",
     { sp <- suppressMessages(nesting_spec(cross_dat,
         response ~ chord_type * (inversion + top), "inversion %in% chord_type"))
-      m <- suppressMessages(nest_fit(sp))
+      m <- suppressMessages(fit_from(sp))
       length(coef(m)) == term_span(sp, declared_terms(sp)) && !anyNA(coef(m)) })
 
 
@@ -3039,7 +3022,7 @@ chk("saturation: and the count is the number of coefficients fitted",
 chk("target: a spec in the target slot is named as one",
     { e <- err_of(nest_policy(res_sp, res_sp))
       grepl("nesting_spec was passed in its place", e, fixed = TRUE) &&
-        grepl("spec = ", e, fixed = TRUE) })
+        grepl("carries it", e, fixed = TRUE) })
 chk("target: and reported before the engine is looked at",
     { e <- err_of(latent_draws(res_m, res_sp))
       grepl("nesting_spec was passed in its place", e, fixed = TRUE) })
@@ -3087,63 +3070,56 @@ re_sat <- suppressMessages(nesting_spec(re_red_d,
     (chord_type * inversion * top | participant),
   "inversion %in% chord_type", fit = "lmer"))
 chk("random reduced: the same columns the mean structure is fitted on",
-    { r <- random_terms(re_red, "reduced")
+    { r <- random_terms(re_red)
       cols <- setdiff(colnames(reduced_design(re_red)), "(Intercept)")
       identical(r, sprintf("(1 + %s | participant)",
                            paste(cols, collapse = " + "))) })
 chk("random reduced: so the two sides have the same dimension",
-    { r <- random_terms(re_red, "reduced")
+    { r <- random_terms(re_red)
       n_re <- length(strsplit(sub("^\\(", "", sub(" \\|.*$", "", r)), " \\+ ")[[1]])
       n_fx <- ncol(reduced_design(re_red))
       n_re == n_fx && n_fx == 14 })
-chk("random reduced: which is smaller than the saturated cell covariance",
-    { n_cells <- length(strsplit(random_terms(re_red, "cells"), " \\+ ")[[1]])
-      ncol(reduced_design(re_red)) == 14 && nrow(re_red$cells) == 20 })
-chk("random reduced: it is the default when the fixed side is reduced",
-    { cd <- suppressMessages(attr(nest_fit(re_red, dry_run = TRUE),
+chk("random reduced: which is smaller than one dimension per condition",
+    ncol(reduced_design(re_red)) == 14 && nrow(re_red$cells) == 20)
+chk("random reduced: and it is what the fit uses",
+    { cd <- suppressMessages(attr(fit_from(re_red, dry_run = TRUE),
                                   "nestimand_code"))
       any(grepl("(1 + dm_chord_typedim", cd, fixed = TRUE)) &&
         !any(grepl("0 + cell | participant", cd, fixed = TRUE)) })
-chk("random reduced: an explicit random_structure is left alone",
-    { cd <- suppressMessages(attr(
-        nest_fit(re_red, dry_run = TRUE, random_structure = "cells"),
-        "nestimand_code"))
-      any(grepl("(0 + cell | participant)", cd, fixed = TRUE)) })
-chk("random reduced: a saturated declaration still goes to cells",
-    { cd <- suppressMessages(attr(nest_fit(re_sat, dry_run = TRUE),
-                                  "nestimand_code"))
-      any(grepl("(0 + cell | participant)", cd, fixed = TRUE)) })
+chk("random reduced: a saturated declaration gets one column per condition",
+    { r <- random_terms(re_sat)
+      length(strsplit(sub("^\\(", "", sub(" \\|.*$", "", r)), " \\+ ")[[1]]) ==
+        nrow(re_sat$cells) })
 chk("random reduced: a term the mean structure lacks is refused, and says why",
-    { sp <- suppressMessages(nesting_spec(re_red_d,
+    { sp_x <- suppressMessages(nesting_spec(re_red_d,
         response ~ chord_type * (inversion + top) +
           (chord_type * inversion * top | participant),
         "inversion %in% chord_type", fit = "lmer"))
-      e <- err_of(random_terms(sp, "reduced"))
-      grepl("which the mean structure does not contain", e, fixed = TRUE) &&
-        grepl("random_structure = \"cells\"", e, fixed = TRUE) })
+      e <- err_of(random_terms(sp_x))
+      grepl("which the model formula does not contain", e, fixed = TRUE) &&
+        grepl("Add the term to the model formula", e, fixed = TRUE) })
 chk("random reduced: a crossed covariate gets a slope per column and one more",
-    { sp <- suppressMessages(nesting_spec(re_red_d,
+    { sp_x <- suppressMessages(nesting_spec(re_red_d,
         response ~ chord_type * (inversion + top) * GMSI +
           (chord_type * (inversion + top) * GMSI | participant),
         "inversion %in% chord_type", fit = "lmer"))
-      r <- random_terms(sp, "reduced")
-      cols <- setdiff(colnames(reduced_design(sp)), "(Intercept)")
+      r <- random_terms(sp_x)
+      cols <- setdiff(colnames(reduced_design(sp_x)), "(Intercept)")
       grepl(" GMSI + ", r, fixed = TRUE) &&
         all(vapply(paste0(cols, ":GMSI"), function(z)
           grepl(z, r, fixed = TRUE), TRUE)) })
-chk("random reduced: the emitted note says what it did and what the choice was",
-    { cd <- suppressMessages(attr(nest_fit(re_red, dry_run = TRUE),
+chk("random reduced: the emitted note says what it did and why",
+    { cd <- suppressMessages(attr(fit_from(re_red, dry_run = TRUE),
                                   "nestimand_code"))
       txt <- paste(cd, collapse = " ")
-      grepl("the structure declared after the bar, varying by group", txt,
-            fixed = TRUE) &&
-        grepl("14 columns", txt, fixed = TRUE) &&
-        grepl("random_structure = \"cells\"", txt, fixed = TRUE) })
+      grepl("random structure", txt, fixed = TRUE) &&
+        grepl("translated to", txt, fixed = TRUE) &&
+        grepl("carries columns the", txt, fixed = TRUE) })
 chk("random reduced: the covariance is reported in the effects, not the columns",
-    { m <- suppressMessages(nest_fit(re_red))
-      r <- random_covariance(m, re_red, "cells")
+    { m_rr <- suppressMessages(fit_from(re_red))
+      r <- random_covariance(m_rr, space = "cells")
       nm <- rownames(r$participant)
-      "chord_typedim:inversion1" %in% nm && !any(grepl("^dm_", nm)) })
+      !any(grepl("^dm_", nm)) })
 
 ## An argument the coefficient route cannot take is one thing; an argument that
 ## is nothing's is another. Reporting the second as the first sends the reader
@@ -3213,7 +3189,7 @@ chk("by: a group in which the target does not vary is left out, and said",
       d2 <- cross_dat[!(cross_dat$chord_type == "aug" & cross_dat$top == "t2"), ]
       sp2 <- suppressMessages(nesting_spec(d2, response ~ chord_type * inversion * top,
                                            "inversion %in% chord_type"))
-      m2 <- nest_fit(sp2)
+      m2 <- fit_from(sp2)
       z <- character(0)
       d <- as.data.frame(withCallingHandlers(
         nest_estimand(m2, top, by = chord_type, bounds = FALSE, self_check = FALSE),
@@ -3287,7 +3263,7 @@ chk("basis: a chain is still the prefix ladder it always was",
     identical(chain_terms(sp2d), c("chord", "chord:inv", "chord:inv:doub")))
 
 chk("saturation: a formula spanning less than the realized cells says so",
-    grepl("saturated",
+    grepl("one coefficient per effect it names",
           paste(utils::capture.output(
             nesting_spec(dat, response ~ chord_type + inversion,
                          "inversion %in% chord_type"), type = "message"),

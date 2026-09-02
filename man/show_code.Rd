@@ -40,7 +40,7 @@ engine_types(model = NULL)
 }
 \examples{
 \dontrun{
-m <- nest_fit(dat, rating ~ chord_type * inversion + training)
+m <- nest_fit("lm", rating ~ chord_type * inversion + training, dat)
 e <- nest_estimand(m, chord_type, policy = "equal")
 
 show_code(m)   # the fit, including the declaration it was built from

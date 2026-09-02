@@ -77,16 +77,18 @@ walk <- function(e, file, line) {
     ## says which of its own symbols are which, and a spec reaching any formal
     ## but `spec` - or a fit reaching any but `model` - is a shifted call. This
     ## is the fault that put a nesting_spec into `target` in four places, and it
-    ## is not an error R can raise until the call runs.
+    ## is not an error R can raise until the call runs. It also catches a
+    ## declaration handed to nest_fit(), which now takes the arguments a
+    ## declaration is made from rather than the declaration itself.
     pos <- args[!nzchar(given)]
     slot <- free[seq_along(pos)]
     for (k in seq_along(pos)) {
       if (!is.name(pos[[k]]) || is.na(slot[k])) next
       v <- as.character(pos[[k]])
-      if (v %in% specs && "spec" %in% fmls && !identical(slot[k], "spec"))
+      if (v %in% specs && !identical(slot[k], "spec"))
         note(file, ":", line, "  ", nm, "() would take `", v,
              "`, which this file builds with nesting_spec(), as `", slot[k],
-             "`. A declaration is passed by name, as spec = .")
+             "`.")
       if (v %in% fits && "model" %in% fmls && !identical(slot[k], "model"))
         note(file, ":", line, "  ", nm, "() would take `", v,
              "`, which this file builds with nest_fit(), as `", slot[k], "`.")

@@ -93,8 +93,7 @@ infer_nests <- function(data, vars, max_parents = 2L) {
 
 nesting_spec <- function(data, formula, nests = NULL,
                          fit = c("lm", "glm", "lmer", "glmer", "clm", "clmm", "brm"),
-                         family = NULL, random = NULL,
-                         cell_name = "cell") {
+                         family = NULL, random = NULL) {
   ## The engines are named for their fitting functions, so brms's is `brm`.
   ## Its package name is an easy slip and is accepted as the same thing.
   if (identical(fit, "brms")) fit <- "brm"
@@ -255,10 +254,11 @@ nesting_spec <- function(data, formula, nests = NULL,
   for (ch in names(parent))
     if (is.numeric(data[[parent[[ch]]]]))
       stop("a continuous variable cannot nest another variable: ", parent[[ch]])
-  if (cell_name %in% names(data))
-    stop("`", cell_name, "` is already a column of the data. The realized-cell ",
-         "factor is constructed under that name and would overwrite it; supply ",
-         "cell_name = to choose another, or rename the column.")
+  ## The realized conditions are carried internally as a factor. It is an
+  ## implementation detail, so a column of that name already in the data is a
+  ## clash to be stepped around rather than a question to put to the user.
+  cell_name <- "cell"
+  while (cell_name %in% names(data)) cell_name <- paste0(".", cell_name)
 
   ## --- families (roots and their chains) --------------------------------
   ## A categorical variable the formula crosses with the declared structure is
@@ -456,15 +456,12 @@ nesting_spec <- function(data, formula, nests = NULL,
   span <- tryCatch(term_span(out, declared_terms(out)), error = function(e) NA_integer_)
   if (!is.na(span) && span < nrow(cells))
     message("the formula spans ", span, " of the ", nrow(cells), " realized ",
-            "cells, so it asks for less than the saturated structure - a `+` ",
-            "where the design would admit a `*`. It is fitted as written: the ",
-            "design the formula gives over the realized cells, with the columns ",
-            "it cannot inform removed, which is full rank and needs nothing held ",
-            "at zero. `~ 0 + cell` is used instead only when the formula does ",
-            "cross the structure fully, where the two are the same model. ",
-            "reduced_design() shows the columns and the effect each stands for. ",
-            "(This counts the mean structure alone; covariates and random terms ",
-            "multiply those columns.)")
+            "conditions, so it is fitted with one coefficient per effect it ",
+            "names rather than one per condition. Effects the design cannot ",
+            "inform are left out, so what remains is full rank and nothing is ",
+            "held at zero. reduced_design() shows the columns and the effect ",
+            "each one stands for. (This counts the mean structure alone; ",
+            "covariates and random terms multiply those columns.)")
   out
 }
 

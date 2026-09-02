@@ -19,15 +19,6 @@
 ## every random-effects structure R offers is available and identified -
 ## unstructured, diagonal, or the grouping chain as a submodel.
 
-## Reports the rank deficiency of a declared structural random slope, so the
-## constraint can be shown rather than asserted.
-random_slope_rank <- function(spec, data = spec$data) {
-  f <- stats::as.formula(paste("~ 0 +", paste(chain_terms(spec), collapse = " + ")))
-  X <- stats::model.matrix(f, data)
-  list(columns = ncol(X), rank = qr(X)$rank,
-       zero_columns = sum(colSums(X != 0) == 0),
-       identified = qr(X)$rank == ncol(X))
-}
 ## Which variables actually span the structural boundary: the nested ones, not
 ## every variable in a nesting family. A slope on the root of a family - chord
 ## type here - is encountered at every level by every unit, so it is identified
@@ -62,39 +53,25 @@ bar_terms_of <- function(bars) {
   })
 }
 
-random_terms <- function(spec, structure = c("cells", "reduced", "chain",
-                                             "as_declared")) {
-  structure <- match.arg(structure)
+## The random side follows the declaration, exactly as the fixed side does.
+## A bar that names no nesting variable is passed through as written. A bar that
+## does reach across the structure is written on the same columns the mean
+## structure is fitted on: over the original factors it would carry columns for
+## conditions that do not exist, which no amount of data can inform.
+random_terms <- function(spec) {
   bars <- spec$random_original
   if (is.null(bars)) return(NULL)
-  if (structure == "as_declared") {
-    if (any(vapply(boundary_vars(spec), function(v)
-          grepl(v, bars, fixed = TRUE), TRUE))) {
-      rk <- random_slope_rank(spec)
-      if (!rk$identified)
-        warning("the declared random structure places slopes on the nesting ",
-                "variables, whose design is rank-deficient by construction: ",
-                rk$columns, " columns of rank ", rk$rank, ", with ",
-                rk$zero_columns, " identically zero. The engine will fit it ",
-                "without refusing, but ", rk$columns - rk$rank, " dimensions of ",
-                "the covariance are not identified by any amount of data. ",
-                "random_structure = \"cells\" expresses the same intent on the ",
-                "realized cells, where every dimension is identified.",
-                call. = FALSE)
-    }
-    return(bars)
-  }
   ## A bar may be wrapped in a covariance-structure call - `diag(...)` in lme4
   ## 2.0-0 and later, for a diagonal covariance. The wrapper states what the
   ## covariance looks like and must survive translation: dropping it would turn
   ## a diagonal request into an unstructured one without saying so.
   bl <- bar_terms_of(bars)
-  cn <- spec$cell_name
   out <- unlist(lapply(seq_along(bl), function(k) {
     wrapper <- bl[[k]]$wrapper
     rewrap <- function(x) if (nzchar(wrapper))
       vapply(x, function(z) paste0(wrapper, z), "") else x
     grp <- bl[[k]]$grp
+    op  <- bl[[k]]$op
     lhs_txt <- bl[[k]]$lhs
     lhs <- attr(stats::terms(stats::as.formula(paste("~", lhs_txt))), "term.labels")
     ## a term needs translation only if it reaches across the boundary
@@ -105,183 +82,70 @@ random_terms <- function(spec, structure = c("cells", "reduced", "chain",
     ## repeated alongside it
     covs <- lhs[!vapply(strsplit(lhs, ":"), function(vs)
       any(vs %in% spec$cell_vars), TRUE)]
-    ## A covariate declared crossed with the structure keeps that crossing. The
-    ## structural terms it appeared in are dropped as subsumed by the
-    ## translation, but `cell` alone carries no slope that varies by condition,
-    ## so the crossing has to be restated against the translated factor - the
-    ## same distinction the fixed side draws with `cov_by_cell`.
+    ## A covariate declared crossed with the structure keeps that crossing: it
+    ## gets a slope per column of the translated design and one for the
+    ## reference condition, exactly as on the fixed side.
     crossed <- vapply(covs, function(k) {
       kv <- strsplit(k, ":")[[1]]
       any(vapply(strsplit(lhs, ":"), function(vs)
         all(kv %in% vs) && any(vs %in% spec$cell_vars), TRUE))
     }, TRUE)
     if (!any(structural))
-      return(rewrap(sprintf("(%s | %s)", lhs_txt, grp)))
-    ## Does the declared term describe the whole categorical structure, or only
-    ## part of it? Only the first has a direct expression over realized cells.
-    struct_vars <- unique(unlist(strsplit(lhs[structural], ":")))
-    struct_vars <- struct_vars[struct_vars %in% spec$cell_vars]
-    fam <- NULL
-    for (ff in spec$cat_families) if (any(struct_vars %in% ff)) fam <- ff
-    partial <- !all(fam %in% struct_vars)
-    if (partial && identical(structure, "cells"))
-      stop("the random term `(", lhs_txt, " | ", grp, ")` varies with `",
-           paste(intersect(struct_vars, boundary_vars(spec)), collapse = "`, `"),
-           "` but not with `", paste(setdiff(fam, struct_vars), collapse = "`, `"),
-           "`. Over the realized conditions that is a covariance of reduced ",
-           "rank, which no formula states directly. Three ways forward: declare ",
-           "the whole structure (`", paste(fam, collapse = " * "),
-           "`) for an unstructured covariance over the realized conditions; use ",
-           "random_structure = \"chain\" for the grouping-factor submodel, which ",
-           "is the parsimonious counterpart and always identified; or ",
-           "random_structure = \"as_declared\" to fit it as written, noting that ",
-           "the sentinel level then enters as though it were a level of the ",
-           "nested variable.")
-    ## `with` is the translated structure the crossing is restated against -
-    ## the cell factor, or the chain terms, which distribute over the covariate
-    ## one term at a time. NULL crosses nothing, for the compound-symmetric
-    ## submodel, where a crossed slope would not be the parsimonious
-    ## counterpart it is offered as.
-    cov_term <- function(with) {
-      if (!length(covs)) return("")
-      out <- unlist(lapply(seq_along(covs), function(i)
-        if (is.null(with) || !crossed[[i]]) covs[[i]]
-        else paste0(with, ":", covs[[i]])))
-      paste(" +", paste(out, collapse = " + "))
-    }
-    cov_txt <- cov_term(cn)
-    if (structure == "reduced") {
-      ## The declared structure varying by group: the same columns the fixed
-      ## side is fitted on, so the random effects are deviations in exactly the
-      ## effects the mean structure states, and the two have the same dimension.
-      ## The cell form would enlarge it to the saturated covariance - which is
-      ## more than the declaration asks for, and the same fault the reduced
-      ## fixed design exists to avoid.
-      ## every declared term that names a design variable, not only those that
-      ## reach across a structural boundary: `chord_type` and `top` are part of
-      ## the structure the group varies in just as `chord_type:inversion` is,
-      ## and the cell factor subsumed them only because it spans everything
-      want <- declared_terms(spec, lhs[vapply(strsplit(lhs, ":"), function(vs)
-        any(vs %in% spec$cell_vars), TRUE)])
-      extra <- setdiff(want, declared_terms(spec))
-      if (length(extra))
-        stop("the random term `(", lhs_txt, " | ", grp, ")` asks for `",
-             paste(extra, collapse = "`, `"), "`, which the mean structure does ",
-             "not contain. A random effect for something held out of the mean ",
-             "says it averages to zero across groups but varies between them - ",
-             "coherent, but not what the reduced random structure expresses, ",
-             "which is the declared mean structure varying by group. Add the ",
-             "term to the model formula, or use random_structure = \"cells\" for ",
-             "the unstructured covariance over realized conditions.")
-      cols <- reduced_columns(spec, want)
-      ## a covariate crossed with the structure gets a slope per column and one
-      ## for the reference condition, exactly as on the fixed side
-      cov_red <- if (!length(covs)) "" else paste(" +", paste(unlist(
-        lapply(seq_along(covs), function(i) if (!crossed[[i]]) covs[[i]] else
-          c(covs[[i]], paste0(cols, ":", covs[[i]])))), collapse = " + "))
-      rewrap(sprintf("(1 + %s%s | %s)", paste(cols, collapse = " + "),
-                     cov_red, grp))
-    }
-    else if (structure == "cells")
-      rewrap(sprintf("(0 + %s%s | %s)", cn, cov_txt, grp))
-    else {
-      ## the grouping-chain submodel: parsimonious, but it constrains conditions
-      ## sharing a stratum to equal correlation, where the cell form does not.
-      ## It is always identified, and is the remedy offered for a partial
-      ## structure, so it accepts one: only the declared variables and their
-      ## ancestors contribute a rung.
-      ##
-      ## A rung is the ancestor path of a variable, not a prefix of the family
-      ## vector. The two coincide while the family is a chain - p:a, p:a:b,
-      ## p:a:b:c - but where a parent holds two children the prefix form would
-      ## make one of them the coarser division and the other the finer one,
-      ## which the design does not say and which the order of the declaration
-      ## would then decide. Siblings therefore enter crossed, one variance
-      ## each, with the whole structure as the finest rung.
-      vars <- if (partial) intersect(fam, struct_vars) else fam
-      vars <- unique(unlist(lapply(vars, function(v)
-        c(nest_ancestors(spec, v), v))))
-      ## Order the rungs by depth and then by name rather than by the order the
-      ## nests were declared: siblings commute inside a grouping factor, so the
-      ## same design should emit the same formula however it was written.
-      depth_of <- function(v) length(nest_ancestors(spec, v))
-      vars <- vars[order(vapply(vars, depth_of, 1L), vars)]
-      rungs <- vapply(vars, function(v)
-        paste(c(grp, nest_ancestors(spec, v), v), collapse = ":"), "")
-      if (length(vars) > 1)
-        rungs <- c(rungs, paste(c(grp, vars), collapse = ":"))
-      rungs <- unique(rungs)
-      rungs <- rungs[order(lengths(strsplit(rungs, ":")), rungs)]
-      c(rewrap(sprintf("(1%s | %s)", cov_term(NULL), grp)),
-        vapply(rungs, function(z) sprintf("(1 | %s)", z), ""))
-    }
+      return(rewrap(sprintf("(%s %s %s)", lhs_txt, op, grp)))
+    ## The declared structure varying by group: the same columns the fixed side
+    ## is fitted on, so the random effects are deviations in exactly the effects
+    ## the bar names, and nothing larger.
+    want <- declared_terms(spec, lhs[vapply(strsplit(lhs, ":"), function(vs)
+      any(vs %in% spec$cell_vars), TRUE)])
+    extra <- want[!term_key(want) %in% term_key(declared_terms(spec))]
+    if (length(extra))
+      stop("the random term `(", lhs_txt, " ", op, " ", grp, ")` asks for `",
+           paste(extra, collapse = "`, `"), "`, which the model formula does ",
+           "not contain. A random effect for a term the mean structure leaves ",
+           "out says it averages to zero across groups but varies between them ",
+           "- coherent, but not something the formula states. Add the term to ",
+           "the model formula, or drop it from the bar.")
+    cols <- reduced_columns(spec, want)
+    cov_red <- if (!length(covs)) "" else paste(" +", paste(unlist(
+      lapply(seq_along(covs), function(i) if (!crossed[[i]]) covs[[i]] else
+        c(covs[[i]], paste0(cols, ":", covs[[i]])))), collapse = " + "))
+    rewrap(sprintf("(1 + %s%s %s %s)", paste(cols, collapse = " + "),
+                   cov_red, op, grp))
   }))
   paste(unique(out), collapse = " + ")
 }
 
 ## --- the fit ---------------------------------------------------------------
-nest_fit <- function(spec, formula = NULL, nests = NULL, mode = NULL,
-                     random_structure = c("cells", "reduced", "chain", "as_declared"),
-                     data = NULL, dry_run = FALSE, ..., fit = NULL, family = NULL,
-                     random = NULL, cell_name = "cell", priors = NULL,
-                     prior_space = c("effects", "cells"), .env = parent.frame()) {
-  ## The declaration and the fit are one step unless the user wants them apart.
-  ## `spec` takes either the declaration or the data it would be built from, and
-  ## the constructor is called here with the user's own expressions rather than
-  ## their values, so that nesting_spec() sees `nests` unevaluated - which is
-  ## what lets `inversion %in% chord_type` be written unquoted - and names the
-  ## data frame as the user named it.
-  spec_call <- NULL
-  if (is.data.frame(spec)) {
-    if (is.null(formula))
-      stop("nest_fit() was given data rather than a declaration, so it needs a ",
-           "`formula` too: nest_fit(data, response ~ a * b, \"b %in% a\"). ",
-           "`nests` may be left out, in which case the structure is read from ",
-           "the data - a variable's structurally undefined rows being marked NA.")
-    cl0 <- match.call()
-    args <- list(quote(nesting_spec), data = cl0$spec, formula = cl0$formula)
-    if (!is.null(cl0$nests)) args$nests <- cl0$nests
-    for (nm in c("fit", "family", "random", "cell_name"))
-      if (!is.null(cl0[[nm]])) args[[nm]] <- cl0[[nm]]
-    spec_call <- as.call(args)
-    spec <- eval(spec_call, .env)
-  } else if (!is.null(formula) || !is.null(nests))
-    stop("`formula` and `nests` describe a declaration that has not been made ",
-         "yet, and `spec` already carries one. Pass the data as the first ",
-         "argument to build a declaration here, or leave them out.")
-  ## `priors` and `prior_space` sit after the dots: both would otherwise be
-  ## partial-matched by brms's own `prior`, which must reach the engine.
-  prior_space <- match.arg(prior_space)
-  rs_default <- missing(random_structure)
-  ## `fit` names the engine on the declaration, not here: once the spec exists
-  ## it has already been settled, and taking it twice would let the two disagree
-  if (!is.null(fit) && is.null(spec_call) && !identical(fit, spec$fit))
-    stop("`fit = \"", fit, "\"` was given, but this declaration was made with ",
-         "fit = \"", spec$fit, "\". The engine belongs to the declaration; ",
-         "change it there, or pass the data to nest_fit() and declare here.")
-  random_structure <- match.arg(random_structure)
-  spec_name  <- if (is.null(spec_call)) deparse(substitute(spec)) else "spec"
-  prior_name <- deparse(substitute(priors))
-  ## A prior may have been written before the declaration existed, which is what
-  ## the one-call form requires: it is dimensioned here, against the spec, and
-  ## the emitted code names the constructor so that it stands on its own.
-  if (inherits(priors, "nestimand_prior_pending")) {
-    prior_name <- paste(deparse(as.call(c(quote(nest_prior),
-      list(as.name(spec_name)), priors$call))), collapse = " ")
-    priors <- resolve_prior(priors, spec, .env)
-  }
-  data_name <- if (missing(data) || is.null(substitute(data)))
-    paste0(spec_name, "$data") else paste(deparse(substitute(data)), collapse = " ")
-  if (is.null(data)) { data <- spec$data; data_name <- paste0(spec_name, "$data") }
+nest_fit <- function(fit, formula, data, family = NULL, nests = NULL,
+                     random = NULL, dry_run = FALSE, ..., .env = parent.frame()) {
+  ## The declaration and the fit are one step. The constructor is called here
+  ## with the user's own expressions rather than their values, so that
+  ## nesting_spec() sees `nests` unevaluated - which is what lets
+  ## `inversion %in% chord_type` be written unquoted.
+  cl0 <- match.call()
+  if (missing(fit) || missing(formula) || missing(data))
+    stop("nest_fit() takes an engine, a formula and the data, in that order: ",
+         "nest_fit(\"lm\", rating ~ chord_type * inversion, dat). `nests` may ",
+         "be left out, in which case the structure is read from the data - a ",
+         "variable's structurally undefined rows being marked NA.")
+  args <- list(quote(nesting_spec), data = cl0$data, formula = cl0$formula,
+               fit = cl0$fit)
+  for (nm in c("nests", "family", "random"))
+    if (!is.null(cl0[[nm]])) args[[nm]] <- cl0[[nm]]
+  spec_call <- as.call(args)
+  spec <- eval(spec_call, .env)
+  spec_name <- "spec"
+  data_name <- "spec$data"
+  data <- spec$data
   fit <- spec$fit
-  if (is.null(mode)) {
-    fm <- fitting_mode(spec)
-    mode <- as.character(fm)
-    mode_note <- sprintf("## parameterization: %s (%s)", mode, attr(fm, "reason"))
-  } else {
-    mode <- match.arg(mode, c("cells", "reduced"))
-    mode_note <- sprintf("## parameterization: %s (requested)", mode)
-  }
+
+  ## The parameterization is decided by the formula, never asked for. A formula
+  ## that crosses the structure fully names one mean per realized condition, and
+  ## the cell factor is the compact way to write that; anything less is written
+  ## as the design the formula gives over the realized conditions.
+  fm <- fitting_mode(spec)
+  mode <- as.character(fm)
+  mode_note <- sprintf("## parameterization: %s (%s)", mode, attr(fm, "reason"))
   f <- paste(deparse(cell_formula(spec, mode)), collapse = " ")
   ## The emitted code has to be runnable, so it names the fitted columns rather
   ## than the structure they encode. A line saying what `cell` is costs nothing
@@ -291,20 +155,15 @@ nest_fit <- function(spec, formula = NULL, nests = NULL, mode = NULL,
               spec$cell_name, nrow(spec$cells)),
       "##   coefficients are their means. The formula crosses the structure fully,",
       "##   so that is the model it names, written compactly.")
-  ## Same argument, the other half of the model: a random structure that asks
-  ## for less than the saturated one is restricted whatever the mean structure
-  ## does, and the cell factor can express it no better there than in the mean.
-  ## An explicit `random_structure` is left alone - the saturated covariance is
-  ## a reasonable thing to want - so only the default follows the declaration.
-  if (rs_default && (identical(mode, "reduced") || random_restricted(spec)))
-    random_structure <- "reduced"
+  re <- if (fit %in% c("lmer", "glmer", "clmm", "brm")) random_terms(spec)
   ## The reduced form states the declared structure as one column per identified
   ## effect, computed once per realized cell and looked up by cell. It is the
   ## same kind of object the cell factor is - a design the data can inform in
   ## full - so nothing has to be held at zero, and the columns are ordinary
   ## numeric variables that every engine treats alike.
   aug_code <- NULL
-  if (identical(mode, "reduced") || identical(random_structure, "reduced")) {
+  if (identical(mode, "reduced") ||
+      (!is.null(re) && grepl("dm_", re, fixed = TRUE))) {  # == uses_reduced()
     raw_data_name <- data_name
     raw_data <- data
     data <- with_reduced(spec, data)
@@ -315,42 +174,31 @@ nest_fit <- function(spec, formula = NULL, nests = NULL, mode = NULL,
       "## effect each one stands for.",
       sprintf("%s <- with_reduced(%s, %s)", data_name, spec_name, raw_data_name))
   }
-  re <- if (fit %in% c("lmer", "glmer", "clmm")) random_terms(spec, random_structure)
-        else if (identical(fit, "brm")) random_terms(spec, random_structure)
   if (!is.null(re)) f <- paste(f, "+", re)
   fam <- if (!is.null(spec$family)) sprintf(", family = %s", spec$family) else ""
   dots <- as.list(substitute(list(...)))[-1]
   ## brms's own `prior` is the route to everything the translation does not
   ## touch - the random-effects sd and correlations, the thresholds, sigma. It
   ## is passed through untouched. A `class = "b"` entry is a different matter:
-  ## those coefficients are the cells, not the original effects, so a prior
-  ## written for the effects would mean something else there.
+  ## those coefficients are the realized cells, not the original effects, so a
+  ## prior written for the effects would mean something else there, and is
+  ## translated rather than handed over as written.
+  priors <- NULL
+  prior_name <- ".prior"
   user_prior <- NULL
   user_prior_txt <- NULL
   if ("prior" %in% names(dots)) {
     user_prior <- tryCatch(eval(dots$prior, .env), error = function(e) NULL)
     user_prior_txt <- paste(deparse(dots$prior), collapse = " ")
   }
-  ## A `class = "b"` prior describes the mean structure. Written in the original
-  ## variables - the default - it is translated into cell space and travels to
-  ## Stan through stanvars, so the user states priors once, in brms syntax, and
-  ## the translation is the package's business. `prior_space = "cells"` says the
-  ## prior was written for the fitted coefficients and leaves it alone.
   if (inherits(user_prior, "brmsprior") && any(user_prior$class == "b") &&
-      identical(mode, "cells") && identical(prior_space, "effects")) {
-    if (!is.null(priors))
-      stop("`prior` carries an entry for class \"b\" and `priors` supplies one ",
-           "too, so the mean structure would be given two priors. Use one or ",
-           "the other: `prior` in brms syntax, or a nestimand prior built with ",
-           "nest_prior().")
-    split <- prior_from_brms(spec, user_prior, space = prior_space)
+      identical(mode, "cells")) {
+    split <- prior_from_brms(spec, user_prior)
     priors <- split$translated
-    prior_name <- ".prior"
     message("the `class = \"b\"` prior was stated for the original variables ",
-            "and has been translated to the ", spec$cell_name, " coefficients: ",
-            "mu ~ N(A m, A D A'), reaching Stan through stanvars. ",
-            "prior_for_estimand() shows what it implies for a contrast; ",
-            "prior_space = \"cells\" leaves it as written instead.")
+            "and has been translated to the coefficients the model is fitted ",
+            "on: mu ~ N(A m, A D A'), reaching Stan through stanvars. ",
+            "prior_for_estimand() shows what it implies for a contrast.")
     user_prior_txt <- if (!is.null(split$other) && nrow(split$other))
       sprintf("brms::prior_string(%s, class = %s%s)",
               paste0("c(", paste(sprintf('"%s"', split$other$prior), collapse = ", "), ")"),
@@ -368,38 +216,22 @@ nest_fit <- function(spec, formula = NULL, nests = NULL, mode = NULL,
     }, names(dots), dots), collapse = ", ")) else ""
   ## brms writes one prior draw per class when asked for prior samples, and
   ## declares it `real` - which a multivariate prior on the coefficients cannot
-  ## satisfy, so the Stan program fails to compile. The alternatives are a
-  ## separate prior-only run, or leaving the prior in cell space.
+  ## satisfy, so the Stan program fails to compile. The alternative is a
+  ## separate prior-only run.
   if (!is.null(priors) && "sample_prior" %in% names(dots)) {
     sv <- tryCatch(eval(dots$sample_prior, .env), error = function(e) NULL)
     if (isTRUE(sv) || identical(sv, "yes"))
-      stop("`sample_prior = \"yes\"` cannot be combined with a translated prior. ",
-           "The translation puts a multivariate normal on the coefficients, and ",
-           "brms draws one prior sample per class into a scalar, so Stan reports ",
-           "an ill-typed assignment - `real prior_b = multi_normal_rng(...)`. ",
-           "Two ways round it: run the prior separately with ",
-           "sample_prior = \"only\", which works and is what the prior check in ",
-           "tests/test_brms.R does; or state the prior in cell space with ",
-           "prior_space = \"cells\", where it is univariate per coefficient and ",
-           "brms can sample it.")
+      stop("`sample_prior = \"yes\"` cannot be combined with a prior on the ",
+           "mean structure. The translation puts a multivariate normal on the ",
+           "coefficients, and brms draws one prior sample per class into a ",
+           "scalar, so Stan reports an ill-typed assignment - ",
+           "`real prior_b = multi_normal_rng(...)`. Run the prior separately ",
+           "with sample_prior = \"only\", which works and is what the prior ",
+           "check in tests/test_brms.R does.")
   }
   prior_txt <- ""
   prior_note <- NULL
-  ## brms's own `prior` argument must reach the engine untouched. With `priors`
-  ## declared before `...` R would partial-match it here and refuse the call, so
-  ## `priors` sits after the dots and has to be named in full.
-  if (inherits(priors, "brmsprior"))
-    stop("`priors` carries the package's own translated prior. A brms prior goes ",
-         "to the engine under its own name: pass `prior = ` and it will be ",
-         "handed through unaltered, or translated into cell space if it ",
-         "describes the mean structure.")
-  priors_obj <- NULL
   if (!is.null(priors)) {
-    if (!inherits(priors, "nestimand_prior"))
-      stop("`priors` must be a nestimand_prior object, as returned by nest_prior().")
-    if (!identical(fit, "brm"))
-      stop("translated priors apply to the brms engine; the declared engine is `",
-           fit, "`, which has no prior to state.")
     check_prior_dimension(priors, spec, mode)
     ## a prior for the classes the translation does not cover is combined with
     ## it rather than emitted a second time, which brms would refuse
@@ -423,28 +255,14 @@ nest_fit <- function(spec, formula = NULL, nests = NULL, mode = NULL,
   re_note <- if (!is.null(re) && !identical(re, spec$random_original))
     c(sprintf("## random structure %s", spec$random_original),
       sprintf("## translated to   %s", re),
-      if (identical(random_structure, "reduced"))
-        c(sprintf(paste("## - the structure declared after the bar, varying by group:",
-                        "%d columns, one\n##   for each effect that structure",
-                        "names over the realized conditions."),
-                  length(reduced_columns(spec, declared_terms(spec,
-                    unlist(lapply(bar_terms_of(spec$random_original), function(b)
-                      tryCatch(attr(stats::terms(stats::as.formula(paste("~", b$lhs))),
-                                    "term.labels"), error = function(e) character(0))))))) + 1L),
-          "##   Written over the original factors it would carry columns the data",
-          "##   cannot inform; written as the cell factor it would let everything",
-          "##   vary, including terms the bar does not name.",
-          "##   random_structure = \"cells\" gives that larger covariance if wanted.")
-      else
-        c("## - a random slope written over the original factors carries columns the",
-          "##   data cannot inform: those for conditions that do not exist, and a",
-          "##   further set reconstructable from the others. The cell form has one",
-          "##   column per realized condition, so every parameter is estimable and",
-          "##   nothing has to be held at zero."))
-  ## a declaration made here is part of the code that reproduces the fit
-  spec_code <- if (!is.null(spec_call))
-    c("## the declaration, built from the data and the formula",
-      paste("spec <-", paste(deparse(spec_call), collapse = " ")))
+      "## - a random slope written over the original factors carries columns the",
+      "##   data cannot inform: those for conditions that do not exist, and a",
+      "##   further set reconstructable from the others. The columns above are",
+      "##   the ones the declared structure identifies, so every parameter of",
+      "##   the covariance is estimable and nothing is held at zero.")
+  ## the declaration is part of the code that reproduces the fit
+  spec_code <- c("## the declaration, built from the data and the formula",
+                 paste("spec <-", paste(deparse(spec_call), collapse = " ")))
   code <- c(sprintf("## nestimand %s -- fit", nestimand_build), lib, spec_code,
             mode_note,
             cell_note, aug_code, re_note, prior_note,
@@ -455,20 +273,7 @@ nest_fit <- function(spec, formula = NULL, nests = NULL, mode = NULL,
                      nestimand_code = code))
   env <- new.env(parent = .env)
   assign(spec_name, spec, envir = env)
-  ## `prior_name` may be a call - `nest_prior(spec, ...)` - so that the emitted
-  ## code stands on its own; there is then nothing to assign, the call being
-  ## evaluated where it stands.
-  if (grepl("^[.A-Za-z][.A-Za-z0-9._]*$", prior_name)) {
-    if (!is.null(priors)) assign(prior_name, priors, envir = env)
-    if (!is.null(priors_obj)) assign(prior_name, priors_obj, envir = env)
-  }
-  if (!exists(data_name, envir = env, inherits = TRUE))
-    assign(data_name, data, envir = env)
-  ## the reduced form builds its data in the emitted code, so the frame it
-  ## builds it from has to be reachable there too
-  if (identical(mode, "reduced") && grepl("^[.A-Za-z][.A-Za-z0-9._]*$", raw_data_name) &&
-      !exists(raw_data_name, envir = env, inherits = TRUE))
-    assign(raw_data_name, raw_data, envir = env)
+  if (!is.null(priors)) assign(prior_name, priors, envir = env)
   m <- eval(parse(text = paste(c(code, "m"), collapse = "\n")), envir = env)
   attr(m, "nestimand_code") <- code
   attr(m, "nestimand_mode") <- mode
@@ -485,21 +290,35 @@ nest_fit <- function(spec, formula = NULL, nests = NULL, mode = NULL,
   m
 }
 
-## update() rebuilds the model from its call, which drops everything attached to
-## it. The declaration is reattached here, so a fit that has been simplified -
-## a covariate dropped, a random term reduced - remains usable without the spec
-## having to be supplied again. Whether the updated model still corresponds to
-## the declaration is checked where it matters, by check_model_spec().
-update.nestimand_fit <- function(object, ...) {
-  out <- NextMethod()
+## update() rebuilds the model from its call. That call names the declaration
+## the package built - `spec` - which exists only in the environment nest_fit()
+## evaluated it in, so the default method, which evaluates in the caller's
+## frame, cannot find it. The declaration is put back within reach here and
+## reattached to the result, so a fit that has been simplified - a covariate
+## dropped, a random term reduced - remains usable without anything having to be
+## supplied again. Whether the updated model still corresponds to the
+## declaration is checked where it matters, by check_model_spec().
+update.nestimand_fit <- function(object, formula., ..., evaluate = TRUE) {
+  cl <- stats::getCall(object)
+  if (is.null(cl))
+    stop("this fit carries no call, so it cannot be updated.")
+  if (!missing(formula.))
+    cl$formula <- stats::update.formula(stats::formula(object), formula.)
+  extras <- match.call(expand.dots = FALSE)$...
+  if (length(extras))
+    for (nm in names(extras))
+      if (is.null(extras[[nm]])) cl[[nm]] <- NULL else cl[[nm]] <- extras[[nm]]
+  if (!evaluate) return(cl)
+  e <- new.env(parent = parent.frame())
+  nm <- attr(object, "nestimand_spec_name"); if (is.null(nm)) nm <- "spec"
+  assign(nm, attr(object, "nestimand_spec"), envir = e)
+  out <- eval(cl, e)
   for (a in c("nestimand_spec", "nestimand_spec_name", "nestimand_mode"))
     attr(out, a) <- attr(object, a)
-  cl <- tryCatch(paste(deparse(stats::getCall(out)), collapse = " "),
-                 error = function(e) NULL)
-  attr(out, "nestimand_code") <- if (is.null(cl)) attr(object, "nestimand_code")
-    else c(sprintf("## nestimand %s -- fit, updated from the original call",
-                   nestimand_build),
-           paste("m <-", cl))
+  attr(out, "nestimand_code") <-
+    c(sprintf("## nestimand %s -- fit, updated from the original call",
+              nestimand_build),
+      paste("m <-", paste(deparse(cl), collapse = " ")))
   if (!isS4(out)) class(out) <- unique(c(class(out), "nestimand_fit"))
   out
 }
@@ -543,9 +362,9 @@ resolve_spec <- function(model, spec = NULL) {
   if (inherits(spec, "nesting_spec")) return(spec)
   s <- attr(model, "nestimand_spec")
   if (is.null(s))
-    stop("no `spec` supplied, and this model does not carry one. A model fitted ",
-         "by nest_fit() carries its declaration; one fitted by calling the ",
-         "engine directly does not, so pass the nesting_spec explicitly.")
+    stop("this model was not fitted by nest_fit(), so it carries no ",
+         "declaration of the nesting structure and nothing here can be read ",
+         "against one. Fit it with nest_fit().")
   s
 }
 

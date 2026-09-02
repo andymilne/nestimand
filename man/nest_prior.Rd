@@ -16,8 +16,8 @@ needs no reparameterization: if the effects carry m ~ N(m0, D) then the cell mea
 mu ~ N(A m0, A D A'), and Stan accepts a correlated prior directly.
 }
 \usage{
-nest_prior(spec, mean, sd = NULL, cov = NULL, on = c("effects", 
-           "cells"), family = c("normal", "student_t"), df = 3, covariate_mean = 0,
+nest_prior(spec, mean, sd = NULL, on = c("effects", "cells"),
+           family = c("normal", "student_t"), df = 3, covariate_mean = 0,
            covariate_sd = NULL)
 
 prior_audit(prior, contrasts = NULL) 
@@ -28,8 +28,7 @@ prior_stanvars(prior)
 
 prior_statement(prior) 
 
-prior_from_brms(spec, prior, space = c("effects", "cells"), covariate_mean = 0, 
-                covariate_sd = NULL)
+prior_from_brms(spec, prior, covariate_mean = 0, covariate_sd = NULL)
 }
 \arguments{
   \item{spec}{a \code{nesting_spec} object.}
@@ -40,7 +39,6 @@ prior_from_brms(spec, prior, space = c("effects", "cells"), covariate_mean = 0,
   \item{df}{degrees of freedom for the t family.}
   \item{covariate_mean, covariate_sd}{the prior on the covariate coefficients. A \code{brms} prior of class \code{"b"} covers every population-level coefficient, so a prior stated only on the cells would leave Stan with mismatched dimensions.}
   \item{prior}{a \code{nestimand_prior} object; for \code{prior_from_brms}, a \pkg{brms} prior written as it would be for \code{brm()}.}
-  \item{space}{the space the \code{class = "b"} prior is written in.}
   \item{txt}{a prior string, for \code{parse_normal_prior}.}
   \item{contrasts}{named list of contrast vectors over the realized cells.}
   \item{target}{name of the variable whose levels are contrasted, quoted or bare.}
@@ -58,13 +56,12 @@ through \code{stanvars} rather than as a prior argument. Every other class -
 the thresholds, the random-effects standard deviations and correlations, sigma -
 is passed through untouched, and the two are combined into one call.
 
-\code{prior_space = "cells"} says the prior was written for the fitted
-coefficients and leaves it alone. One combination is impossible: a translated
-prior places a multivariate normal on the coefficients, and
-\code{sample_prior = "yes"} asks \pkg{brms} to draw one prior sample per class
-into a scalar, which Stan rejects as an ill-typed assignment. Draw from the
-prior in a separate run with \code{sample_prior = "only"}, which works, or leave
-the prior in cell space. Only elliptical priors translate exactly, so
+One combination is impossible: a translated prior places a multivariate normal
+on the coefficients, and \code{sample_prior = "yes"} asks \pkg{brms} to draw one
+prior sample per class into a scalar, which Stan rejects as an ill-typed
+assignment. Draw from the prior in a separate run with
+\code{sample_prior = "only"}, which works. Only elliptical priors translate
+exactly, so
 \code{normal} and \code{student_t} are accepted and others refused with the
 alternative named; and because the translation is joint, the class must be
 described in one statement rather than coefficient by coefficient.
