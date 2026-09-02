@@ -1339,6 +1339,98 @@ mfx_draws <- function(x) {
   NULL
 }
 
+## --- the posterior of the estimand -----------------------------------------
+## Both routes carry it, by different means: the linear-map route forms the
+## contrast draw by draw and keeps the result, and the prediction route gets the
+## draws from the engine. Reading them should not depend on which route ran, nor
+## on how the installed marginaleffects happens to store its own - the accessor
+## was renamed and the object grew properties where it had attributes, so a
+## re-export of the engine's accessor would work on one version and not another.
+## The draws are therefore snapshotted here, in one orientation, under one name.
+##
+## Orientation: rows are draws, columns are contrasts, named as the estimand's
+## `term` column names them. That is marginaleffects' `DxP`.
+estimand_draws_from_engine <- function(out) {
+  n <- nrow(as.data.frame(out))
+  m <- mfx_draw_matrix(out)                    # rows = estimand rows, cols = draws
+  if (!is.null(m)) {
+    m <- unclass(m); attr(m, "nestimand_slot") <- NULL
+    if (nrow(m) == n) return(t(m))
+  }
+  ## the long form, when the wide one is not reachable under a name we know
+  drw <- mfx_draws(out)
+  if (is.null(drw)) return(NULL)
+  rid <- intersect(c("rowid", ".rowid", "rowidcf"), names(drw))
+  if (!length(rid)) return(NULL)
+  r <- as.integer(as.factor(drw[[rid[1]]]))
+  d <- as.integer(as.factor(drw$drawid))
+  if (max(r) != n) return(NULL)
+  M <- matrix(NA_real_, max(d), n)
+  M[cbind(d, r)] <- as.numeric(drw$draw)
+  if (anyNA(M)) return(NULL)
+  M
+}
+
+## Name the columns for the contrasts they are, so that draws taken elsewhere
+## carry the same labels as the table they came from.
+name_draw_columns <- function(S, out) {
+  if (is.null(S)) return(NULL)
+  d <- as.data.frame(out)
+  lab <- if ("term" %in% names(d)) as.character(d$term) else NULL
+  grp <- setdiff(intersect(c("stratum", "group"), names(d)), character(0))
+  if (!is.null(lab) && length(grp))
+    lab <- paste0(do.call(paste, c(unname(d[grp]), list(sep = ", "))), ": ", lab)
+  if (!is.null(lab) && length(lab) == ncol(S)) colnames(S) <- lab
+  S
+}
+
+nest_draws <- function(x, shape = c("long", "DxP", "PxD", "rvar")) {
+  shape <- match.arg(shape)
+  ## Several targets give a collection, and its parts are separate estimands
+  ## over the same posterior. Stacked long they are one frame with a `target`
+  ## column, which is what a plot wants; side by side they are one matrix.
+  if (inherits(x, "nestimand_estimands")) {
+    nm <- names(x)
+    if (is.null(nm)) nm <- paste0("[[", seq_along(x), "]]")
+    parts <- lapply(seq_along(x), function(i) {
+      S <- estimand_draws(x[[i]])
+      colnames(S) <- paste0(nm[i], ": ", colnames(S))
+      S
+    })
+    nd <- unique(vapply(parts, nrow, 1L))
+    if (length(nd) != 1L)
+      stop("the parts of this estimand were computed from different numbers of ",
+           "draws, so they cannot be put in one object. Take them one at a ",
+           "time: nest_draws(e[[\"", nm[1], "\"]]).")
+    return(shape_draws(do.call(cbind, parts), shape))
+  }
+  shape_draws(estimand_draws(x), shape)
+}
+
+## The draws matrix an estimand carries, or a refusal that says why there is none.
+estimand_draws <- function(x) {
+  S <- attr(x, "nestimand_draws")
+  if (is.null(S))
+    stop("this estimand carries no posterior draws. They exist for a Bayesian ",
+         "fit; for a frequentist one the interval comes from the model's ",
+         "covariance and there is nothing to draw from. If the fit is a brms ",
+         "one, the estimand predates this and can be recomputed.")
+  S
+}
+
+shape_draws <- function(S, shape) {
+  if (identical(shape, "DxP")) return(S)
+  if (identical(shape, "PxD")) return(t(S))
+  if (identical(shape, "rvar")) {
+    if (!requireNamespace("posterior", quietly = TRUE))
+      stop("shape = \"rvar\" needs the posterior package.")
+    return(posterior::rvar(S))
+  }
+  data.frame(drawid = rep(seq_len(nrow(S)), times = ncol(S)),
+             term = rep(colnames(S), each = nrow(S)),
+             draw = as.numeric(S), row.names = NULL)
+}
+
 add_posterior_summary <- function(out, model) {
   if (!inherits(model, "brmsfit")) return(out)
   d <- tryCatch(as.data.frame(out), error = function(e) NULL)
@@ -1358,6 +1450,11 @@ add_posterior_summary <- function(out, model) {
   out$pd <- as.numeric(pd[match(own, names(pd))])
   out$statistic <- NULL
   out$p.value <- NULL
+  ## and the draws themselves, so nest_draws() reads one attribute whichever
+  ## route produced the estimand
+  if (is.null(attr(out, "nestimand_draws")))
+    attr(out, "nestimand_draws") <-
+      name_draw_columns(estimand_draws_from_engine(out), out)
   out
 }
 

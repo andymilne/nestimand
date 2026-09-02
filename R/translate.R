@@ -565,11 +565,17 @@ mfx_reapply <- function(d, df, flip) {
 
 mfx_canonical <- function(d, levs = NULL) {
   df <- as.data.frame(d)
+  ## every exit keeps the engine's object, not only the one that relabels: an
+  ## early return that coerced was the same fault in a quieter place
+  keep <- function(df) {
+    out <- mfx_reapply(d, df, rep(FALSE, nrow(df)))
+    if (is.null(out)) df else out
+  }
   nm <- mfx_term_column(df)
-  if (is.na(nm)) return(df)
+  if (is.na(nm)) return(keep(df))
   lab <- lapply(df[[nm]], mfx_split_label)
   ok <- lengths(lab) == 2
-  if (!any(ok)) { df$term <- as.character(df[[nm]]); return(df) }
+  if (!any(ok)) { df$term <- as.character(df[[nm]]); return(keep(df)) }
   if (is.null(levs)) levs <- unique(unlist(lab))
   rank_of <- function(z) { i <- match(z, levs); if (is.na(i)) length(levs) + 1L else i }
   ## canonical direction: later declared level minus earlier

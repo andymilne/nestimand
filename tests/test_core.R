@@ -3198,6 +3198,50 @@ chk("draws: a fit whose route runs through the engine keeps the class",
                family = "binomial", nests = "inversion %in% chord_type"))
       inherits(suppressMessages(nest_estimand(m_b, chord_type, policy = "equal",
                bounds = FALSE, self_check = FALSE)), "predictions") })
+## One accessor for the posterior of the estimand, whichever route produced it.
+## Reading the engine's own draws through the engine's own accessor would work
+## on one version of marginaleffects and not the next: the function was renamed
+## and the object grew properties where it had attributes. The draws are
+## snapshotted instead, in one orientation, under one name.
+draws_obj <- local({
+  o <- data.frame(term = c("maj - aug", "maj - dim"), estimate = c(1, 2))
+  attr(o, "posterior_draws") <- matrix(c(0.9, 1.1, 1.8, 2.2), nrow = 2,
+                                       byrow = TRUE)
+  class(o) <- c("predictions", "data.frame")
+  attr(o, "nestimand_draws") <-
+    name_draw_columns(estimand_draws_from_engine(o), o)
+  o
+})
+chk("draws: the engine's draws are snapshotted as draws x contrasts",
+    identical(dim(attr(draws_obj, "nestimand_draws")), c(2L, 2L)) &&
+      identical(colnames(attr(draws_obj, "nestimand_draws")),
+                c("maj - aug", "maj - dim")))
+chk("draws: long is one row per draw per contrast",
+    { d <- nest_draws(draws_obj)
+      identical(names(d), c("drawid", "term", "draw")) && nrow(d) == 4 })
+chk("draws: DxP and PxD are transposes of one another",
+    identical(nest_draws(draws_obj, "DxP"), t(nest_draws(draws_obj, "PxD"))))
+chk("draws: the column means are the estimates they came from",
+    isTRUE(all.equal(unname(colMeans(nest_draws(draws_obj, "DxP"))),
+                     as.data.frame(draws_obj)$estimate)))
+chk("draws: a collection stacks its parts, each named by its target",
+    { coll <- structure(list(chord_type = draws_obj, inversion = draws_obj),
+                        class = "nestimand_estimands")
+      cn <- colnames(nest_draws(coll, "DxP"))
+      length(cn) == 4 && all(grepl("^chord_type: |^inversion: ", cn)) })
+chk("draws: a frequentist estimand is refused with the reason",
+    grepl("exist for a Bayesian fit",
+          err_of(nest_draws(structure(data.frame(a = 1),
+                                      class = c("nestimand_estimand", "data.frame"))))))
+chk("draws: the long form is read when the wide one is not reachable",
+    { o <- data.frame(term = c("a - b", "c - b"), estimate = c(1, 2))
+      class(o) <- c("predictions", "data.frame")
+      lng <- data.frame(rowid = rep(1:2, each = 3), drawid = rep(1:3, 2),
+                        draw = c(1, 1, 1, 2, 2, 2))
+      S <- with(list(), {
+        r <- as.integer(as.factor(lng$rowid)); d <- as.integer(as.factor(lng$drawid))
+        M <- matrix(NA_real_, max(d), max(r)); M[cbind(d, r)] <- lng$draw; M })
+      identical(dim(S), c(3L, 2L)) && identical(colMeans(S), c(1, 2)) })
 chk("draws: the accessor takes whichever spelling the installed version has",
     is.function(mfx_draws) &&
       is.null(mfx_draws(structure(list(), class = "not_a_result"))))

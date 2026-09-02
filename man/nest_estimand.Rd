@@ -1,5 +1,6 @@
 \name{nest_estimand}
 \alias{nest_estimand}
+\alias{nest_draws}
 \alias{print.nestimand_estimand}
 \alias{add_bounds}
 \title{Estimands in the original variable space}
@@ -16,6 +17,8 @@ nest_estimand(model, target, policy = "equal", at = NULL, contrast = c("pairwise
          data = NULL, bounds = TRUE, self_check = TRUE, dry_run = FALSE,
          by = NULL, ..., .env = parent.frame(), .restrict = NULL)
 
+nest_draws(x, shape = c("long", "DxP", "PxD", "rvar"))
+
 add_bounds(est, model, spec, target, contrast = "pairwise", scale = c("response", 
            "latent"), cells = spec$cells, route = c("g_computation",
            "cells"), data = spec$data, ...)
@@ -23,6 +26,7 @@ add_bounds(est, model, spec, target, contrast = "pairwise", scale = c("response"
 
 }
 \arguments{
+  \item{shape}{the arrangement of the draws. \code{"long"} gives one row per draw per contrast, with \code{drawid}, \code{term} and \code{draw}; \code{"DxP"} a matrix of draws by contrasts; \code{"PxD"} its transpose; \code{"rvar"} a \pkg{posterior} random variable. The names match \pkg{marginaleffects}.}
   \item{model}{a fitted model, ideally from \code{\link{nest_fit}}.}
   \item{spec}{a \code{nesting_spec} object, needed only for a model fitted by calling the engine directly: a fit from \code{\link{nest_fit}} carries its own.}
   \item{target}{the variable whose levels are contrasted, quoted or bare. Several may be named at once, and the formula operators carry their usual meaning: \code{c(chord_type, inversion)} computes each in turn, \code{chord_type:inversion} gives the interaction alone, and \code{chord_type * inversion} gives both variables and their interaction, as in a model formula. The target is expanded as a formula expands its right-hand side, by the formula machinery itself, so any combination of operators and brackets means what it would mean there: \code{chord_type * inversion * top_note} returns the three variables, the three two-variable interactions and the three-variable one, and \code{chord_type * (inversion + top_note)} returns the three variables and the two interactions with \code{chord_type}, but not \code{inversion:top_note}. The results are named for the terms, in the order a formula writes them. An interaction naming only some of the design variables is formed on conditions averaged over the rest.}
@@ -55,7 +59,7 @@ and releases.}
   \item{dry_run}{return the code without computing anything. \code{show_code()} prints the code of a result that has already been computed, since the inner call is evaluated first; this is the way to see the code beforehand.}
   \item{...}{passed to \code{marginaleffects::avg_predictions}, which computes the estimand, and written into the saved code: \code{conf_level}, \code{p_adjust}, \code{vcov}, \code{type}, \code{df} and the rest are supplied this way. See \code{?marginaleffects::avg_predictions} for what it accepts. \code{ndraws} thins the posterior of a \pkg{brms} fit and works on either route: passed to the prediction function, or applied to the draws directly. It is the other lever on a large problem, alongside \code{subsample}, and usually the cheaper, since a posterior has far more draws than the quantities they inform. A \code{hypothesis} supplied here replaces the comparison that \code{contrast} would have formed - the two cannot both be sent - and the direction convention goes with it, the labels then being whatever the engine returns. This is the way to ask for comparisons within each level of a grouped output, as an ordinal fit on the response scale produces: \code{hypothesis = ~ pairwise | group}. When \code{type} names the linear predictor the estimand is computed from the coefficients instead, and \code{conf_level} is the only one of these that applies.}
   \item{.env}{environment in which the assembled code is evaluated.}
-  \item{x}{an estimand, for printing.}
+  \item{x}{an estimand, or a collection of them, as \code{nest_estimand} returns: what \code{nest_draws} takes the draws from, and what the print methods print.}
   \item{est}{an estimand table, for \code{add_bounds}.}
   \item{cells}{the realized cells the bounds are computed over, matching any restriction applied to the estimand itself.}
   \item{digits}{decimal places for the printed table. The object keeps full precision; only the display is rounded.}
@@ -174,14 +178,17 @@ effects on two machines.
 policy, contrast, scale, bounds, self-check result, and code in its \code{nestimand}
 attribute; \code{\link{show_code}} prints it.
 
-Where the estimand was computed by prediction, the \pkg{marginaleffects} result is kept
-underneath rather than reduced to a data frame, so that package's own accessors still
-work on it - \code{get_draws()} in particular, which is how a posterior is taken
-elsewhere to be processed or plotted. A contrast written the other way round from the
-declared level order is reported in the canonical direction, and its draws are negated
-with it, so draws and estimates always agree. On the linear-map route
-(\code{type = "eta"}) no prediction is made and there is no such object;
-\code{\link{latent_draws}} gives the draws there, one column per contrast.
+\code{nest_draws} returns the posterior of the estimand itself for a Bayesian fit, in
+whichever of the four shapes is wanted, and does not care which route computed it: the
+linear-map route (\code{type = "eta"}) forms the contrast draw by draw, the prediction
+route takes the draws from the engine, and both are kept on the result under one name
+and one orientation. Reading them through \pkg{marginaleffects} instead would depend on
+the installed version, which renamed its accessor and moved the draws from an attribute
+to a property. A contrast written the other way round from the declared level order is
+reported in the canonical direction and its draws are negated with it, so draws and
+estimates always agree. The \pkg{marginaleffects} result is also kept underneath rather
+than reduced to a data frame, so that package's own accessors still work where they
+apply.
 
 Several targets - \code{chord_type * inversion} - give a collection instead, whose parts
 carry these attributes individually: \code{attr(e[["inversion"]], "nestimand")}, not
