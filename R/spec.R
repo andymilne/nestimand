@@ -34,7 +34,64 @@ nested_names <- function(txt, parent) {
   unique(walk(e))
 }
 
-nesting_spec <- function(data, formula, nests,
+## --- inferring the structure from the data ---------------------------------
+## A partially nested design writes itself into the data: where a variable is
+## structurally undefined it has no value, and the rows where that happens are
+## exactly the rows some other variable's levels pick out. So the declaration
+## can be read off rather than asked for.
+##
+## The rule: `v` is nested within the smallest set of design variables such that,
+## within every combination of their levels, `v` is either always absent or never
+## absent. That is what "structurally undefined here" means, and it is decidable.
+## Where no such set exists the absences are not structural - they are missing
+## data - and saying so is the point: the check distinguishes the two, which is
+## the distinction apply_sentinel() exists to make by hand.
+##
+## Two cases the first version of this got wrong, both worth keeping in view:
+## a parent may itself be absent (that is what a chain is), so its own absence
+## is one of its strata rather than a disqualification; and two variables absent
+## on the same rows each explain the other, which is what siblings look like, so
+## a candidate that is never absent is preferred as the coarser division.
+infer_nests <- function(data, vars, max_parents = 2L) {
+  absent <- lapply(vars, function(v) is.na(data[[v]]))
+  names(absent) <- vars
+  nests <- character(0); notes <- character(0); ambiguous <- character(0)
+  for (v in vars) {
+    if (!any(absent[[v]])) next                     # never absent: crossed
+    if (all(absent[[v]])) {
+      notes <- c(notes, sprintf("`%s` is missing everywhere", v)); next
+    }
+    cand <- setdiff(vars, v); found <- NULL; ties <- list()
+    for (k in seq_len(min(max_parents, length(cand)))) {
+      sets <- utils::combn(cand, k, simplify = FALSE)
+      ok <- Filter(function(P) {
+        key <- do.call(paste, c(lapply(P, function(p)
+          ifelse(absent[[p]], "\r<absent>", as.character(data[[p]]))), sep = "\r"))
+        all(tapply(absent[[v]], key, function(z) length(unique(z)) == 1L))
+      }, sets)
+      if (length(ok)) {
+        solid <- Filter(function(P)
+          !any(vapply(P, function(p) any(absent[[p]]), TRUE)), ok)
+        if (length(solid)) ok <- solid
+        found <- ok[[1]]; ties <- ok; break
+      }
+    }
+    if (is.null(found)) {
+      notes <- c(notes, sprintf(paste(
+        "`%s` is missing on rows that no combination of the other design",
+        "variables picks out, so the gaps are not structural: they are missing",
+        "data, which R would delete casewise and silently"), v))
+    } else {
+      if (length(ties) > 1)
+        ambiguous <- c(ambiguous, sprintf("`%s` (%s)", v,
+          paste(vapply(ties, paste, "", collapse = ":"), collapse = " or ")))
+      nests <- c(nests, sprintf("%s %%in%% %s", v, paste(found, collapse = ":")))
+    }
+  }
+  list(nests = nests, notes = notes, ambiguous = ambiguous)
+}
+
+nesting_spec <- function(data, formula, nests = NULL,
                          fit = c("lm", "glm", "lmer", "glmer", "clm", "clmm", "brm"),
                          family = NULL, random = NULL,
                          cell_name = "cell") {
@@ -59,10 +116,61 @@ nesting_spec <- function(data, formula, nests,
   ## reading, or a bare name for a variable nested in nothing. Everything
   ## unquoted is carried as its own text and read below; a value that is already
   ## a vector of declarations is taken as it stands.
+  ## Omitted, the declaration is read off the data: the variables the formula
+  ## names, and which of them is undefined where. What was inferred is said, in
+  ## the syntax the user would have written, so it can be checked and overridden.
+  ## Inference sees the sample, not the design: gaps that are regular but not
+  ## structural - a block of trials lost for one condition - look exactly like a
+  ## nesting, which is why this is announced rather than done quietly.
+  inferred <- NULL
+  ## tested on the expression, not the value: `nests` is unquoted more often
+  ## than not, and `dose %in% arm` names columns rather than objects, so forcing
+  ## the promise merely to ask whether it is NULL would evaluate it and fail
+  ne0 <- substitute(nests)
+  if (missing(nests) || is.null(ne0)) {
+    cvars <- unique(unlist(strsplit(
+      attr(stats::terms(formula), "term.labels")[
+        !grepl("|", attr(stats::terms(formula), "term.labels"), fixed = TRUE)],
+      ":", fixed = TRUE)))
+    cvars <- cvars[cvars %in% names(data)]
+    cvars <- cvars[vapply(cvars, function(v)
+      is.factor(data[[v]]) || is.character(data[[v]]) || is.logical(data[[v]]), TRUE)]
+    inf <- infer_nests(data, cvars)
+    if (length(inf$notes)) stop(paste(inf$notes, collapse = " "),
+      ". Supply `nests` to declare the structure yourself, or apply_sentinel() ",
+      "to mark which rows are structurally undefined.")
+    if (length(inf$ambiguous))
+      stop("the structure cannot be read off the data: ",
+           paste(inf$ambiguous, collapse = "; "), " each explain the same gaps ",
+           "equally well, so which is the parent is not something the data ",
+           "says. Supply `nests`.")
+    nests <- inf$nests
+    inferred <- nests
+    message(if (!length(nests))
+      "no structurally undefined values found, so nothing is nested: the design is fully crossed."
+      else paste0("nesting structure read from the data: nests = ",
+                  if (length(nests) == 1) paste0('"', nests, '"') else
+                    paste0("c(", paste(sprintf('"%s"', nests), collapse = ", "), ")"),
+                  ". Every variable is undefined exactly where its parent's levels say ",
+                  "it should be, which is what makes this readable off the data rather ",
+                  "than guessed. Supply `nests` yourself to declare something else."))
+    ## the undefined rows are now known to be structural, so they can be given
+    ## the sentinel the rest of the package is built on
+    for (z in nests) {
+      v <- trimws(strsplit(z, "%in%")[[1]][1])
+      ## `where` is the absences themselves: the inference has just established
+      ## that they are structural, so the check apply_sentinel() makes with it
+      ## can only pass, and passing it keeps the warning for the unchecked case
+      if (anyNA(data[[v]]))
+        data <- apply_sentinel(data, v, where = is.na(data[[v]]))
+    }
+  }
   ne <- substitute(nests)
   ne_txt <- paste(deparse(ne), collapse = " ")
   ne_val <- tryCatch(eval(ne, parent.frame()), error = function(e) NULL)
+  if (!is.null(inferred)) { ne <- NULL; ne_val <- inferred }
   nests <- if (is.character(ne_val)) ne_val
+  else if (is.null(ne)) ne_val
   else if (is.name(ne)) ne_txt
   else if (is.call(ne) && identical(ne[[1]], as.name("c")))
     vapply(as.list(ne)[-1], function(x)

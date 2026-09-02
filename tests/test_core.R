@@ -287,6 +287,103 @@ chk("estimand: supplied policy is written into the code verbatim",
         attr(estimand(m, chord_type, spec = sp, policy = c("0" = .5, "1" = .3, "2" = .2),
              bounds = FALSE, self_check = FALSE), "nestimand")$code, fixed = TRUE)))
 
+## ---- declaring and fitting in one call ------------------------------------
+## The declaration and the fit are one step unless the user wants them apart,
+## and the structure is read off the data when it is not given: a variable is
+## structurally undefined exactly where its parent's levels say, and that is
+## decidable rather than something to be asked for.
+one_d <- local({
+  one_rows <- list()
+  for (one_ct in c("aug", "dim", "min", "maj")) {
+    one_ivs <- if (one_ct == "aug") NA else c("0", "1", "2")
+    for (one_iv in one_ivs) for (one_tp in c("t1", "t2"))
+      one_rows[[length(one_rows) + 1]] <-
+        data.frame(chord_type = one_ct, inversion = one_iv, top = one_tp)
+  }
+  one_z <- do.call(rbind, one_rows); one_z <- one_z[rep(seq_len(nrow(one_z)), each = 6), ]
+  for (one_v in c("chord_type", "inversion", "top")) one_z[[one_v]] <- factor(one_z[[one_v]])
+  set.seed(2); one_z$response <- rnorm(nrow(one_z), 4); one_z
+})
+one_sent <- apply_sentinel(one_d, "inversion", where = is.na(one_d$inversion))
+chk("infer: the structure is read off the structural NAs",
+    identical(infer_nests(one_d, c("chord_type", "inversion", "top"))$nests,
+              "inversion %in% chord_type"))
+chk("infer: a chain is found, the middle variable being absent too",
+    { one_z <- do.call(rbind, lapply(c("aug", "dim"), function(one_ct) {
+        one_ivs <- if (one_ct == "aug") NA else c("0", "1", "2")
+        do.call(rbind, lapply(one_ivs, function(one_iv) {
+          one_zs <- if (is.na(one_iv) || one_iv == "2") NA else c("z1", "z2")
+          do.call(rbind, lapply(one_zs, function(one_q)
+            data.frame(chord_type = one_ct, inversion = one_iv, Z = one_q))) })) }))
+      identical(infer_nests(one_z, c("chord_type", "inversion", "Z"))$nests,
+                c("inversion %in% chord_type", "Z %in% inversion")) })
+chk("infer: two siblings take the parent, not each other",
+    { one_z <- do.call(rbind, lapply(c("aug", "dim", "maj"), function(one_ct) {
+        one_a <- if (one_ct == "aug") NA else c("0", "1")
+        one_b <- if (one_ct == "aug") NA else c("p", "q")
+        expand.grid(chord_type = one_ct, inversion = one_a, X1 = one_b) }))
+      identical(infer_nests(one_z, c("chord_type", "inversion", "X1"))$nests,
+                c("inversion %in% chord_type", "X1 %in% chord_type")) })
+chk("infer: a stray NA is missing data, not structure, and says so",
+    { one_z <- one_d; one_z$inversion[which(one_z$chord_type == "dim")[1]] <- NA
+      one_r <- infer_nests(one_z, c("chord_type", "inversion", "top"))
+      !length(one_r$nests) && grepl("not structural", one_r$notes[1], fixed = TRUE) })
+chk("infer: two variables explaining the same gaps is reported, not guessed",
+    { one_z <- one_d; one_z$mode <- factor(ifelse(one_z$chord_type == "aug", "x", "y"))
+      length(infer_nests(one_z, c("chord_type", "inversion", "top", "mode"))$ambiguous) == 1 })
+chk("infer: nesting_spec builds the same declaration either way",
+    { one_a <- suppressMessages(nesting_spec(one_d, response ~ chord_type * inversion * top))
+      one_b <- suppressMessages(nesting_spec(one_sent, response ~ chord_type * inversion * top,
+                                         "inversion %in% chord_type"))
+      identical(sort(as.character(one_a$cells$cell)), sort(as.character(one_b$cells$cell))) &&
+        identical(sentinel_levels(one_a), sentinel_levels(one_b)) &&
+        identical(one_a$parent, one_b$parent) })
+chk("infer: it refuses rather than inventing structure from missing data",
+    { one_z <- one_d; one_z$inversion[which(one_z$chord_type == "dim")[1]] <- NA
+      grepl("not structural",
+            err_of(nesting_spec(one_z, response ~ chord_type * inversion * top)),
+            fixed = TRUE) })
+chk("one call: data and formula fit the same model as the two-step",
+    { one_a <- suppressMessages(nest_fit(one_d, response ~ chord_type * (inversion + top)))
+      one_sp <- suppressMessages(nesting_spec(one_sent,
+              response ~ chord_type * (inversion + top), "inversion %in% chord_type"))
+      one_b <- nest_fit(one_sp)
+      isTRUE(all.equal(unname(coef(one_a)), unname(coef(one_b)))) && !anyNA(coef(one_a)) })
+chk("one call: the declaration is part of the code, which re-runs",
+    { one_a <- suppressMessages(nest_fit(one_d, response ~ chord_type * (inversion + top)))
+      one_cd <- attr(one_a, "nestimand_code")
+      one_env <- new.env(parent = globalenv()); assign("one_d", one_d, one_env)
+      one_r <- suppressMessages(eval(parse(text = paste(c(one_cd, "m"), collapse = "\n")), one_env))
+      any(grepl("spec <- nesting_spec", one_cd)) &&
+        isTRUE(all.equal(coef(one_a), coef(one_r))) })
+chk("one call: a prior may be written before the declaration exists",
+    { one_pend <- nest_prior(mean = 4, sd = 1.5, on = "cells")
+      one_sp <- suppressMessages(nesting_spec(one_sent, response ~ chord_type * inversion,
+                                          "inversion %in% chord_type", fit = "brm"))
+      one_a <- resolve_prior(one_pend, one_sp)
+      one_b <- nest_prior(one_sp, mean = 4, sd = 1.5, on = "cells")
+      inherits(one_pend, "nestimand_prior_pending") &&
+        isTRUE(all.equal(one_a$full_mean, one_b$full_mean)) &&
+        isTRUE(all.equal(one_a$cell_cov, one_b$cell_cov)) })
+chk("one call: and the emitted code names the constructor, so it stands alone",
+    { one_cd <- suppressMessages(attr(nest_fit(one_d, response ~ chord_type * inversion,
+              fit = "brm", dry_run = TRUE,
+              priors = nest_prior(mean = 4, sd = 1.5, on = "cells")), "nestimand_code"))
+      any(grepl("nest_prior(spec, mean = 4, sd = 1.5", one_cd, fixed = TRUE)) })
+chk("one call: data without a formula says what is missing",
+    grepl("it needs a `formula` too",
+          err_of(nest_fit(one_d)), fixed = TRUE))
+chk("one call: a declaration plus a formula is refused as two declarations",
+    { one_sp <- suppressMessages(nesting_spec(one_sent, response ~ chord_type * inversion,
+                                          "inversion %in% chord_type"))
+      grepl("already carries one", err_of(nest_fit(one_sp, formula = response ~ chord_type)),
+            fixed = TRUE) })
+chk("one call: the engine belongs to the declaration, and cannot be reset here",
+    { one_sp <- suppressMessages(nesting_spec(one_sent, response ~ chord_type * inversion,
+                                          "inversion %in% chord_type"))
+      grepl("engine belongs to the declaration", err_of(nest_fit(one_sp, fit = "brm")),
+            fixed = TRUE) })
+
 ## ---- nest_fit(): the fitting side ----------------------------------------
 mf <- nest_fit(sp)
 chk("nest_fit: fits the cell parameterization, full rank",

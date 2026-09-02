@@ -225,18 +225,57 @@ random_terms <- function(spec, structure = c("cells", "reduced", "chain",
 }
 
 ## --- the fit ---------------------------------------------------------------
-nest_fit <- function(spec, mode = NULL,
+nest_fit <- function(spec, formula = NULL, nests = NULL, mode = NULL,
                      random_structure = c("cells", "reduced", "chain", "as_declared"),
                      data = NULL, engine = "marginaleffects",
-                     dry_run = FALSE, ..., priors = NULL,
+                     dry_run = FALSE, ..., fit = NULL, family = NULL,
+                     random = NULL, cell_name = "cell", priors = NULL,
                      prior_space = c("effects", "cells"), .env = parent.frame()) {
+  ## The declaration and the fit are one step unless the user wants them apart.
+  ## `spec` takes either the declaration or the data it would be built from, and
+  ## the constructor is called here with the user's own expressions rather than
+  ## their values, so that nesting_spec() sees `nests` unevaluated - which is
+  ## what lets `inversion %in% chord_type` be written unquoted - and names the
+  ## data frame as the user named it.
+  spec_call <- NULL
+  if (is.data.frame(spec)) {
+    if (is.null(formula))
+      stop("nest_fit() was given data rather than a declaration, so it needs a ",
+           "`formula` too: nest_fit(data, response ~ a * b, \"b %in% a\"). ",
+           "`nests` may be left out, in which case the structure is read from ",
+           "the data - a variable's structurally undefined rows being marked NA.")
+    cl0 <- match.call()
+    args <- list(quote(nesting_spec), data = cl0$spec, formula = cl0$formula)
+    if (!is.null(cl0$nests)) args$nests <- cl0$nests
+    for (nm in c("fit", "family", "random", "cell_name"))
+      if (!is.null(cl0[[nm]])) args[[nm]] <- cl0[[nm]]
+    spec_call <- as.call(args)
+    spec <- eval(spec_call, .env)
+  } else if (!is.null(formula) || !is.null(nests))
+    stop("`formula` and `nests` describe a declaration that has not been made ",
+         "yet, and `spec` already carries one. Pass the data as the first ",
+         "argument to build a declaration here, or leave them out.")
   ## `priors` and `prior_space` sit after the dots: both would otherwise be
   ## partial-matched by brms's own `prior`, which must reach the engine.
   prior_space <- match.arg(prior_space)
   rs_default <- missing(random_structure)
+  ## `fit` names the engine on the declaration, not here: once the spec exists
+  ## it has already been settled, and taking it twice would let the two disagree
+  if (!is.null(fit) && is.null(spec_call) && !identical(fit, spec$fit))
+    stop("`fit = \"", fit, "\"` was given, but this declaration was made with ",
+         "fit = \"", spec$fit, "\". The engine belongs to the declaration; ",
+         "change it there, or pass the data to nest_fit() and declare here.")
   random_structure <- match.arg(random_structure)
-  spec_name  <- deparse(substitute(spec))
+  spec_name  <- if (is.null(spec_call)) deparse(substitute(spec)) else "spec"
   prior_name <- deparse(substitute(priors))
+  ## A prior may have been written before the declaration existed, which is what
+  ## the one-call form requires: it is dimensioned here, against the spec, and
+  ## the emitted code names the constructor so that it stands on its own.
+  if (inherits(priors, "nestimand_prior_pending")) {
+    prior_name <- paste(deparse(as.call(c(quote(nest_prior),
+      list(as.name(spec_name)), priors$call))), collapse = " ")
+    priors <- resolve_prior(priors, spec, .env)
+  }
   data_name <- if (missing(data) || is.null(substitute(data)))
     paste0(spec_name, "$data") else paste(deparse(substitute(data)), collapse = " ")
   if (is.null(data)) { data <- spec$data; data_name <- paste0(spec_name, "$data") }
@@ -477,7 +516,12 @@ nest_fit <- function(spec, mode = NULL,
           "##   uninformative columns instead."))
   relevel_code <- if (identical(mode, "effects"))
     sentinel_relevel_code(spec, data_name)
-  code <- c(sprintf("## nestimand %s -- fit", nestimand_build), lib, mode_note,
+  ## a declaration made here is part of the code that reproduces the fit
+  spec_code <- if (!is.null(spec_call))
+    c("## the declaration, built from the data and the formula",
+      paste("spec <-", paste(deparse(spec_call), collapse = " ")))
+  code <- c(sprintf("## nestimand %s -- fit", nestimand_build), lib, spec_code,
+            mode_note,
             cell_note, relevel_code, aug_code, re_note, prior_note,
             sprintf("m <- %s(%s%s, data = %s%s%s)", fn, f, fam, data_name,
                     prior_txt, dots_txt))

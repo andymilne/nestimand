@@ -5,10 +5,27 @@
 ## the cell means carry mu ~ N(A m0, A D A'), and Stan accepts a correlated
 ## prior directly, so no reparameterization or Jacobian is involved.
 
+## Resolve a prior stated before the declaration existed. Called by nest_fit().
+resolve_prior <- function(priors, spec, .env = parent.frame()) {
+  if (!inherits(priors, "nestimand_prior_pending")) return(priors)
+  do.call(nest_prior, c(list(spec = spec), lapply(priors$call, eval, .env)))
+}
+
 nest_prior <- function(spec, mean, sd = NULL, cov = NULL,
                        on = c("effects", "cells"),
                        family = c("normal", "student_t"), df = 3,
                        covariate_mean = 0, covariate_sd = NULL) {
+  ## A prior is stated against a declaration - it needs to know what the cells
+  ## are - but the declaration need not exist yet. Called without one, this
+  ## records the statement and hands back something nest_fit() resolves against
+  ## the declaration it builds, so a prior can be written in the same call as
+  ## the fit. What is stated is unchanged either way; only when it is dimensioned
+  ## differs.
+  if (missing(spec) || is.null(spec)) {
+    args <- as.list(match.call())[-1]
+    args$spec <- NULL
+    return(structure(list(call = args), class = "nestimand_prior_pending"))
+  }
   on <- match.arg(on)
   family <- match.arg(family)
 

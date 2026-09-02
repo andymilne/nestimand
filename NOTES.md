@@ -1001,3 +1001,59 @@ Three removals in a row, all the same shape: `within` was `by` with a second
 implementation, `interaction` was a second spelling of the target, and before
 them the ancestry closure was a second opinion about the formula. The test worth
 applying to any new argument: is there already a way to say this?
+
+
+## One call, and a structure that reads itself off the data
+
+Two changes, made together because the second is what makes the first worth
+having.
+
+**`nest_fit()` takes the data.** `nest_fit(data, formula, nests, fit = "brm")`
+builds the declaration and fits in one step; `nest_fit(spec)` still works, and
+`nesting_spec()` is still there for inspecting a declaration before committing
+to a fit. The constructor is called with the user's own *expressions* rather
+than their values, so `nests` stays unquoted - `inversion %in% chord_type` names
+columns, not objects - and the data frame is named as the user named it. The
+declaration becomes the first line of the emitted code, so that still re-runs.
+
+The argument that this separation was *structurally* necessary - that priors
+must be stated against a declaration that exists - was wrong. `priors` is an
+argument of `nest_fit()`; what needed a spec was `nest_prior()`. So
+`nest_prior()` called without one now returns a pending statement that
+`nest_fit()` dimensions against the declaration it builds. Same prior either
+way; only when it is dimensioned differs.
+
+**`nests` is optional.** A partially nested design writes itself into the data:
+where a variable is structurally undefined it has no value, and those rows are
+exactly the ones some other variable's levels pick out. `infer_nests()` reads it
+off - `v` is nested within the smallest set of design variables such that,
+within every combination of their levels, `v` is either always absent or never
+absent - and the undefined rows are given a sentinel automatically. So a data
+frame carrying `NA` where a variable does not apply needs no declaration at all.
+
+Two things the first version got wrong, both worth keeping in view:
+
+- **A parent may itself be absent.** In `A > B > Z`, `Z`'s parent is `B`, but
+  `B` is absent on the `A == aug` rows. A candidate parent's own absence is one
+  of its strata, not a disqualification. Without this, chains were not found.
+- **Siblings explain each other.** Two variables absent on the same rows each
+  satisfy the rule for the other. Preferring a candidate that is never absent
+  itself picks the real parent.
+
+What it will not do matters more than what it will:
+
+- A *stray* NA breaks the always/never regularity, so genuine missing data is
+  caught and refused rather than read as structure. That is the safety property
+  the whole idea rests on.
+- A *systematic* gap - a block of trials lost for one condition - is regular,
+  and would be read as a nesting. Inference sees the sample, not the design.
+  This is why what was inferred is always announced, in the syntax the user
+  would have written, and why `nests` remains as an override.
+- Where two variables partition the absences identically the data cannot say
+  which is the parent. It reports both and asks for a declaration.
+
+A third thing, found by the suite rather than by thinking: `chk()` evaluates its
+expression as a promise, so `{ sp <- ... }` inside a check assigns into the
+global frame. A new block near the top of the file quietly clobbered the `sp`
+that forty later checks depend on. Locals in a `chk()` body need names of their
+own.
