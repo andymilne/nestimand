@@ -459,9 +459,11 @@ nesting_spec <- function(data, formula, nests = NULL,
             "conditions, so it is fitted with one coefficient per effect it ",
             "names rather than one per condition. Effects the design cannot ",
             "inform are left out, so what remains is full rank and nothing is ",
-            "held at zero. reduced_design() shows the columns and the effect ",
-            "each one stands for. (This counts the mean structure alone; ",
-            "covariates and random terms multiply those columns.)")
+            "held at zero. The coefficients are named for those columns: ",
+            "nest_summary() reads them back as effects of your own variables, ",
+            "and reduced_design() shows the columns themselves. (This counts ",
+            "the mean structure alone; covariates and random terms multiply ",
+            "those columns.)")
   out
 }
 

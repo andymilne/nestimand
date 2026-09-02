@@ -21,6 +21,13 @@ The model fitted is the one the formula asks for and nothing else: \code{+} betw
 two variables stays \code{+}, on the random side as on the fixed side. What changes is
 only how it is written, so that every coefficient is estimable.
 
+What comes back is the engine's own model object, with the declaration attached to it -
+an \code{lm} is an \code{lm}, a \code{brmsfit} a \code{brmsfit} - so every method the
+engine and \pkg{marginaleffects} provide works on it unchanged. Printing it therefore
+shows the engine's own coefficient names, which are those of the columns the model was
+fitted on. \code{\link{nest_summary}} is how those coefficients are read back as
+effects of your own variables.
+
 The call is assembled as text and evaluated, so the returned fit carries the code that
 produced it and \code{\link{show_code}} can show the whole pipeline - the code that
 ran, not a reconstruction of it. Arguments in \code{...} reach the engine unaltered.
@@ -66,8 +73,11 @@ random_terms(sp)
 }
 \value{
 \code{nest_fit} the fitted model, classed \code{nestimand_fit} behind the
-engine's own classes - so that packages dispatching or validating on
-\code{class(model)[1]} see what they expect - with the code in its
+engine's own classes rather than in front of them. That order is load-bearing:
+\pkg{marginaleffects} resolves which \code{type} values a model supports by
+\code{class(model)[1]}, so an unfamiliar class in front makes the lookup miss - on an
+ordinal fit it then rejects \code{"prob"}, the only response scale such a model has.
+The fit carries the code in its
 \code{nestimand_code} attribute and the declaration in \code{nestimand_spec}, so that
 \code{\link{nest_estimand}} and \code{\link{nest_summary}} can be called on the model
 alone. An \code{update} method carries the declaration across a refit, so a simplified

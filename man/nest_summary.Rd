@@ -3,11 +3,17 @@
 \alias{print.nestimand_summary}
 \title{The fitted model in the original parameterization}
 \description{
-A cell fit carries one coefficient per realized condition, which is what makes
-estimation well posed but is not what a report states. The identified effect
-coefficients are an exact linear function of the cell means, so
-\code{nest_summary} produces the coefficient table a reader expects, with the
-standard errors that follow from the fit, and without refitting anything.
+\code{\link{nest_fit}} returns the engine's own model object, so printing it shows
+the engine's coefficient names - those of the columns the model was fitted on, which
+are the realized conditions where the formula crosses the structure fully and the
+design's own columns where it asks for less. That is what makes estimation well posed
+and is not what a report states. \code{nest_summary} is the reading of that fit: the
+identified effects are an exact linear function of the fitted coefficients, so the
+table a reader expects follows, with the standard errors the fit implies and without
+refitting anything.
+
+\code{space} chooses which of the two readings you get; neither is more raw than the
+other, and both describe the same fitted surface.
 }
 \usage{
 nest_summary(model, space = c("effects", "cells"), conf_level = 0.95, 
