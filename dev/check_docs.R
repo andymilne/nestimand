@@ -25,6 +25,34 @@ for (fl in pages) {
         say(basename(fl), ": `", a, "` usage omits `", p, "`\n")
   }
 }
+## 1b. and so do its defaults. A stale set of choices - `c("cells", "chain",
+## "chain_slope", "as_declared")` three hours after chain_slope was removed -
+## passes a check that only looks for argument names. Each function's own usage
+## lines are taken on their own: searching the whole block lets a default shared
+## with another function on the same page hide a stale one.
+usage_of <- function(x, a) {
+  i <- grep("^\\\\usage\\{$", x); if (!length(i)) return(NULL)
+  j <- grep("^\\}$", x); j <- j[j > i][1]
+  u <- x[(i + 1):(j - 1)]
+  k <- grep(paste0("^", gsub("\\.", "[.]", a), "\\("), u)
+  if (!length(k)) return(NULL)
+  k <- k[1]
+  e <- k
+  while (e < length(u) && nzchar(trimws(u[e + 1])) &&
+         !grepl("^[A-Za-z._][A-Za-z0-9._]*\\(", u[e + 1])) e <- e + 1
+  gsub("\\s+", " ", paste(u[k:e], collapse = " "))
+}
+for (fl in pages) {
+  x <- readLines(fl)
+  for (a in al_of(fl)) {
+    if (!exists(a) || !is.function(get(a))) next
+    u <- usage_of(x, a); if (is.null(u)) next
+    real <- gsub("\\s+", " ", paste(deparse(args(get(a))), collapse = " "))
+    for (d in regmatches(real, gregexpr("c\\([^)]*\\)", real))[[1]])
+      if (!grepl(d, u, fixed = TRUE))
+        say(basename(fl), ": `", a, "` usage gives a stale default, not ", d, "\n")
+  }
+}
 ## 2a. no argument documented twice
 for (fl in pages) {
   it <- sub("^\\s*\\\\item\\{([^}]*)\\}.*", "\\1",

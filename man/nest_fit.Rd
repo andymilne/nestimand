@@ -27,8 +27,7 @@ nest_fit(spec, formula = NULL, nests = NULL, mode = NULL,
          random = NULL, cell_name = "cell", priors = NULL,
          prior_space = c("effects", "cells"), .env = parent.frame())
 
-random_terms(spec, structure = c("cells", "chain", "chain_slope", 
-             "as_declared"))
+random_terms(spec, structure = c("cells", "reduced", "chain", "as_declared"))
 
 random_slope_rank(spec, data = spec$data) 
 
@@ -42,7 +41,7 @@ has_thresholds(spec)
   \item{family}{the family, when the declaration is being made here.}
   \item{random}{the random structure, when the declaration is being made here and it is not written into the formula with a bar.}
   \item{cell_name}{the name of the realized-cell factor, when the declaration is being made here.}
-  \item{mode}{the parameterization; chosen by \code{\link{fitting_mode}} when \code{NULL}, which is what it should normally be left as. A declaration that crosses the structure fully is fitted on the cell factor, whose coefficients are the cell means; one that asks for less is fitted on the reduced design - one column per identified effect, so the model is the one the formula names, no coefficient is aliased, and nothing has to be held at zero.}
+  \item{mode}{the parameterization; chosen by \code{\link{fitting_mode}} when \code{NULL}, which is what it should normally be left as. A formula that crosses the structure fully is fitted on the cell factor, whose coefficients are the condition means; one that asks for less is fitted with one coefficient per effect it names. Either way every coefficient is estimable.}
   \item{random_structure}{how a declared random structure is translated. Chosen to match the mean structure when not given: a declaration that crosses the structure fully gets \code{"cells"}, one that asks for less gets \code{"reduced"}. \code{"reduced"} puts the random effects on the same columns the mean structure is fitted on, so they are deviations in exactly the effects declared and the two sides have the same dimension; a random term naming something the mean structure does not contain is refused, since that is a different model and not what this option expresses. \code{"cells"} gives an unstructured covariance over realized cells, \code{"chain"} for the grouping-factor submodel - one rung per ancestor path, so a chain gives \code{(1|p) + (1|p:a) + (1|p:a:b)} and siblings enter crossed, \code{(1|p:a:b) + (1|p:a:c) + (1|p:a:b:c)}, neither of them made the coarser division - \code{"chain_slope"} for the chain counterpart of the cell covariance, \code{"as_declared"} to pass it through unchanged.}
   \item{data}{data to fit; the spec's data by default.}
   \item{priors}{the package's own translated prior, as \code{\link{nest_prior}} returns. Called without a declaration it returns one that is dimensioned here, against the declaration this call builds or was given, so a prior can be written in the same call as the fit. It governs the mean structure; \pkg{brms}'s own \code{prior} remains the route to everything else - the random-effects standard deviations and correlations, the thresholds, sigma - and the two are combined into one call. A \code{class = "b"} entry in \code{prior} is translated into cell space rather than passed through, since those coefficients are the realized conditions rather than the effects of the original variables; supplying one alongside \code{priors} is refused as two priors for the same structure. It sits after \code{...} and must be named in full, so that \pkg{brms}'s own \code{prior} argument reaches the engine rather than being partial-matched to it.}

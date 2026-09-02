@@ -1189,3 +1189,44 @@ exports in four tables as though they were equals.
   the spec form is offered second, for inspecting before a long fit.
 - Every example uses the current API, and `tools::checkRd()` is clean on all
   twelve pages.
+
+
+## Help files: written for a reader, not from the transcript
+
+A pass over all twelve pages after the rewrite, prompted by one sentence on the
+package page:
+
+> A `+` where the design would admit a `*` is a restriction you stated, and it
+> is fitted as the restriction it is.
+
+That answers a bug fixed the same afternoon, not a question anyone has. A user
+writing `+` expects `+`; saying so advertises a fault that no longer exists and
+invites them to wonder what else happens behind their back. Three kinds of the
+same residue were in the pages:
+
+- **Defensive reassurance** - telling the reader the package does not do
+  something wrong. "nothing is added to it", "fitted as the restriction it is",
+  "nothing has to be held at zero on any engine". The reader had no such fear
+  until it was raised.
+- **Implementation autobiography** - how it works inside, where what is needed is
+  what to expect. "identically zero first, then linearly redundant"; "the two
+  cannot drift apart"; "on the ground that a reader can be expected to have the
+  package installed - which is why the package exports more than three
+  functions".
+- **Vocabulary from the conversation** - "chain fit", "the sentinel", "the whole
+  point", "which is why". `chain fit` appeared twice in `nest_summary.Rd` and is
+  defined nowhere a reader would look.
+
+The replacements say what the reader gets. "The model is fitted over the
+conditions the design realizes, so every coefficient is estimable and none is
+aliased" in place of the column-pruning mechanics; "operators mean in a partially
+nested design what they mean anywhere" in place of the `+`/`*` defence; the
+sentinel described as what it looks like - an explicit level saying the variable
+does not apply - rather than named.
+
+The pass also caught a real staleness the automated check had missed:
+`man/nest_fit.Rd` still gave `random_terms(spec, structure = c("cells", "chain",
+"chain_slope", "as_declared"))`, three hours after `chain_slope` was removed.
+`dev/check_docs.R` verifies that every argument *name* appears in the usage, not
+that the defaults match, so a stale set of choices passed it. That gap is worth
+closing.

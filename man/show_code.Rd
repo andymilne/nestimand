@@ -11,12 +11,11 @@ prints that script and returns it invisibly, so a result can be saved, adapted,
 checked by a reader, or handed to a collaborator who does not use this package
 beyond installing it.
 
-The code is what ran, not a reconstruction of it: \code{\link{nest_fit}} and
-\code{\link{nest_estimand}} assemble the call as text and evaluate that text, so
-the two cannot drift apart. It calls \pkg{nestimand} rather than inlining cell
-tables and weight vectors as literals, on the ground that a reader of the code
-can be expected to have the package installed - which is why the package exports
-more than the three functions an analysis uses.
+The code is what ran rather than a reconstruction of it: the call is assembled as
+text and that text is evaluated. It calls \pkg{nestimand} for the design tables and
+weight vectors rather than writing them out as literals, so running it needs the
+package installed, and editing it - a different policy, another contrast - is a
+matter of changing one argument.
 
 \code{engine_types} reports which \code{type} values the installed
 \pkg{marginaleffects} accepts for a given model, since the vocabulary differs by

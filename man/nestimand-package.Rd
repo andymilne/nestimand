@@ -32,12 +32,8 @@ nest_summary(m)}
 \code{\link{show_code}} returns the script that produced any of them, for
 saving, adapting and re-running.
 }
-\section{What you have to say, and what is worked out}{
-The formula and the nesting structure determine the model between them, and
-nothing is added to it. A \code{+} where the design would admit a \code{*} is a
-restriction you stated, and it is fitted as the restriction it is.
-
-The structure itself need not be stated. Where a variable is undefined it has no
+\section{Declaring the structure, or leaving it to be read}{
+The structure need not be stated. Where a variable is undefined it has no
 value, and those rows are exactly the ones some other variable's levels pick
 out, so \code{\link{nest_fit}} reads the structure off a data frame carrying
 \code{NA}:
@@ -95,18 +91,17 @@ variable declared inside two parents is refused, as is \code{\%in\%} chained
 within one entry - \code{Z \%in\% inversion \%in\% chord_type} is two
 declarations, since \R reads it as \code{(Z \%in\% inversion) \%in\% chord_type}.
 }
-\section{How the model is parameterized}{
-What is fitted is the design your formula gives over the realized cells, with
-the columns that design cannot inform removed: identically zero first, for
-conditions that do not exist, then linearly redundant. What remains is full rank,
-so no coefficient is aliased and nothing has to be held at zero on any engine,
-\pkg{brms} included. Where the formula crosses the structure fully this is the
-cell factor itself, \code{~ 0 + cell}, whose coefficients are the cell means -
-the same model in coordinates that read directly.
+\section{What the model is fitted on}{
+The model is fitted over the conditions the design realizes rather than over the
+full crossing, so every coefficient is estimable and none is aliased. Where the
+formula crosses the structure fully, the coefficients are the condition means
+themselves; where it asks for less, there is one coefficient per effect the
+formula names.
 
-You do not have to think about this to use the package: everything reported is
-stated in the variables you wrote. \code{\link{nesting_spec}} prints the
-structure that will be fitted and how many of the realized cells it spans.
+This does not change how results are read. Everything \code{\link{nest_estimand}}
+and \code{\link{nest_summary}} report is stated in the variables you wrote, and
+\code{\link{nesting_spec}} prints the structure that will be fitted before you
+fit it.
 }
 \section{Other exported functions}{
 Everything else the package exports is machinery. Some of it is worth looking at

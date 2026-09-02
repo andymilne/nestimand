@@ -6,11 +6,11 @@
 \description{
 \code{nesting_spec} validates a declared design, records its nesting families, and
 constructs the factor of realized cells that the fitting functions use.
-Structurally undefined \code{NA} values are converted to an explicit sentinel by
-\code{nesting_spec} itself, checked against the structure - declared or inferred -
-that says which rows should be undefined; an \code{NA} that structure does not
-account for is refused, since \R would otherwise delete the row casewise and
-silently.
+Where a variable does not apply, \code{NA} is replaced by an explicit level saying
+so - \code{"none"} for a factor, \code{0} for a numeric - since \R's model machinery
+would drop those rows instead, and the rows are the design rather than an accident.
+Which rows those are comes from the structure, declared or inferred, so an \code{NA}
+the structure does not account for is reported as missing data rather than converted.
 }
 \usage{
 nesting_spec(data, formula, nests = NULL, fit = c("lm", "glm", "lmer", 
@@ -32,12 +32,10 @@ infer_nests(data, vars, max_parents = 2)
   \item{x}{an object to print.}
 }
 \details{
-Validation is deliberately strict. An \code{NA} the structure does not account for is
-refused, since \R's model machinery would delete those rows silently and the rows are
-the design rather than an accident; a continuous variable in any non-leaf position is
-refused; an ordered-factor outcome sent to an engine that cannot model one is refused;
-and \code{||} on a factor is refused, because it does not give the diagonal covariance
-it is usually taken to give.
+Four things are refused rather than accepted with a warning: an \code{NA} the structure
+does not account for; a continuous variable in any position that nests another; an
+ordered-factor outcome sent to an engine that cannot model one; and \code{||} on a
+factor, which does not give the diagonal covariance it is usually taken to give.
 
 A declared family is a tree: one parent may hold several nested variables, and each
 of those may hold further ones, to any depth. The strata of a nested variable are its
@@ -60,32 +58,21 @@ when it happens, and the printed structure marks the variable, since a variable 
 values are labels is easily left numeric by accident - convert it to a factor first if
 that is what it is.
 
-The formula says what to fit and the \code{nests} argument says which combinations
-exist. Between them they determine the model, and nothing is added to it: a \code{+}
-where the design would admit a \code{*} is a restriction the user stated, and it is
-fitted as the restriction it is. \code{response ~ chord_type + inversion} fits one
-inversion effect shared by every chord type, not a separate one for each.
+The formula says what to fit and \code{nests} says which combinations exist. The model
+is fitted over the conditions the design realizes, so every coefficient is estimable
+and none is aliased. The printed structure shows what will be fitted, and how many of
+the realized cells it spans.
 
-What is fitted is the design that formula gives over the realized cells, with the
-columns that design cannot inform removed - identically zero first, for conditions
-that do not exist, then linearly redundant. What remains is full rank, so no
-coefficient is aliased and nothing has to be held at zero on any engine, \pkg{brms}
-included. \code{~ 0 + cell} is used when, and only when, the formula crosses the
-structure fully, where the two are the same model in different coordinates.
-\code{\link{reduced_design}} shows the columns and the effect each stands for, and
-the printed spec shows the structure that will be fitted, counted in realized cells.
+Operators mean in a partially nested design what they mean anywhere:
+\code{response ~ chord_type + inversion} fits one inversion effect shared by every
+chord type, and \code{chord_type * inversion} fits a separate one for each. Where a
+variable is undefined it contributes nothing, so its coefficients compare only the
+levels that exist - in \code{chord_type + inversion} they read as second inversion
+versus root position, shared across chord types, rather than involving the augmented
+triads in which inversion has no meaning.
 
-The level a nested variable takes where it is undefined - the sentinel - is not a
-value it takes. Rows carrying it contribute nothing to any column that variable helps
-to build, and its contrasts run among the levels that exist. So in
-\code{chord_type + inversion} the inversion coefficients read as inversion effects -
-second inversion versus root position, shared across chord types - rather than as
-comparisons against whichever stratum the sentinel stands for.
-
-The random side follows the same rule: a random structure that asks for less than the
-saturated one is fitted on the same columns rather than enlarged to an unstructured
-covariance over every realized condition. See \code{random_structure} in
-\code{\link{nest_fit}}.
+A random structure is translated the same way, to conditions that exist. See
+\code{random_structure} in \code{\link{nest_fit}}.
 }
 \section{Reading the structure from the data}{
 Where a variable is structurally undefined it has no value, and those rows are
@@ -97,8 +84,8 @@ always \code{NA} or never \code{NA}. That is what \dQuote{undefined here} means,
 and it is decidable.
 
 What is inferred is reported in the syntax you would have written, and the
-undefined rows are then given a sentinel automatically, so a data frame carrying
-\code{NA} where a variable does not apply needs no declaration at all.
+undefined rows are then marked automatically, so a data frame carrying \code{NA}
+where a variable does not apply needs no declaration at all.
 
 Two things it will not do, and they matter more than what it will. An \code{NA}
 pattern that no combination of the other variables picks out is not structural -
@@ -106,10 +93,10 @@ it is missing data - and is refused rather than read as a nesting. And where two
 variables partition the absences identically, which is the parent is not something
 the data says: both are reported and a declaration is asked for.
 
-Inference sees the sample rather than the design. A gap that is regular but not
-structural - a block of trials lost for one condition - would be read as a
-nesting, which is why what was inferred is always announced, and why \code{nests}
-remains as an override.
+Inference sees the sample rather than the design: a gap that is regular but not
+structural - a block of trials lost for one condition - looks exactly like a
+nesting. So what was inferred is always printed, and worth reading; \code{nests}
+overrides it.
 }
 \section{What has to be declared}{
 Only the nesting. A categorical variable the formula crosses with the declared
