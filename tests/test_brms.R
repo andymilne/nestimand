@@ -188,7 +188,7 @@ chk("the probability of direction is the larger tail, so at least a half",
         max(mean(dr[["maj - aug"]] > 0), mean(dr[["maj - aug"]] < 0))) < 1e-8)
 chk("the prediction route is summarized from the posterior as well",
     { pr <- suppressMessages(nest_estimand(mb, chord_type, route = "cells",
-              type = "response", bounds = FALSE, self_check = FALSE))
+              type = "response", bounds = FALSE))
       d <- as.data.frame(pr)
       "pd" %in% names(d) && !any(c("statistic", "p.value") %in% names(d)) &&
       all(d$pd >= 0.5) && all(d$pd <= 1) })
@@ -209,7 +209,7 @@ chk("the posterior is wider, as the sampled-group question implies",
 chk("and it agrees with the prediction route asked the same question",
     { pr <- as.data.frame(suppressMessages(nest_estimand(mb, chord_type,
               route = "cells", type = "response", re_formula = NULL,
-              bounds = FALSE, self_check = FALSE)))
+              bounds = FALSE)))
       max(abs(pr$estimate - grp$estimate[match(pr$term, grp$term)])) < 0.05 })
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))

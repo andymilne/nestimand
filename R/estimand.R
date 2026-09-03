@@ -10,7 +10,7 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
                                        "none"),
                           route = c("g_computation", "cells"),
                           weights = NULL, type = NULL, subsample = NULL,
-                          data = NULL, bounds = TRUE, self_check = TRUE,
+                          data = NULL, bounds = TRUE,
                           dry_run = FALSE, by = NULL, ...,
                           .env = parent.frame(), .restrict = NULL) {
   ## The declaration travels with the fit, so the model alone is enough.
@@ -20,6 +20,25 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
   ## target's levels. What is contrasted comes from the target - a `:` target is
   ## an interaction - and where the contrasts are formed comes from `by`.
   contrast <- match.arg(contrast)
+  ## An argument that has been removed must say so. Swept into `...` it would
+  ## reach marginaleffects, which warns about names it does not know and
+  ## carries on - so a script written against the old signature would keep
+  ## running and quietly mean something else.
+  gone <- intersect(names(as.list(substitute(list(...)))[-1]),
+                    c("self_check", "spec"))
+  if ("self_check" %in% gone)
+    stop("`self_check` has been removed. It re-ran the estimand with the ",
+         "nested factor's levels permuted and warned if the answer moved. ",
+         "Under this parameterization it cannot move: the columns dropped as ",
+         "redundant are chosen by a pivot, but dropping them preserves the ",
+         "column space, so the fitted values on realized conditions - and any ",
+         "estimand computed from them - are the same whatever order the levels ",
+         "are in. The property is asserted by the package's own tests rather ",
+         "than re-checked on every call. Remove the argument.", call. = FALSE)
+  if ("spec" %in% gone)
+    stop("`spec` has been removed: a model fitted by nest_fit() carries its ",
+         "declaration, so the model alone is enough. Remove the argument.",
+         call. = FALSE)
   route <- match.arg(route)
   wq <- substitute(weights)
   ## One argument names the quantity, in the engines' own vocabulary; which
@@ -262,16 +281,11 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
         cbind(z$lab[rep(1L, nrow(b)), , drop = FALSE], b, row.names = NULL)
     })
     bnd <- if (any(vapply(bnd, is.null, TRUE))) NULL else do.call(rbind, bnd)
-    st <- vapply(parts, function(z)
-      attr(z$e, "nestimand")$self_check$status %||% NA_character_, "")
     return(structure(res,
       nestimand = list(build = nestimand_build, target = target, by = byv,
                        policy = policy, at = at, contrast = contrast,
                        scale = m1$scale, type = m1$type, route = route,
                        groups = groups[varies], bounds = bnd,
-                       self_check = if (all(is.na(st))) NULL else
-                         list(status = if (all(st %in% "passed")) "passed"
-                              else paste(unique(st[!is.na(st)]), collapse = "/")),
                        code = code),
       nestimand_bounds = bnd,
       class = c("nestimand_estimand", class(res))))
@@ -731,18 +745,12 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
   ## Wald statistic computed from a posterior covariance is not meaningful.
   out <- add_posterior_summary(out, model)
 
-  check <- if (isTRUE(self_check))
-    reorder_check(model, spec, target, policy, at, contrast, dots_txt, data, scale,
-                  route)
-  else NULL
-
   structure(out,
             nestimand = list(build = nestimand_build, target = target,
                              policy = policy, at = at, contrast = contrast,
                              scale = scale, type = type, route = route,
                              policy_dropped = policy_dropped,
                              bounds = attr(out, "nestimand_bounds"),
-                             self_check = check,
                              code = code),
             class = c("nestimand_estimand", class(out)))
 }
@@ -1068,116 +1076,6 @@ add_bounds <- function(est, model, spec, target, contrast = "pairwise",
   est
 }
 
-## --- the reorder self-check ------------------------------------------------
-## Order instability is impossible under the cell parameterization, so this is
-## a belt-and-braces check on the translation layer rather than on the fit.
-reorder_check <- function(model, spec, target, policy, at, contrast, dots_txt, data,
-                          scale = "response", route = "g_computation") {
-  ## Order instability is a fixed-effects phenomenon: it arises from which
-  ## columns a pivot drops, not from the random structure. Refitting a mixed
-  ## model to test for it is therefore both expensive and unreliable - a large
-  ## random structure can settle on a different optimum, and the estimands then
-  ## differ by an amount that has nothing to do with level order. The check
-  ## accordingly runs on the fixed-effects shadow model: the same cell formula
-  ## fitted without the random terms.
-  shadow <- switch(spec$fit,
-    lmer = "lm", glmer = "glm", clmm = "clm",
-    brm = if (has_thresholds(spec)) "clm" else if (is.null(spec$family)) "lm" else "glm",
-    NULL)
-  converged <- function(fit) {
-    if (inherits(fit, "clm") || inherits(fit, "clmm"))
-      return(isTRUE(fit$convergence$code == 0))
-    if (inherits(fit, "glm")) return(isTRUE(fit$converged))
-    TRUE
-  }
-  fit_shadow <- function(spx, dta) {
-    md <- as.character(fitting_mode(spx))
-    if (identical(md, "reduced")) dta <- with_reduced(spx, dta)
-    f <- cell_formula(spx, md)
-    out <- switch(shadow,
-      lm  = stats::lm(f, data = dta),
-      glm = stats::glm(f, data = dta,
-                       family = eval(parse(text = spx$family %||% "gaussian"))),
-      clm = ordinal::clm(f, data = dta))
-    ## The shadow is fitted here rather than by nest_fit(), so it has to be
-    ## labelled here too: everything downstream reads the parameterization off
-    ## the model, and an unlabelled fit is taken for the cell form. A shadow of
-    ## a restricted declaration is not in the cell form, so the design rows were
-    ## built over conditions whose coefficients the shadow does not have, and
-    ## the check reported the model as one nest_fit() had not produced.
-    attr(out, "nestimand_mode") <- md
-    attr(out, "nestimand_spec") <- spx
-    out
-  }
-  ## The check permutes factor levels and asks whether the estimand moves, so
-  ## it works from the declaration's own data: a subsample taken for the
-  ## estimand may not contain every cell, and rebuilding a spec from it would
-  ## compare a smaller design against the full one.
-  d2 <- spec$data
-  d2[[spec$cell_name]] <- NULL   # rebuilt from the permuted factors below
-  for (v in spec$cell_vars) {
-    lv <- levels(factor(d2[[v]]))
-    d2[[v]] <- factor(d2[[v]], levels = c(lv[1], sample(lv[-1])))
-  }
-  out <- tryCatch({
-    sp2 <- nesting_spec_quiet(spec, d2)
-    if (is.null(shadow)) {
-      m1 <- model
-      m2 <- stats::update(model, data = if (uses_reduced(sp2))
-        with_reduced(sp2, sp2$data) else sp2$data)
-    } else {
-      m1 <- fit_shadow(spec, spec$data); m2 <- fit_shadow(sp2, sp2$data)
-    }
-    ## A shadow that did not converge cannot settle anything: two runs may
-    ## differ because the optimizer stopped in different places, which says
-    ## nothing about the parameterization. Saying so is better than telling
-    ## someone not to report a result that is probably fine.
-    if (!converged(m1) || !converged(m2))
-      return(list(status = "inconclusive",
-                  note = paste("the fixed-effects shadow model did not",
-                               "converge, so a difference between the two",
-                               "orderings would say more about the optimizer",
-                               "than about the parameterization")))
-    d1 <- if (uses_reduced(spec)) with_reduced(spec, spec$data) else spec$data
-    d2b <- if (uses_reduced(sp2)) with_reduced(sp2, sp2$data) else sp2$data
-    e1 <- unname(estimand_values(m1, spec, target, policy, at, contrast,
-                                 d1, scale, route))
-    e2 <- unname(estimand_values(m2, sp2, target, policy, at, contrast,
-                                 d2b, scale, route))
-    note <- if (is.null(shadow)) "estimand unchanged under level permutation"
-            else paste0("estimand unchanged under level permutation (checked on ",
-                        "the fixed-effects shadow model, since order instability ",
-                        "is a fixed-effects phenomenon)")
-    if (length(e1) != length(e2))
-      list(status = "failed", note = "the two runs returned different numbers of contrasts")
-    else if (!isTRUE(all.equal(sort(round(abs(e1), 8)), sort(round(abs(e2), 8)),
-                               tolerance = 1e-8)))
-      list(status = "failed",
-           note = sprintf(paste("max |change| = %s over %d contrasts, checked on",
-                                "the %s scale over the %s grid%s"),
-                          format(max(abs(sort(abs(e1)) - sort(abs(e2))))),
-                          length(e1), chk_scale, chk_route,
-                          if (!is.null(shadow))
-                            paste0(" of a ", shadow, " shadow model") else ""))
-    else list(status = "passed", note = note)
-  }, error = function(e) list(status = "error", note = conditionMessage(e)))
-  if (identical(out$status, "inconclusive"))
-    message("reorder self-check inconclusive: ", out$note, ".")
-  ## An error stopped the check from running, which says nothing about the
-  ## estimand but does mean it went unchecked. It used to be recorded and not
-  ## said, so the only trace was one word in the printed footer.
-  if (identical(out$status, "error"))
-    message("the reorder self-check could not run, so this estimand is ",
-            "unchecked - the estimate itself is unaffected. The check failed ",
-            "with: ", out$note)
-  if (identical(out$status, "failed"))
-    warning("reorder self-check FAILED (", out$note, "): the estimate moved when ",
-            "nested-factor levels were permuted, so this estimand depends on ",
-            "unrealized-cell predictions and is not identified by the design. ",
-            "Do not report it.", call. = FALSE)
-  out
-}
-
 `%||%` <- function(a, b) if (is.null(a)) b else a
 
 ## Set while the parts of `a * b` are computed: each would otherwise repeat
@@ -1185,11 +1083,6 @@ reorder_check <- function(model, spec, target, policy, at, contrast, dots_txt, d
 nestimand_env <- new.env(parent = emptyenv())
 in_star <- function() isTRUE(get0("star", envir = nestimand_env, ifnotfound = FALSE))
 
-nesting_spec_quiet <- function(spec, data) {
-  suppressMessages(nesting_spec(data, spec$formula_in,
-    nests = spec_nests(spec), fit = spec$fit, family = spec$family,
-    random = spec$random_original))
-}
 ## The declarations, rebuilt from the parent map rather than from adjacency in
 ## the family vector, which is not ancestry once a parent holds two children.
 spec_nests <- function(spec)
@@ -1307,15 +1200,7 @@ print.nestimand_estimand <- function(x, digits = 4, ...) {
     "no contrast: policy-weighted predictions" else meta$contrast
   cat("\nPolicy: ", pol, "   route: ", meta$route, "   contrast: ", con,
       "   type: ", meta$type, sep = "")
-  if (!is.null(meta$self_check))
-    cat("   reorder check: ", meta$self_check$status, sep = "")
   cat("\n")
-  ## A check that did not pass is worth the line it takes to say why. Reaching
-  ## the note by hand means knowing that on a several-target estimand the
-  ## attribute sits on each part rather than on the collection, and `attr()`
-  ## returns NULL rather than complaining when it is asked of the collection.
-  if (!is.null(meta$self_check) && !identical(meta$self_check$status, "passed"))
-    cat("  (", meta$self_check$note, ")\n", sep = "")
   if (!is.null(meta$bounds)) {
     cat("Bounds over all admissible policies:\n")
     b <- meta$bounds
