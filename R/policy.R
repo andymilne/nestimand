@@ -97,9 +97,9 @@ nest_policy <- function(spec, target, policy = "equal", at = NULL, data = spec$d
     ## `counterfactual` is the word for two different things here, and neither
     ## of them is a policy: a plausible guess that lands on nothing.
     if (identical(policy, "counterfactual"))
-      stop("`counterfactual` does not name a policy. For the version ",
-           "frequencies the data shows, use policy = \"proportional\"; the grid ",
-           "the model is evaluated over is chosen by `route`.")
+      stop("`counterfactual` does not name a policy. To weight each version by ",
+           "how often it occurs in the data, use policy = \"proportional\"; the ",
+           "grid the model is evaluated over is chosen by `route`.")
     kind <- match.arg(policy, policy_aliases)
     if (kind == "nominated" && is.null(at))
       stop("policy = \"nominated\" places all mass on one version and needs it ",
