@@ -29,6 +29,11 @@ An analysis is three calls.
 e <- nest_estimand(m, chord_type, policy = "equal")
 nest_summary(m)}
 
+The same call gives the predictions the contrasts are formed from, under the same
+policy, so the means and the differences reported cannot disagree:
+
+\preformatted{nest_estimand(m, chord_type, policy = "equal", contrast = "none")}
+
 \code{\link{show_code}} returns the script that produced any of them, for
 saving, adapting and re-running.
 }

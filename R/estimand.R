@@ -6,7 +6,8 @@
 ## marginaleffects, brms - unaltered, and appear in the saved code.
 
 nest_estimand <- function(model, target, policy = "equal", at = NULL,
-                          contrast = c("pairwise", "reference", "sequential"),
+                          contrast = c("pairwise", "reference", "sequential",
+                                       "none"),
                           route = c("g_computation", "cells"),
                           weights = NULL, type = NULL, subsample = NULL,
                           data = NULL, bounds = TRUE, self_check = TRUE,
@@ -64,7 +65,10 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
                     function(z) strsplit(z, ":", fixed = TRUE)[[1]])
     if (!length(vs) && length(inter) == 1L) {
       target <- inter[[1]]
-      contrast <- "interaction"
+      ## `a:b` names a difference of differences - unless no comparison was
+      ## asked for, in which case it names the combinations themselves and the
+      ## interaction machinery has nothing to do
+      if (!identical(contrast, "none")) contrast <- "interaction"
       tg <- NULL
     } else {
       cl <- match.call()
@@ -110,7 +114,8 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
     multi <- vapply(as.list(tg)[-1], function(z)
       if (is.character(z)) z else deparse(z), "")
   else if (tryCatch(is.character(target) && length(target) > 1L &&
-                    !identical(contrast, "interaction"), error = function(e) FALSE))
+                    !identical(contrast, "interaction") &&
+                    !identical(contrast, "none"), error = function(e) FALSE))
     multi <- target
   if (!is.null(multi)) {
     cl <- match.call()
@@ -858,6 +863,19 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
               model_name, tv, spec_name, data_name, dots_txt, draws_txt),
       "est"))
   }
+  ## A target naming several variables with no contrast asked for: one
+  ## prediction per realized combination, which the linear map gives directly
+  ## as the rows of the policy matrix.
+  if (identical(scale, "latent") && length(target) > 1L &&
+      identical(contrast, "none")) {
+    tv <- paste(sprintf('"%s"', target), collapse = ", ")
+    return(c(hdr[1], restrict_note,
+      "## no contrast: one policy-weighted prediction per realized combination",
+      "## of the targets, computed as c'b.",
+      sprintf('est  <- latent_estimand(%s, c(%s), contrast = "none", spec = %s, data = %s%s%s)',
+              model_name, tv, spec_name, data_name, dots_txt, draws_txt),
+      "est"))
+  }
   if (identical(scale, "latent")) {
     body <- c(hdr[1], restrict_note,
       if (!is.null(weights_txt))
@@ -888,6 +906,28 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
                 model_name, spec_name, target, contrast,
                 if (is.null(deg)) "" else ", cells = cells", dots_txt))
     return(c(body, "est"))
+  }
+  if (length(target) > 1L && identical(contrast, "none")) {
+    tv <- paste(sprintf('"%s"', target), collapse = ", ")
+    return(c(hdr, restrict_note,
+      "## no contrast: one policy-weighted prediction per realized combination",
+      "## of the targets. Every combination exists, so no boundary is crossed.",
+      sprintf('pol  <- nest_policy(%s, "%s", "equal"%s)', spec_name,
+              target[length(target)],
+              if (is.null(deg)) "" else ", cells = cells"),
+      if (identical(route, "cells"))
+        c(sprintf('grid <- cell_grid(%s)', spec_name),
+          if (!is.null(deg))
+            sprintf('grid <- grid[as.character(grid$%s) %%in%% as.character(cells$%s), ]',
+                    cn, cn),
+          sprintf('grid$.w <- policy_weights(%s, grid, pol)', spec_name))
+      else
+        sprintf('grid <- counterfactual_grid(%s, %s, pol%s)', spec_name, data_name,
+                if (is.null(deg)) "" else ", cells = cells"),
+      sprintf('est  <- avg_predictions(%s, newdata = grid, by = c(%s), wts = grid$.w%s)',
+              model_name, tv, dots_txt),
+      sprintf('est$term <- do.call(paste, c(unname(est[c(%s)]), list(sep = ", ")))', tv),
+      "est"))
   }
   if (identical(contrast, "interaction")) {
     tv <- paste(sprintf('"%s"', target), collapse = ", ")
@@ -940,7 +980,7 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
         sprintf('grid$.w <- policy_weights(%s, grid, pol)', spec_name))),
     "## estimand in the original variable space: `by =` names an original",
     sprintf("## factor, not the fitted `%s` predictor", cn), re_note,
-    if (user_hyp)
+    if (user_hyp || identical(contrast, "none"))
       c(sprintf('est  <- avg_predictions(%s, newdata = grid, by = "%s", wts = grid$.w%s)',
                 model_name, target, dots_txt))
     else
@@ -948,12 +988,17 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
                 model_name, target),
         sprintf('                        hypothesis = %s%s)',
                 mfx_hypothesis_txt(contrast), dots_txt)),
-    "## contrast direction is fixed by nestimand, not inherited from the engine:",
-    "## later declared level minus earlier, so that it reads as a departure from",
-    "## the reference condition. Engine versions differ on this, and an inherited",
-    "## convention would flip reported signs.",
-    sprintf('est  <- mfx_canonical(est, levels(factor(%s$%s)))',
-            data_name, target))
+    if (identical(contrast, "none"))
+      c("## no contrast: one policy-weighted prediction per level of the target,",
+        "## named in the column every other estimand names its rows in",
+        sprintf('est$term <- as.character(est$%s)', target))
+    else
+      c("## contrast direction is fixed by nestimand, not inherited from the engine:",
+        "## later declared level minus earlier, so that it reads as a departure from",
+        "## the reference condition. Engine versions differ on this, and an inherited",
+        "## convention would flip reported signs.",
+        sprintf('est  <- mfx_canonical(est, levels(factor(%s$%s)))',
+                data_name, target)))
   if (isTRUE(bounds))
     body <- c(body,
       "## partial-identification bounds: every mixture estimand is a convex",
@@ -1194,6 +1239,9 @@ estimand_values <- function(model, spec, target, policy, at, contrast, data,
               d <- d[as.character(d[[spec$cell_name]]) %in%
                      as.character(cells[[spec$cell_name]]), , drop = FALSE]
               d$.w <- policy_weights(spec, d, pol); d })
+  if (identical(contrast, "none"))
+    return(as.data.frame(marginaleffects::avg_predictions(model,
+      newdata = g, by = target, wts = g$.w))$estimate)
   mfx_canonical(as.data.frame(marginaleffects::avg_predictions(model,
     newdata = g, by = target, wts = g$.w, hypothesis = mfx_hypothesis(contrast))),
     levels(factor(data[[target]])))$estimate
@@ -1253,7 +1301,11 @@ print.nestimand_estimand <- function(x, digits = 4, ...) {
   print_aligned(d, ...)
   pol <- if (identical(meta$contrast, "interaction")) "not applicable"
          else if (is.character(meta$policy)) meta$policy else "supplied"
-  cat("\nPolicy: ", pol, "   route: ", meta$route, "   contrast: ", meta$contrast,
+  ## `contrast: none` reads as though something failed. What it means is that
+  ## the rows are the estimand itself rather than differences between its parts.
+  con <- if (identical(meta$contrast, "none"))
+    "no contrast: policy-weighted predictions" else meta$contrast
+  cat("\nPolicy: ", pol, "   route: ", meta$route, "   contrast: ", con,
       "   type: ", meta$type, sep = "")
   if (!is.null(meta$self_check))
     cat("   reorder check: ", meta$self_check$status, sep = "")

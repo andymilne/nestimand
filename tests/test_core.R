@@ -491,9 +491,9 @@ chk("latent: the code view names the linear-map route",
 ## `contrast` decides one thing: which comparisons are formed among the target's
 ## levels. Grouping is `by`, and an interaction is a `:` target. `"within"` was
 ## the first spelled two ways, `"interaction"` the second.
-chk("contrast: it offers the three comparison sets and nothing else",
+chk("contrast: it offers the three comparison sets, and forming none",
     identical(eval(formals(nest_estimand)$contrast),
-              c("pairwise", "reference", "sequential")))
+              c("pairwise", "reference", "sequential", "none")))
 chk("latent: draw-wise translation refuses a frequentist fit",
     grepl("needs a posterior", err_of(latent_draws(m, "chord_type", spec = sp))))
 chk("latent: a model not fitted from this spec is refused",
@@ -3163,6 +3163,59 @@ chk("reorder: and the printed footer carries the reason, not just the word",
       txt <- paste(utils::capture.output(print(e_ok)), collapse = " ")
       grepl("reorder check: error", txt, fixed = TRUE) &&
         grepl("a stated reason", txt, fixed = TRUE) })
+
+## ---- contrast = "none": the predictions the contrasts are formed from -------
+## Each row of the policy matrix is already the policy-weighted average of the
+## design rows for one level of the target. The contrasts are differences
+## between its rows, so asking for none is asking for that matrix itself - and
+## the marginal mean of a partially nested design is policy-dependent in
+## exactly the way a contrast is, which is the argument for taking both from
+## one call rather than from two that could drift apart.
+pred_e <- suppressMessages(nest_estimand(mf, chord_type, policy = "equal",
+                                         contrast = "none"))
+chk("none: one row per level of the target, named by the level",
+    { d <- as.data.frame(pred_e)
+      nrow(d) == 4 && identical(d$term, c("aug", "dim", "min", "maj")) })
+chk("none: the predictions are what the contrasts are differences of",
+    { d <- as.data.frame(pred_e)
+      cd <- as.data.frame(suppressMessages(nest_estimand(mf, chord_type,
+              policy = "equal", bounds = FALSE, self_check = FALSE)))
+      v <- function(z, t) z$estimate[z$term == t]
+      abs((v(d, "maj") - v(d, "aug")) - v(cd, "maj - aug")) < 1e-10 })
+chk("none: the two routes agree, as they must on an identity link",
+    { a <- as.data.frame(suppressMessages(nest_estimand(mf, chord_type,
+             contrast = "none", type = "eta", bounds = FALSE, self_check = FALSE)))
+      b <- as.data.frame(pred_e)
+      max(abs(a$estimate - b$estimate[match(a$term, b$term)])) < 1e-8 })
+chk("none: a level with a single version has bounds that collapse to a point",
+    { b <- attr(pred_e, "nestimand")$bounds
+      abs(b$policy_low[b$term == "aug"] - b$policy_high[b$term == "aug"]) < 1e-10 &&
+        b$policy_high[b$term == "maj"] > b$policy_low[b$term == "maj"] })
+chk("none: the reorder check runs on it and passes",
+    identical(attr(pred_e, "nestimand")$self_check$status, "passed"))
+chk("none: the emitted code re-runs and reproduces it",
+    { p2 <- suppressMessages(nest_estimand(mf, chord_type, contrast = "none",
+              bounds = FALSE, self_check = FALSE))
+      env2 <- new.env(parent = globalenv())
+      assign("mf", mf, env2); assign("spec", attr(mf, "nestimand_spec"), env2)
+      r <- suppressMessages(eval(parse(text = paste(attr(p2, "nestimand")$code,
+                                                    collapse = "\n")), env2))
+      isTRUE(all.equal(as.data.frame(r)$estimate, as.data.frame(p2)$estimate)) })
+chk("none: a nested target reports the levels that exist, not the sentinel",
+    { d <- as.data.frame(suppressMessages(nest_estimand(mf, inversion,
+             contrast = "none", bounds = FALSE, self_check = FALSE)))
+      nrow(d) == 3 && !any(grepl("none", d$term)) })
+chk("none: a target naming two variables gives one row per combination",
+    { d <- as.data.frame(suppressMessages(nest_estimand(mf, chord_type:inversion,
+             contrast = "none", bounds = FALSE, self_check = FALSE)))
+      nrow(d) == 9 && all(grepl(", ", d$term, fixed = TRUE)) })
+chk("none: and the combinations exclude the stratum where one does not vary",
+    { d <- as.data.frame(suppressMessages(nest_estimand(mf, chord_type:inversion,
+             contrast = "none", bounds = FALSE, self_check = FALSE)))
+      !any(grepl("aug", d$term)) })
+chk("none: the footer says what came back rather than `none`",
+    grepl("no contrast: policy-weighted predictions",
+          paste(utils::capture.output(print(pred_e)), collapse = " "), fixed = TRUE))
 
 ## The engine's own result object is the handle its own accessors work through -
 ## get_draws() above all, which is how a posterior is taken elsewhere to be

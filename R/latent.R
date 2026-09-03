@@ -104,7 +104,10 @@ contrast_pairs <- function(levs, contrast = "pairwise") {
                  lapply(seq_len(ncol(ij)), function(k) rev(ij[, k])) },
     reference = lapply(seq_along(levs)[-1], function(j) c(j, 1L)),
     sequential = lapply(seq_along(levs)[-1], function(j) c(j, j - 1L)),
-    stop("contrast must be pairwise, reference, or sequential here."))
+    ## no comparisons: the levels stand as they are, and what is reported is the
+    ## policy-weighted prediction for each rather than a difference between two
+    none = list(),
+    stop("contrast must be pairwise, reference, sequential or none here."))
 }
 
 ## The design of a grid, in the parameterization the fit is in. The effects
@@ -195,8 +198,14 @@ latent_contrast_matrix <- function(model, spec, target, policy = "equal",
                                    at = NULL, contrast = "pairwise",
                                    data = spec$data, cells = NULL,
                                    weights = NULL, route = "g_computation") {
-  if (!identical(contrast, "interaction")) cells <- estimand_cells(spec, target, cells)
-  if (identical(contrast, "interaction")) {
+  ## Several variables named at once are one condition, not several targets:
+  ## an interaction contrasts differences between their combinations, and no
+  ## contrast reports the combinations themselves. Both work over the same
+  ## cells, and neither weighs anything, so neither takes a policy.
+  combo <- identical(contrast, "interaction") ||
+    (identical(contrast, "none") && length(target) > 1L)
+  if (!combo) cells <- estimand_cells(spec, target, cells)
+  if (combo) {
     cells <- estimand_cells(spec, target)
     M <- cell_design_rows(spec, data, cells, model)
     ## Several cells can share one combination of the targets, whenever the
@@ -213,6 +222,11 @@ latent_contrast_matrix <- function(model, spec, target, policy = "equal",
       cells <- cells[vapply(idx, `[`, 1L, 1L), target, drop = FALSE]
       rownames(M) <- NULL; rownames(cells) <- NULL
     }
+    if (identical(contrast, "none")) {
+      rownames(M) <- do.call(paste, c(unname(lapply(target, function(v)
+        as.character(cells[[v]]))), sep = ", "))
+      return(M)
+    }
     H <- interaction_matrix(cells, target)
     C <- t(H) %*% M
     rownames(C) <- colnames(H)
@@ -222,6 +236,10 @@ latent_contrast_matrix <- function(model, spec, target, policy = "equal",
          else nest_policy(spec, target, policy, at, data, cells = cells)
   M <- policy_contrast_matrix(spec, target, pol, data, model, cells = cells,
                               weights = weights, route = route)
+  ## Each row of M is already the policy-weighted average of the design rows for
+  ## one level of the target - the marginal mean. The contrasts are differences
+  ## between its rows, so asking for none is asking for M itself.
+  if (identical(contrast, "none")) return(M)
   levs <- rownames(M)
   prs <- contrast_pairs(levs, contrast)
   C <- do.call(rbind, lapply(prs, function(p) M[p[1], ] - M[p[2], ]))
