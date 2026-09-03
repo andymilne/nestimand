@@ -115,6 +115,33 @@ chk("nesting_spec: and the user's own column is left as it was",
       response ~ chord_type * inversion, "inversion %in% chord_type"))$data$cell,
       sp_cl$cell))
 
+## A design with nothing nested is a legitimate thing to hand the package, and
+## the answer is that it has nothing to add - but it used to say so by claiming
+## every declared nesting variable was continuous, one line after reporting,
+## correctly, that nothing was nested. Two arrivals at one branch, one message.
+chk("crossed: a design with no nesting says so, and names both ways on",
+    { e <- err_of(suppressMessages(nesting_spec(
+        within(dat, inversion <- factor(as.character(inversion))),
+        response ~ chord_type * inversion)))
+      grepl("nothing is nested here", e, fixed = TRUE) &&
+        grepl("Fit it directly", e, fixed = TRUE) &&
+        grepl("name the design variables in `nests` without `%in%`", e,
+              fixed = TRUE) })
+chk("crossed: and it names the variables to put there",
+    grepl('nests = c("chord_type", "inversion")',
+          err_of(suppressMessages(nesting_spec(dat, response ~ chord_type * inversion))),
+          fixed = TRUE))
+chk("crossed: taking that advice gives a working declaration",
+    { sp_x <- suppressMessages(nesting_spec(dat, response ~ chord_type * inversion,
+                nests = c("chord_type", "inversion")))
+      inherits(sp_x, "nesting_spec") && nrow(sp_x$cells) == 10 })
+chk("crossed: the note no longer promises a design the error then refuses",
+    { z <- utils::capture.output(
+        try(nesting_spec(dat, response ~ chord_type * inversion), silent = TRUE),
+        type = "message")
+      any(grepl("nothing is nested", z)) &&
+        !any(grepl("the design is fully crossed[.]$", z)) })
+
 ## ---- cell construction ---------------------------------------------------
 chk("cells: 10 realized of 16 crossed", length(sp$cell_levels) == 10)
 chk("cells: continuous leaf excluded from the cell factor",

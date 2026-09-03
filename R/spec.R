@@ -147,7 +147,9 @@ nesting_spec <- function(data, formula, nests = NULL,
     nests <- inf$nests
     inferred <- nests
     message(if (!length(nests))
-      "no structurally undefined values found, so nothing is nested: the design is fully crossed."
+      paste("no structurally undefined values found, so nothing is nested.",
+            "See the error that follows for what to do with a fully crossed",
+            "design.")
       else paste0("nesting structure read from the data: nests = ",
                   if (length(nests) == 1) paste0('"', nests, '"') else
                     paste0("c(", paste(sprintf('"%s"', nests), collapse = ", "), ")"),
@@ -367,9 +369,32 @@ nesting_spec <- function(data, formula, nests = NULL,
   cat_families  <- lapply(families, function(f) f[!vapply(f, is_cont, TRUE)])
   cont_nested   <- unlist(lapply(families, function(f) f[vapply(f, is_cont, TRUE)]))
   cell_vars     <- unlist(cat_families, use.names = FALSE)
-  if (!length(cell_vars))
-    stop("every declared nesting variable is continuous; there is no ",
-         "categorical structure to form cells from.")
+  ## Two ways to arrive here, and they want different things said. The message
+  ## used to give the second reason for both, so a fully crossed design was told
+  ## its variables were continuous - one line after being told, correctly, that
+  ## nothing was nested.
+  if (!length(cell_vars)) {
+    cvs <- intersect(all.vars(formula), names(data))
+    cvs <- cvs[vapply(cvs, function(v) is.factor(data[[v]]) ||
+                        is.character(data[[v]]) || is.logical(data[[v]]), TRUE)]
+    if (!length(families))
+      stop("nothing is nested here: no variable is undefined at any level of ",
+           "another, so this design is fully crossed and there is no structure ",
+           "for nestimand to translate. Fit it directly - lm(), lmer(), brm() ",
+           "- which will give the same model. If you want the estimand ",
+           "machinery over the full crossing anyway, name the design variables ",
+           "in `nests` without `%in%`",
+           if (length(cvs)) paste0(" - nests = c(\"",
+                                   paste(utils::head(cvs, 3), collapse = "\", \""),
+                                   "\")") else "",
+           " - which folds them into the realized-condition factor.",
+           call. = FALSE)
+    stop("every declared nesting variable is continuous, so there is no ",
+         "categorical structure to form conditions from. A continuous variable ",
+         "enters as a slope rather than as a condition; declare a factor as ",
+         "the structure, or make these factors if their values are labels.",
+         call. = FALSE)
+  }
   key <- do.call(paste, c(unname(data[cell_vars]), sep = "."))
   ord <- do.call(order, unname(data[cell_vars]))
   cell_levels <- unique(key[ord])
