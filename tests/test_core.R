@@ -3218,7 +3218,23 @@ chk("draws: the engine's draws are snapshotted as draws x contrasts",
                 c("maj - aug", "maj - dim")))
 chk("draws: long is one row per draw per contrast",
     { d <- nest_draws(draws_obj)
-      identical(names(d), c("drawid", "term", "draw")) && nrow(d) == 4 })
+      is.data.frame(d) && identical(names(d), c("drawid", "term", "draw")) &&
+        nrow(d) == 4 && is.numeric(d$draw) && is.character(d$term) })
+chk("draws: on a collection the target is its own column, not glued into term",
+    { coll <- structure(list(a = draws_obj, b = draws_obj),
+                        class = "nestimand_estimands")
+      d <- nest_draws(coll)
+      is.data.frame(d) &&
+        identical(names(d), c("drawid", "target", "term", "draw")) &&
+        setequal(unique(d$target), c("a", "b")) &&
+        setequal(unique(d$term), c("maj - aug", "maj - dim")) })
+chk("draws: a stratum is a column too, where the estimand has one",
+    { S <- attr(draws_obj, "nestimand_draws")
+      attr(S, "nestimand_labels") <-
+        data.frame(stratum = c("dim", "dim"), term = colnames(S),
+                   stringsAsFactors = FALSE)
+      z <- draws_obj; attr(z, "nestimand_draws") <- S
+      identical(names(nest_draws(z)), c("drawid", "stratum", "term", "draw")) })
 chk("draws: DxP is a data frame, one row per draw and one column per contrast",
     { d <- nest_draws(draws_obj, "DxP")
       is.data.frame(d) && nrow(d) == 2 &&

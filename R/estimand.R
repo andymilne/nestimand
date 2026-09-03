@@ -1372,15 +1372,37 @@ estimand_draws_from_engine <- function(out) {
 }
 
 ## Name the columns for the contrasts they are, so that draws taken elsewhere
-## carry the same labels as the table they came from.
+## carry the same labels as the table they came from - and keep those labels as
+## a table of their own beside the matrix. A matrix column needs one name, so a
+## stratum has to be glued onto the contrast to keep the names unique; a long
+## frame wants them as separate columns, since that is what a plot facets and
+## colours by. Gluing and then splitting the string again would be guesswork,
+## so both forms are carried from the start.
+draw_labels <- function(out, n) {
+  d <- as.data.frame(out)
+  cols <- intersect(c("stratum", "group", "term"), names(d))
+  if (!length(cols) || nrow(d) != n) return(NULL)
+  lab <- d[cols]
+  for (k in names(lab)) lab[[k]] <- as.character(lab[[k]])
+  row.names(lab) <- NULL
+  lab
+}
+
+glued_names <- function(lab) {
+  if (is.null(lab)) return(NULL)
+  other <- setdiff(names(lab), "term")
+  if (!length(other)) return(lab$term)
+  paste0(do.call(paste, c(unname(lab[other]), list(sep = ", "))), ": ", lab$term)
+}
+
 name_draw_columns <- function(S, out) {
   if (is.null(S)) return(NULL)
-  d <- as.data.frame(out)
-  lab <- if ("term" %in% names(d)) as.character(d$term) else NULL
-  grp <- setdiff(intersect(c("stratum", "group"), names(d)), character(0))
-  if (!is.null(lab) && length(grp))
-    lab <- paste0(do.call(paste, c(unname(d[grp]), list(sep = ", "))), ": ", lab)
-  if (!is.null(lab) && length(lab) == ncol(S)) colnames(S) <- lab
+  lab <- draw_labels(out, ncol(S))
+  nm <- glued_names(lab)
+  if (!is.null(nm) && length(nm) == ncol(S)) {
+    colnames(S) <- nm
+    attr(S, "nestimand_labels") <- lab
+  }
   S
 }
 
@@ -1420,7 +1442,10 @@ nest_draws <- function(x, shape = c("long", "DxP", "PxD", "rvar"),
     if (is.null(nm)) nm <- paste0("[[", seq_along(x), "]]")
     parts <- lapply(seq_along(x), function(i) {
       S <- estimand_draws(x[[i]])
+      lab <- draw_label_frame(S)
+      lab <- cbind(target = nm[i], lab, stringsAsFactors = FALSE)
       colnames(S) <- paste0(nm[i], ": ", colnames(S))
+      attr(S, "nestimand_labels") <- lab
       S
     })
     nd <- unique(vapply(parts, nrow, 1L))
@@ -1428,17 +1453,32 @@ nest_draws <- function(x, shape = c("long", "DxP", "PxD", "rvar"),
       stop("the parts of this estimand were computed from different numbers of ",
            "draws, so they cannot be put in one object. Take them one at a ",
            "time: nest_draws(e[[\"", nm[1], "\"]]).")
-    return(shape_draws(relabel_draws(do.call(cbind, parts), names, nm), shape))
+    S <- do.call(cbind, parts)
+    attr(S, "nestimand_labels") <-
+      do.call(rbind, lapply(parts, function(z) attr(z, "nestimand_labels")))
+    return(shape_draws(relabel_draws(S, names, nm), shape))
   }
   shape_draws(relabel_draws(estimand_draws(x), names,
                             attr(x, "nestimand")$target), shape)
 }
 
+## The label table beside a draws matrix, or one built from its column names for
+## a matrix that never had one - the linear-map route names its columns and has
+## nothing else to say about them.
+draw_label_frame <- function(S) {
+  lab <- attr(S, "nestimand_labels")
+  if (!is.null(lab) && nrow(lab) == ncol(S)) return(lab)
+  data.frame(term = if (is.null(colnames(S))) rep(NA_character_, ncol(S))
+                    else colnames(S), stringsAsFactors = FALSE)
+}
+
 relabel_draws <- function(S, names, prefix = NULL) {
   if (identical(names, "terms")) return(S)
   keep <- colnames(S)
+  lab <- attr(S, "nestimand_labels")
   colnames(S) <- syntactic_terms(keep, prefix)
   attr(S, "nestimand_terms") <- stats::setNames(keep, colnames(S))
+  attr(S, "nestimand_labels") <- lab
   S
 }
 
@@ -1477,9 +1517,16 @@ shape_draws <- function(S, shape) {
       stop("shape = \"rvar\" needs the posterior package.")
     return(posterior::rvar(S))
   }
+  ## Long form is what a plot is built from, so the parts of a label are its own
+  ## columns - `target`, the grouping variables, `term` - rather than one string
+  ## with the pieces glued together. Those are what ggplot facets and colours by.
+  lab <- draw_label_frame(S)
+  idx <- rep(seq_len(ncol(S)), each = nrow(S))
   keep_map(data.frame(drawid = rep(seq_len(nrow(S)), times = ncol(S)),
-                      term = rep(colnames(S), each = nrow(S)),
-                      draw = as.numeric(S), row.names = NULL))
+                      lab[idx, , drop = FALSE],
+                      draw = as.numeric(S),
+                      row.names = NULL, stringsAsFactors = FALSE,
+                      check.names = FALSE))
 }
 
 add_posterior_summary <- function(out, model) {
