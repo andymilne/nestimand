@@ -17,7 +17,8 @@ nest_estimand(model, target, policy = "equal", at = NULL, contrast = c("pairwise
          data = NULL, bounds = TRUE, self_check = TRUE, dry_run = FALSE,
          by = NULL, ..., .env = parent.frame(), .restrict = NULL)
 
-nest_draws(x, shape = c("long", "DxP", "PxD", "rvar"))
+nest_draws(x, shape = c("long", "DxP", "PxD", "rvar"),
+           names = c("terms", "syntactic"))
 
 add_bounds(est, model, spec, target, contrast = "pairwise", scale = c("response", 
            "latent"), cells = spec$cells, route = c("g_computation",
@@ -26,7 +27,8 @@ add_bounds(est, model, spec, target, contrast = "pairwise", scale = c("response"
 
 }
 \arguments{
-  \item{shape}{the arrangement of the draws. \code{"long"} gives one row per draw per contrast, with \code{drawid}, \code{term} and \code{draw}; \code{"DxP"} a matrix of draws by contrasts; \code{"PxD"} its transpose; \code{"rvar"} a \pkg{posterior} random variable. The names match \pkg{marginaleffects}.}
+  \item{shape}{the arrangement of the draws, named as \pkg{marginaleffects} names them. \code{"long"} gives one row per draw per contrast - \code{drawid}, \code{term}, \code{draw}; \code{"DxP"} one row per draw and one column per contrast, which is what a plot is usually built from and what \code{\link{latent_draws}} returns; \code{"PxD"} its transpose, rows named for the contrasts and columns for the draws; \code{"rvar"} a \pkg{posterior} random variable. All but \code{"rvar"} are data frames, where \pkg{marginaleffects} gives the two matrix shapes as matrices - a matrix is one \code{as.matrix()} away where it is wanted. Contrast labels are kept verbatim, so a column is reached as \code{d[["maj - aug"]]}.}
+  \item{names}{how the contrasts are named. \code{"terms"}, the default, uses the labels the estimand reports - \code{maj - aug} - which read well and parse badly. \code{"syntactic"} rewrites them as R names, for handing the draws to something that parses them: \code{brms::hypothesis} splits its argument on the operators before parsing, so a column called \code{maj - aug} is read as arithmetic on parameters \code{maj} and \code{aug}, and backticks do not help. \code{ - } becomes \code{_vs_}, so the direction of the comparison survives; anything else outside a name becomes \code{_}; and a label that would begin with a digit - inversion \code{1 - 0} - takes the target's name in front, giving \code{inversion_1_vs_0}. The labels asked in are returned in the result's \code{nestimand_terms} attribute, so a hypothesis table can be read back in them.}
   \item{model}{a fitted model, ideally from \code{\link{nest_fit}}.}
   \item{spec}{a \code{nesting_spec} object, needed only for a model fitted by calling the engine directly: a fit from \code{\link{nest_fit}} carries its own.}
   \item{target}{the variable whose levels are contrasted, quoted or bare. Several may be named at once, and the formula operators carry their usual meaning: \code{c(chord_type, inversion)} computes each in turn, \code{chord_type:inversion} gives the interaction alone, and \code{chord_type * inversion} gives both variables and their interaction, as in a model formula. The target is expanded as a formula expands its right-hand side, by the formula machinery itself, so any combination of operators and brackets means what it would mean there: \code{chord_type * inversion * top_note} returns the three variables, the three two-variable interactions and the three-variable one, and \code{chord_type * (inversion + top_note)} returns the three variables and the two interactions with \code{chord_type}, but not \code{inversion:top_note}. The results are named for the terms, in the order a formula writes them. An interaction naming only some of the design variables is formed on conditions averaged over the rest.}

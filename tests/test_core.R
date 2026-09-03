@@ -3219,11 +3219,47 @@ chk("draws: the engine's draws are snapshotted as draws x contrasts",
 chk("draws: long is one row per draw per contrast",
     { d <- nest_draws(draws_obj)
       identical(names(d), c("drawid", "term", "draw")) && nrow(d) == 4 })
-chk("draws: DxP and PxD are transposes of one another",
-    identical(nest_draws(draws_obj, "DxP"), t(nest_draws(draws_obj, "PxD"))))
+chk("draws: DxP is a data frame, one row per draw and one column per contrast",
+    { d <- nest_draws(draws_obj, "DxP")
+      is.data.frame(d) && nrow(d) == 2 &&
+        identical(names(d), c("maj - aug", "maj - dim")) &&
+        isTRUE(all.equal(d[["maj - aug"]], c(0.9, 1.1))) })
+chk("draws: PxD is its transpose, rows named for the contrasts",
+    { d <- nest_draws(draws_obj, "PxD")
+      is.data.frame(d) && identical(rownames(d), c("maj - aug", "maj - dim")) &&
+        identical(unname(as.matrix(d)),
+                  t(unname(as.matrix(nest_draws(draws_obj, "DxP"))))) })
 chk("draws: the column means are the estimates they came from",
     isTRUE(all.equal(unname(colMeans(nest_draws(draws_obj, "DxP"))),
                      as.data.frame(draws_obj)$estimate)))
+## brms::hypothesis() splits its argument on the operators before parsing it, so
+## a column called `maj - aug` is read as arithmetic on parameters `maj` and
+## `aug`, and backticks do not rescue it. `names = "syntactic"` is for handing
+## the draws to it.
+chk("draws: syntactic names carry the direction of the comparison",
+    { d <- nest_draws(draws_obj, "DxP", names = "syntactic")
+      identical(names(d), c("maj_vs_aug", "maj_vs_dim")) })
+chk("draws: a label starting with a digit takes the target's name in front",
+    identical(syntactic_terms(c("1 - 0", "2 - 0"), "inversion"),
+              c("inversion_1_vs_0", "inversion_2_vs_0")))
+chk("draws: and a bare V where there is no target to use",
+    identical(syntactic_terms("1 - 0"), "V_1_vs_0"))
+chk("draws: every syntactic name parses as one symbol",
+    { z <- syntactic_terms(c("dim: maj - aug", "chord_type:inversion", "1 - 0"),
+                           "t")
+      all(vapply(z, function(k)
+        tryCatch(is.name(str2lang(k)), error = function(e) FALSE), TRUE)) })
+chk("draws: the labels asked in travel with the renamed draws",
+    { d <- nest_draws(draws_obj, "DxP", names = "syntactic")
+      identical(unname(attr(d, "nestimand_terms")),
+                c("maj - aug", "maj - dim")) })
+chk("draws: and the map survives whichever shape is taken",
+    all(vapply(c("long", "DxP", "PxD"), function(sh)
+      !is.null(attr(nest_draws(draws_obj, sh, names = "syntactic"),
+                    "nestimand_terms")), TRUE)))
+chk("draws: names default to the terms, unchanged",
+    identical(names(nest_draws(draws_obj, "DxP")),
+              c("maj - aug", "maj - dim")))
 chk("draws: a collection stacks its parts, each named by its target",
     { coll <- structure(list(chord_type = draws_obj, inversion = draws_obj),
                         class = "nestimand_estimands")

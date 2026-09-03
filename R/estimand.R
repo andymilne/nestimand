@@ -1384,8 +1384,34 @@ name_draw_columns <- function(S, out) {
   S
 }
 
-nest_draws <- function(x, shape = c("long", "DxP", "PxD", "rvar")) {
+## Contrast labels read well and parse badly: `brms::hypothesis()` splits its
+## argument on the operators, so a name containing a space, a minus, a colon or
+## a comma is read as arithmetic on parameters that do not exist - and backticks
+## do not rescue it, since the splitting happens before the parse. `- ` becomes
+## `_vs_`, which keeps the direction of the comparison legible, and anything
+## else outside a name becomes `_`. A label that would begin with a digit -
+## inversion `1 - 0` - takes the target's name in front, which is more use than
+## a bare `V`. The original labels travel with the result, so a hypothesis table
+## can be read back in the terms it was asked in.
+syntactic_terms <- function(x, prefix = NULL) {
+  z <- gsub(" - ", "_vs_", x, fixed = TRUE)
+  z <- gsub("[^A-Za-z0-9._]+", "_", z)
+  z <- gsub("_+", "_", z)
+  z <- sub("^_+", "", z); z <- sub("_+$", "", z)
+  bad <- !grepl("^[A-Za-z.]", z)
+  if (any(bad)) {
+    p <- if (length(prefix)) gsub("[^A-Za-z0-9._]+", "_", paste(prefix, collapse = "_"))
+         else ""
+    if (!nzchar(p) || !grepl("^[A-Za-z.]", p)) p <- "V"
+    z[bad] <- paste0(p, "_", z[bad])
+  }
+  make.unique(z, sep = "_")
+}
+
+nest_draws <- function(x, shape = c("long", "DxP", "PxD", "rvar"),
+                       names = c("terms", "syntactic")) {
   shape <- match.arg(shape)
+  names <- match.arg(names)
   ## Several targets give a collection, and its parts are separate estimands
   ## over the same posterior. Stacked long they are one frame with a `target`
   ## column, which is what a plot wants; side by side they are one matrix.
@@ -1402,9 +1428,18 @@ nest_draws <- function(x, shape = c("long", "DxP", "PxD", "rvar")) {
       stop("the parts of this estimand were computed from different numbers of ",
            "draws, so they cannot be put in one object. Take them one at a ",
            "time: nest_draws(e[[\"", nm[1], "\"]]).")
-    return(shape_draws(do.call(cbind, parts), shape))
+    return(shape_draws(relabel_draws(do.call(cbind, parts), names, nm), shape))
   }
-  shape_draws(estimand_draws(x), shape)
+  shape_draws(relabel_draws(estimand_draws(x), names,
+                            attr(x, "nestimand")$target), shape)
+}
+
+relabel_draws <- function(S, names, prefix = NULL) {
+  if (identical(names, "terms")) return(S)
+  keep <- colnames(S)
+  colnames(S) <- syntactic_terms(keep, prefix)
+  attr(S, "nestimand_terms") <- stats::setNames(keep, colnames(S))
+  S
 }
 
 ## The draws matrix an estimand carries, or a refusal that says why there is none.
@@ -1418,17 +1453,33 @@ estimand_draws <- function(x) {
   S
 }
 
+## Every shape but `rvar` is a data frame. marginaleffects gives DxP and PxD as
+## matrices; here they are frames, because that is what the draws are then used
+## for - plotted, joined, summarized - and a matrix is one as.matrix() away
+## where it is wanted. Contrast labels are kept verbatim throughout: `maj - aug`
+## is not a syntactic name, and mangling it would break the correspondence with
+## the table the draws came from, so a column is reached as d[["maj - aug"]].
 shape_draws <- function(S, shape) {
-  if (identical(shape, "DxP")) return(S)
-  if (identical(shape, "PxD")) return(t(S))
+  map <- attr(S, "nestimand_terms")
+  keep_map <- function(z) { if (!is.null(map)) attr(z, "nestimand_terms") <- map; z }
+  frame <- function(M) keep_map(as.data.frame(M, check.names = FALSE,
+                                              stringsAsFactors = FALSE))
+  if (identical(shape, "DxP")) return(frame(S))
+  if (identical(shape, "PxD")) {
+    ## rows are the contrasts here, so they are named by them and the draws are
+    ## numbered - a frame with four thousand columns wants its rows labelled
+    M <- t(S)
+    colnames(M) <- paste0("draw", seq_len(ncol(M)))
+    return(frame(M))
+  }
   if (identical(shape, "rvar")) {
     if (!requireNamespace("posterior", quietly = TRUE))
       stop("shape = \"rvar\" needs the posterior package.")
     return(posterior::rvar(S))
   }
-  data.frame(drawid = rep(seq_len(nrow(S)), times = ncol(S)),
-             term = rep(colnames(S), each = nrow(S)),
-             draw = as.numeric(S), row.names = NULL)
+  keep_map(data.frame(drawid = rep(seq_len(nrow(S)), times = ncol(S)),
+                      term = rep(colnames(S), each = nrow(S)),
+                      draw = as.numeric(S), row.names = NULL))
 }
 
 add_posterior_summary <- function(out, model) {
