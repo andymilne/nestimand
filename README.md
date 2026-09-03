@@ -10,13 +10,9 @@ names over the conditions your design actually realizes — full rank, nothing
 aliased, nothing held at zero — and translates grids, labels, draws, priors and
 results back into the variables you wrote.
 
-The model fitted is the one you asked for and nothing else. A `+` between two
-variables stays a `+`, on the random side as on the fixed side. What changes is
-only how it is written, so that every coefficient is estimable.
-
-This matters most for random effects. A random slope written over the original
-factors carries columns for combinations that do not exist: identically zero for
-every group, so no amount of data can identify those dimensions of the
+Random effects are where this matters most. A random slope written over the
+original factors carries columns for combinations that do not exist: identically
+zero for every group, so no amount of data can identify those dimensions of the
 covariance. No engine refuses such a structure — lme4 fits it and reports a
 convergence warning, easily mistaken for sparse data. Written over the columns
 the design does identify, every parameter is estimable, and any covariance

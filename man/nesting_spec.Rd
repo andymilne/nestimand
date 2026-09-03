@@ -20,7 +20,7 @@ infer_nests(data, vars, max_parents = 2)
 }
 \arguments{
   \item{data}{a data frame containing the outcome, the nesting variables, and any covariates.}
-  \item{formula}{the desired model, written freely in ordinary R syntax; crossed terms are welcome and are transformed rather than fitted as given. Random-effects terms may be written here in \code{lme4}/\code{brms} syntax.}
+  \item{formula}{the model, in ordinary R syntax. Random-effects terms may be written here in \code{lme4}/\code{brms} syntax.}
   \item{vars}{for \code{infer_nests}, the design variables among which to look for structure.}
   \item{max_parents}{for \code{infer_nests}, the largest number of variables a nesting is allowed to be inside.}
   \item{nests}{the nesting structure: which variable sits inside which. Quoted or bare - \code{"inversion \%in\% chord_type"}, or \code{c(inv \%in\% chord, doub \%in\% inv)} for a chain. May be omitted, in which case it is read off the data; see \sQuote{Reading the structure from the data} below. Only the nesting is declared: see \sQuote{What has to be declared}.}

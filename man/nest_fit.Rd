@@ -17,10 +17,6 @@ The structure is read off the data, from the rows where a variable is \code{NA}.
 it yourself with \code{nests} when the data does not carry those gaps, or when the
 structure is not the one the data suggests.
 
-The model fitted is the one the formula asks for and nothing else: \code{+} between
-two variables stays \code{+}, on the random side as on the fixed side. What changes is
-only how it is written, so that every coefficient is estimable.
-
 What comes back is the engine's own model object, with the declaration attached to it -
 an \code{lm} is an \code{lm}, a \code{brmsfit} a \code{brmsfit} - so every method the
 engine and \pkg{marginaleffects} provide works on it unchanged. Printing it therefore
@@ -62,8 +58,7 @@ declared structure identifies: over the original factors it would carry columns 
 conditions that do not exist, which no amount of data can inform. A covariance-structure
 wrapper such as \code{diag()} survives translation.
 
-A random term naming something the model formula does not contain is refused rather
-than fitted, since the formula is what the package follows.
+A random term naming something the model formula does not contain is refused.
 
 \preformatted{sp <- nesting_spec(dat, rating ~ chord_type * inversion +
                      (chord_type * inversion | participant),
@@ -72,20 +67,14 @@ random_terms(sp)
 ## (1 + dm_chord_typedim + ... | participant)}
 }
 \value{
-\code{nest_fit} the fitted model, classed \code{nestimand_fit} behind the
-engine's own classes rather than in front of them. That order is load-bearing:
-\pkg{marginaleffects} resolves which \code{type} values a model supports by
-\code{class(model)[1]}, so an unfamiliar class in front makes the lookup miss - on an
-ordinal fit it then rejects \code{"prob"}, the only response scale such a model has.
-The fit carries the code in its
-\code{nestimand_code} attribute and the declaration in \code{nestimand_spec}, so that
+\code{nest_fit} the fitted model, with the code in its \code{nestimand_code}
+attribute and the declaration in \code{nestimand_spec}, so that
 \code{\link{nest_estimand}} and \code{\link{nest_summary}} can be called on the model
-alone. An \code{update} method carries the declaration across a refit, so a simplified
-model remains usable; whether the updated model still corresponds to the declaration is
-checked where that matters. The extra class changes no behaviour: the engine's own
-\code{predict}, \code{summary}, \code{vcov}, and \pkg{marginaleffects} methods apply as
-before. S4 fits are not reclassified. With \code{dry_run = TRUE} an object of class
-\code{nestimand_code} instead.
+alone. \code{update} carries the declaration across a refit, so a simplified model
+remains usable. The class \code{nestimand_fit} is added behind the engine's own, where
+it changes no behaviour: \code{predict}, \code{summary}, \code{vcov} and the
+\pkg{marginaleffects} methods apply as before. S4 fits are not reclassified. With
+\code{dry_run = TRUE} an object of class \code{nestimand_code} instead.
 
 \code{random_terms} a character string: the random structure as it will be written to
 the engine.

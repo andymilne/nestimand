@@ -267,7 +267,7 @@ e2 <- est(nest_policy(sp2, "chord_type", "equal"), model = m2, spec = sp2)
 chk("removed: `self_check` says so rather than being swept into the dots",
     { e <- err_of(suppressMessages(nest_estimand(m, chord_type, self_check = FALSE)))
       grepl("`self_check` has been removed", e, fixed = TRUE) &&
-        grepl("preserves the column space", e, fixed = TRUE) })
+        grepl("Remove the argument", e, fixed = TRUE) })
 chk("removed: and so does `spec`",
     grepl("`spec` has been removed",
           err_of(suppressMessages(nest_estimand(m, chord_type, spec = 1))),

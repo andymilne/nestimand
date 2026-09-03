@@ -102,8 +102,7 @@ The model is fitted over the conditions the design realizes rather than over the
 full crossing, so every coefficient is estimable and none is aliased. Where the
 formula crosses the structure fully, the coefficients are the condition means
 themselves; where it asks for less, there is one coefficient per effect the
-formula names. The random side follows the formula in the same way: a bar is
-fitted on the effects it names, and nothing is added to it.
+formula names, and a random term is fitted on the effects its bar names.
 
 This does not change how results are read. Everything \code{\link{nest_estimand}}
 and \code{\link{nest_summary}} report is stated in the variables you wrote, and

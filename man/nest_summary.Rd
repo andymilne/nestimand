@@ -12,8 +12,8 @@ identified effects are an exact linear function of the fitted coefficients, so t
 table a reader expects follows, with the standard errors the fit implies and without
 refitting anything.
 
-\code{space} chooses which of the two readings you get; neither is more raw than the
-other, and both describe the same fitted surface.
+\code{space} chooses which of the two readings you get; both describe the same
+fitted surface.
 }
 \usage{
 nest_summary(model, space = c("effects", "cells"), conf_level = 0.95, 

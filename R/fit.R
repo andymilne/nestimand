@@ -350,10 +350,8 @@ check_model_spec <- function(model, spec) {
     stop("the model does not contain `", paste(miss, collapse = "`, `"),
          "`, which the declaration nests. Its predictions cannot respond to ",
          "that variable, so averaging over versions would return the weighting ",
-         "the fit already implies - not the policy requested, whatever the ",
-         "output is labelled. On balanced data the two can agree, which is why ",
-         "this is checked rather than left to be noticed. Fit with nest_fit(), ",
-         "or include the declared structure in the model.")
+         "the fit already implies rather than the policy asked for, whatever ",
+         "the output is labelled. Include the declared structure in the model.")
   invisible(TRUE)
 }
 

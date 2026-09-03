@@ -27,14 +27,9 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
   gone <- intersect(names(as.list(substitute(list(...)))[-1]),
                     c("self_check", "spec"))
   if ("self_check" %in% gone)
-    stop("`self_check` has been removed. It re-ran the estimand with the ",
-         "nested factor's levels permuted and warned if the answer moved. ",
-         "Under this parameterization it cannot move: the columns dropped as ",
-         "redundant are chosen by a pivot, but dropping them preserves the ",
-         "column space, so the fitted values on realized conditions - and any ",
-         "estimand computed from them - are the same whatever order the levels ",
-         "are in. The property is asserted by the package's own tests rather ",
-         "than re-checked on every call. Remove the argument.", call. = FALSE)
+    stop("`self_check` has been removed: the estimand it re-checked cannot ",
+         "depend on the order of a factor's levels. Remove the argument.",
+         call. = FALSE)
   if ("spec" %in% gone)
     stop("`spec` has been removed: a model fitted by nest_fit() carries its ",
          "declaration, so the model alone is enough. Remove the argument.",
