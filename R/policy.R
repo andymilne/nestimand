@@ -94,11 +94,12 @@ nest_policy <- function(spec, target, policy = "equal", at = NULL, data = spec$d
                         cells = spec$cells) {
   vs <- versions_of(spec, target, cells)
   if (is.character(policy) && length(policy) == 1L) {
+    ## `counterfactual` is the word for two different things here, and neither
+    ## of them is a policy: a plausible guess that lands on nothing.
     if (identical(policy, "counterfactual"))
-      stop("`counterfactual` named two different things and no longer names a ",
-           "policy. For the empirical version frequencies use ",
-           "policy = \"proportional\"; for the grid on which the model is ",
-           "evaluated use route = \"g_computation\", which is the default.")
+      stop("`counterfactual` does not name a policy. For the version ",
+           "frequencies the data shows, use policy = \"proportional\"; the grid ",
+           "the model is evaluated over is chosen by `route`.")
     kind <- match.arg(policy, policy_aliases)
     if (kind == "nominated" && is.null(at))
       stop("policy = \"nominated\" places all mass on one version and needs it ",

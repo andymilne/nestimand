@@ -5,6 +5,39 @@
 ## are deparsed into that text and so reach the destination function - brms,
 ## marginaleffects, brms - unaltered, and appear in the saved code.
 
+## An argument the package does not have and the prediction function does not
+## have either reaches neither, and would otherwise be carried into `...` and
+## ignored - marginaleffects warns about names it does not know and carries on.
+## Saying which of the two it is not is the difference between an answerable
+## message and a wrong one.
+## `re.form` and `re_formula` are the engine's, not avg_predictions', and are
+## answered further down where the route is known; the rest of the allowance is
+## what works on either route.
+check_dots <- function(dots, allow = c("conf_level", "ndraws",
+                                       "re.form", "re_formula")) {
+  other <- setdiff(names(dots), allow)
+  if (!length(other)) return(invisible(TRUE))
+  mfx_args <- tryCatch(names(formals(marginaleffects::avg_predictions)),
+                       error = function(e) NULL)
+  unknown <- if (length(mfx_args)) setdiff(other, mfx_args) else character(0)
+  if (!length(unknown)) return(invisible(TRUE))
+  near <- function(x) {
+    cand <- setdiff(names(formals(nest_estimand)),
+                    c("...", ".env", ".restrict", "model"))
+    hit <- cand[agrepl(x, cand, max.distance = 0.25, ignore.case = TRUE)]
+    if (!length(hit)) "" else
+      sprintf(" (did you mean `%s`?)", paste(hit, collapse = "`, `"))
+  }
+  stop("`", paste(unknown, collapse = "`, `"), "` ",
+       if (length(unknown) > 1) "are not arguments" else "is not an argument",
+       " of nest_estimand() or of marginaleffects::avg_predictions",
+       paste(vapply(unknown, near, ""), collapse = ""),
+       ". `conf_level` and `ndraws` work on either route; the estimand's own ",
+       "vocabulary is `contrast` for which comparisons are formed among the ",
+       "target's levels, `by` for the levels an estimand is computed within, ",
+       "and a `:` target for an interaction.", call. = FALSE)
+}
+
 nest_estimand <- function(model, target, policy = "equal", at = NULL,
                           contrast = c("pairwise", "reference", "sequential",
                                        "none"),
@@ -20,20 +53,6 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
   ## target's levels. What is contrasted comes from the target - a `:` target is
   ## an interaction - and where the contrasts are formed comes from `by`.
   contrast <- match.arg(contrast)
-  ## An argument that has been removed must say so. Swept into `...` it would
-  ## reach marginaleffects, which warns about names it does not know and
-  ## carries on - so a script written against the old signature would keep
-  ## running and quietly mean something else.
-  gone <- intersect(names(as.list(substitute(list(...)))[-1]),
-                    c("self_check", "spec"))
-  if ("self_check" %in% gone)
-    stop("`self_check` has been removed: the estimand it re-checked cannot ",
-         "depend on the order of a factor's levels. Remove the argument.",
-         call. = FALSE)
-  if ("spec" %in% gone)
-    stop("`spec` has been removed: a model fitted by nest_fit() carries its ",
-         "declaration, so the model alone is enough. Remove the argument.",
-         call. = FALSE)
   route <- match.arg(route)
   wq <- substitute(weights)
   ## One argument names the quantity, in the engines' own vocabulary; which
@@ -374,6 +393,7 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
 
   ## non-core arguments, passed through verbatim to the destination function
   dots <- as.list(substitute(list(...)))[-1]
+  check_dots(dots)
   ## `ndraws` is the engine's own name for thinning a posterior, and it works
   ## on either route: passed through to the prediction function, or applied to
   ## the draws matrix here. The other dimension of the same problem as
@@ -662,6 +682,7 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
         "and a `:` target for an interaction.")
     }
   }
+
   user_hyp <- "hypothesis" %in% names(dots)
   if (user_hyp) {
     if (identical(contrast, "interaction"))

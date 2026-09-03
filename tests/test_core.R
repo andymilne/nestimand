@@ -214,9 +214,11 @@ chk("policy equal: aug - maj = -0.6779",
     abs(val(est(nest_policy(sp, "chord_type", "equal")), "maj - aug") - 0.6779) < 1e-4)
 chk("policy proportional: -0.6779 (balanced data)",
     abs(val(est(nest_policy(sp, "chord_type", "proportional")), "maj - aug") - 0.6779) < 1e-4)
-chk("policy: `counterfactual` no longer names a policy, and says what to use",
-    grepl("route = \"g_computation\"",
-          err_of(nest_policy(sp, "chord_type", "counterfactual"))))
+chk("policy: `counterfactual` is not a policy name, and it says what to use",
+    { e <- err_of(nest_policy(sp, "chord_type", "counterfactual"))
+      grepl("does not name a policy", e, fixed = TRUE) &&
+        grepl("policy = \"proportional\"", e, fixed = TRUE) &&
+        grepl("chosen by `route`", e, fixed = TRUE) })
 chk("policy hierarchical: -0.6779 at depth one",
     abs(val(est(nest_policy(sp, "chord_type", "hierarchical")), "maj - aug") - 0.6779) < 1e-4)
 vert <- vapply(c("0","1","2"), function(iv)
@@ -264,16 +266,19 @@ e2 <- est(nest_policy(sp2, "chord_type", "equal"), model = m2, spec = sp2)
 ## values on realized conditions are invariant to level order. The property is
 ## asserted here instead of on every call - which is what the check beneath this
 ## comment has always done, independently of it.
-chk("removed: `self_check` says so rather than being swept into the dots",
-    { e <- err_of(suppressMessages(nest_estimand(m, chord_type, self_check = FALSE)))
-      grepl("`self_check` has been removed", e, fixed = TRUE) &&
-        grepl("Remove the argument", e, fixed = TRUE) })
-chk("removed: and so does `spec`",
-    grepl("`spec` has been removed",
-          err_of(suppressMessages(nest_estimand(m, chord_type, spec = 1))),
-          fixed = TRUE))
-chk("removed: neither appears in the signature",
-    !any(c("self_check", "spec") %in% names(formals(nest_estimand))))
+chk("dots: an argument neither function has is refused on every route",
+    { d_b <- dat; d_b$bin <- as.integer(d_b$response > stats::median(d_b$response))
+      m_b <- suppressMessages(nest_fit("glm", bin ~ chord_type * inversion, d_b,
+               family = "binomial", nests = "inversion %in% chord_type"))
+      es <- c(err_of(suppressMessages(nest_estimand(m, chord_type, nope = 1))),
+              err_of(suppressMessages(nest_estimand(m_b, chord_type, nope = 1))),
+              err_of(suppressMessages(nest_estimand(m, chord_type, type = "eta",
+                                                    nope = 1))))
+      all(grepl("`nope` is not an argument of nest_estimand()", es, fixed = TRUE)) })
+chk("dots: an argument the prediction function does have is let through",
+    { e <- suppressMessages(nest_estimand(m, chord_type, conf_level = 0.9,
+                                          bounds = FALSE))
+      is.data.frame(as.data.frame(e)) })
 
 chk("reorder: the estimand is unchanged under level permutation",
     isTRUE(all.equal(sort(round(abs(e1$estimate), 8)),
@@ -1940,7 +1945,7 @@ if (requireNamespace("ordinal", quietly = TRUE)) {
       { e <- err_of(nest_estimand(mmm, chord_type, type = "response", bounds = FALSE))
         grepl("does not support models of class", e) &&
         grepl('type = "eta" works', e) })
-  chk("clmm: the message no longer names the retired `scale` argument",
+  chk("clmm: and names only arguments the function has",
       { body <- paste(deparse(ordinal_response_type), collapse = " ")
         !grepl('scale = ..latent', body) })
 }
