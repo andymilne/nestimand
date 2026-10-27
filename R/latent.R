@@ -302,7 +302,8 @@ latent_estimand <- function(model, target, policy = "equal", at = NULL,
     attr(out, "nestimand_cvecs") <- stats::setNames(
       lapply(seq_len(nrow(C)), function(i) stats::setNames(C[i, ], colnames(C))),
       rownames(C))
-    attr(out, "nestimand_draws") <- S
+    ## labelled as the table is, stratum included where there is one
+    attr(out, "nestimand_draws") <- name_draw_columns(S, out)
     return(out)
   }
 

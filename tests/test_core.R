@@ -3254,6 +3254,28 @@ chk("draws: a stratum is a column too, where the estimand has one",
                    stringsAsFactors = FALSE)
       z <- draws_obj; attr(z, "nestimand_draws") <- S
       identical(names(nest_draws(z)), c("drawid", "stratum", "term", "draw")) })
+## `by` computes the estimand once per group and stacks the tables; the groups'
+## draws are stacked with them, the grouping variables becoming label columns.
+chk("draws: an estimand computed within groups keeps its posterior, by group",
+    { shift <- function(v) { o <- draws_obj
+        attr(o, "nestimand_draws") <- attr(o, "nestimand_draws") + v; o }
+      parts <- list(
+        list(g = "dim", e = shift(0), lab = data.frame(chord_type = factor("dim"))),
+        list(g = "maj", e = shift(10), lab = data.frame(chord_type = factor("maj"))))
+      S <- stack_group_draws(parts)
+      z <- draws_obj; attr(z, "nestimand_draws") <- S
+      d <- nest_draws(z)
+      identical(dim(S), c(2L, 4L)) &&
+        identical(colnames(S), c("dim: maj - aug", "dim: maj - dim",
+                                 "maj: maj - aug", "maj: maj - dim")) &&
+        identical(names(d), c("drawid", "chord_type", "term", "draw")) &&
+        isTRUE(all.equal(d$draw[d$chord_type == "maj"] -
+                           d$draw[d$chord_type == "dim"], rep(10, 4))) })
+chk("draws: a frequentist estimand computed within groups still has none",
+    { e <- suppressMessages(nest_estimand(mf, inversion, by = chord_type,
+                                          bounds = FALSE))
+      is.null(attr(e, "nestimand_draws")) &&
+        grepl("carries no posterior draws", err_of(nest_draws(e)), fixed = TRUE) })
 chk("draws: DxP is a data frame, one row per draw and one column per contrast",
     { d <- nest_draws(draws_obj, "DxP")
       is.data.frame(d) && nrow(d) == 2 &&

@@ -1294,3 +1294,16 @@ Points worth recording:
   because nothing said how a covariate had been crossed.
 - **Fits made before this change carry the old formula** and need refitting
   before `nest_summary()` or `nest_estimand()` will read them correctly.
+
+
+## `by` keeps the posterior
+
+`nest_estimand(..., by = )` computes one estimand per group and stacks the
+tables, and the stacking built a new object without the draws, so `nest_draws()`
+told a brms user that the estimand "carries no posterior draws". The groups'
+draws are now stacked with the tables (`stack_group_draws()`): every group is
+computed from the same draws of the same model, so its contrasts are further
+columns of one matrix, and the grouping variables become label columns of the
+long form beside `term` - `drawid, chord_type, term, draw`. The linear-map
+route now labels its draws through `name_draw_columns()`, as the prediction
+route does, so a `stratum` column reaches the long form there too.

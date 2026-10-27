@@ -244,6 +244,16 @@ chk("and reports each coefficient once, with the absorbed reference row",
 chk("estimands run on it",
     nrow(as.data.frame(suppressMessages(nest_estimand(mc, chord_type,
       policy = "equal", bounds = FALSE)))) == 6)
+## `by` stacks one estimand per group, and the groups' draws with them
+chk("an estimand computed within groups keeps its posterior, labelled by group",
+    { eb <- suppressMessages(nest_estimand(mc, inversion, by = chord_type,
+                                           contrast = "none", bounds = FALSE))
+      db <- as.data.frame(eb)
+      d <- nest_draws(eb)
+      m <- tapply(d$draw, paste(d$chord_type, d$term), mean)
+      all(c("chord_type", "term") %in% names(d)) &&
+        nrow(d) == nrow(db) * length(unique(d$drawid)) &&
+        max(abs(m[paste(db$chord_type, db$term)] - db$estimate)) < 0.05 })
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
 cat("If check 2 failed, report the coefficient names printed above: the naming\n")

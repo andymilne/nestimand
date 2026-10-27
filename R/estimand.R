@@ -302,6 +302,7 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
                        groups = groups[varies], bounds = bnd,
                        code = code),
       nestimand_bounds = bnd,
+      nestimand_draws = stack_group_draws(parts),
       class = c("nestimand_estimand", class(res))))
   }
 
@@ -1431,6 +1432,26 @@ relabel_draws <- function(S, names, prefix = NULL) {
   lab <- attr(S, "nestimand_labels")
   colnames(S) <- syntactic_terms(keep, prefix)
   attr(S, "nestimand_terms") <- stats::setNames(keep, colnames(S))
+  attr(S, "nestimand_labels") <- lab
+  S
+}
+
+## The posterior of an estimand computed within groups. Every group is computed
+## from the same draws of the same model, so the groups' contrasts are columns
+## of one matrix, labelled by the grouping variables as the table is. A
+## frequentist fit has no draws in any group, and the estimand carries none.
+stack_group_draws <- function(parts) {
+  Sg <- lapply(parts, function(z) attr(z$e, "nestimand_draws"))
+  if (!length(Sg) || any(vapply(Sg, is.null, TRUE))) return(NULL)
+  if (length(unique(vapply(Sg, nrow, 1L))) != 1L) return(NULL)
+  lab <- do.call(rbind, lapply(seq_along(parts), function(i) {
+    l <- draw_label_frame(Sg[[i]])
+    b <- parts[[i]]$lab[rep(1L, nrow(l)), , drop = FALSE]
+    for (k in names(b)) b[[k]] <- as.character(b[[k]])
+    cbind(b, l, row.names = NULL, stringsAsFactors = FALSE)
+  }))
+  S <- do.call(cbind, lapply(Sg, function(s) { attr(s, "nestimand_labels") <- NULL; s }))
+  colnames(S) <- glued_names(lab)
   attr(S, "nestimand_labels") <- lab
   S
 }
