@@ -2238,13 +2238,14 @@ chk("engine_types: it names the version it read",
           capture.output(print(et))[1], fixed = TRUE))
 
 ## ---- a transformation written into the formula ----------------------------
-## all.vars() sees through I(x^2) to x, so such a term was silently reduced to
-## the untransformed column - and its interaction with the conditions lost.
-chk("declaration: an in-place transformation is refused, not reduced",
-    { e <- err_of(nesting_spec(dat, response ~ chord_type * inversion *
-                                 I(training^2), "inversion %in% chord_type"))
-      grepl("transforms a variable in place", e) &&
-      grepl("as a column of the data", e) })
+## all.vars() sees through I(x^2) to x. The term is a covariate of its own,
+## crossed as the formula crosses it, and its variable is the covariate the
+## grids move.
+chk("declaration: a transformed term is fitted as written, not reduced to its variable",
+    { sp_i <- suppressMessages(nesting_spec(dat, response ~ chord_type * inversion *
+                                              I(training^2), "inversion %in% chord_type"))
+      grepl("cell:I(training^2)", paste(deparse(cell_formula(sp_i)), collapse = ""),
+            fixed = TRUE) && identical(sp_i$covariates, "training") })
 chk("declaration: the same model as a column is accepted",
     { d_t <- dat; d_t$t2 <- d_t$training^2
       sp_t <- nesting_spec(d_t, response ~ chord_type * inversion * t2,
@@ -2988,6 +2989,55 @@ chk("numeric target: off the linear predictor the step goes to avg_comparisons a
       a <- marginaleffects::avg_comparisons(m_b, newdata = g,
              variables = list(x1 = "2sd"), wts = g$.w)
       abs(e$estimate - a$estimate) < 1e-10 && identical(e$term, "+2 SD") })
+## ---- transformed covariates ---------------------------------------------
+## A transformed covariate - a polynomial, a spline - is a covariate of its own,
+## written into the fitting formula as written, so the engine and the grids
+## evaluate it from its variable. A data-dependent basis is the fit's wherever
+## the design is evaluated, as predict() keeps it.
+f_poly <- response ~ chord_type * inversion + chord_type * poly(x1, 2)
+chk("transformed: a polynomial crossed with part of the structure is the model lm fits",
+    same_model(response ~ chord_type * inversion + chord_type * (x1 + I(x1^2))) &&
+      same_model(f_poly))
+chk("transformed: so is a spline crossed with the whole structure",
+    same_model(response ~ chord_type * inversion * splines::ns(x1, df = 3)))
+chk("transformed: and a polynomial beside a restricted mean structure",
+    same_model(response ~ chord_type + inversion + chord_type:poly(x1, 2)))
+chk("transformed: the design on any rows uses the fit's own basis",
+    { m <- suppressMessages(fit_from(cov_spec(f_poly))); sp <- attr(m, "nestimand_spec")
+      X <- design_rows(sp, sp$data[1:20, ])
+      max(abs(X - model.matrix(m)[1:20, colnames(X)])) < 1e-12 })
+chk("transformed: a step along x moves every term made from it",
+    { m <- suppressMessages(fit_from(cov_spec(f_poly))); sp <- attr(m, "nestimand_spec")
+      hand <- lm(f_poly, data = sp$data); cl <- sp$cells
+      s <- sd(sp$data$x1); mu <- mean(sp$data$x1)
+      eff <- vapply(seq_len(nrow(cl)), function(k) {
+        nd <- sp$data; nd$chord_type <- cl$chord_type[k]; nd$inversion <- cl$inversion[k]
+        lo <- nd; lo$x1 <- mu - s / 2; hi <- nd; hi$x1 <- mu + s / 2
+        mean(predict(hand, hi) - predict(hand, lo)) }, 0)
+      a <- as.data.frame(suppressMessages(nest_estimand(m, x1, bounds = FALSE)))
+      b <- as.data.frame(suppressMessages(nest_estimand(m, x1, bounds = FALSE,
+                                                        vcov = TRUE)))
+      abs(a$estimate - mean(eff)) < 1e-8 && abs(b$estimate - mean(eff)) < 1e-8 })
+chk("transformed: the summary names each column in the formula's own terms",
+    { m <- suppressMessages(fit_from(cov_spec(response ~ chord_type * inversion +
+                                                chord_type * poly(x1, 2, raw = TRUE))))
+      se <- as.data.frame(nest_summary(m)); sc <- as.data.frame(nest_summary(m, "cells"))
+      all(c("poly(x1, 2, raw = TRUE)1", "chord_typedim:poly(x1, 2, raw = TRUE)2")
+          %in% se$term) && nrow(se) == length(coef(m)) &&
+        "maj.1 slope on poly(x1, 2, raw = TRUE)2" %in% sc$term })
+chk("transformed: a random slope on a transformed term passes through",
+    grepl("+ poly(x1, 2) |", random_terms(cov_spec(f_poly2 <- response ~
+            chord_type * inversion + poly(x1, 2) + (inversion + poly(x1, 2) | participant),
+            fit = "lmer")), fixed = TRUE))
+chk("transformed: a design variable is not transformed in the formula",
+    grepl("transforms the design variable `inversion`",
+          err_of(cov_spec(response ~ chord_type + relevel(inversion, "1"))), fixed = TRUE))
+chk("transformed: a transformation into a factor is refused",
+    grepl("evaluates to a factor",
+          err_of(cov_spec(response ~ chord_type * inversion + cut(x1, 3))), fixed = TRUE))
+chk("transformed: poly() given `raw` by position is told to name it",
+    grepl("raw = TRUE", err_of(cov_spec(response ~ chord_type * inversion +
+                                          poly(x1, 2, "raw"))), fixed = TRUE))
 chk("numeric target: on an ordinal fit the step is taken on the linear predictor",
     { d <- cov_dat
       d$rord <- factor(cut(d$response, 5, labels = FALSE), ordered = TRUE)

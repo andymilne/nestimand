@@ -158,6 +158,18 @@ step_contrast_matrix <- function(spec, target, policy, step, data = spec$data,
   hi - lo[rownames(hi), colnames(hi), drop = FALSE]
 }
 
+## The names an engine gives the columns of a design. brms rewrites the
+## characters it does not allow in a parameter name - `I(x^2)` becomes `IxE2`,
+## `poly(x, 2)1` becomes `polyx21` - and its own rule is applied here, so that
+## design columns and the fit's coefficients are matched by name rather than by
+## position.
+engine_names <- function(model, cols) {
+  if (!inherits(model, "brmsfit")) return(cols)
+  rn <- tryCatch(get("rename", envir = asNamespace("brms")),
+                 error = function(e) NULL)
+  if (is.null(rn)) cols else rn(cols)
+}
+
 coef_vector <- function(model) {
   if (inherits(model, "clm") || inherits(model, "clmm")) {
     b <- model$beta
@@ -234,8 +246,8 @@ design_rows <- function(spec, g, mode = "cells") {
   ## carries them the same way the fitted data does: looked up by the cell each
   ## row belongs to.
   if (uses_reduced(spec)) g <- reduced_augment(spec, g)
-  rhs <- paste(deparse(cell_formula(spec, mode)[[3]]), collapse = " ")
-  X <- stats::model.matrix(stats::as.formula(paste("~", rhs)), g)
+  ## the bases the fit fixed, not ones recomputed from this grid
+  X <- fitting_design(spec, g, mode)
   if (colnames(X)[1] == "(Intercept)") X[, -1, drop = FALSE] else X
 }
 
@@ -252,6 +264,7 @@ fit_mode <- function(model) {
 ## carried into the product as NA. Only a column with no coefficient at all -
 ## which means the model was not fitted from this declaration - is an error.
 align_design <- function(X, model, what = "cell") {
+  colnames(X) <- engine_names(model, colnames(X))
   b <- coef_vector(model)
   aliased <- names(b)[is.na(b)]
   missing_cols <- setdiff(colnames(X), names(b))
@@ -272,6 +285,7 @@ cell_design_rows <- function(spec, data, cells, model) {
     p = NULL, at = NULL), class = "nestimand_policy")
   g <- counterfactual_grid(spec, data, cells = cells)
   X <- design_rows(spec, g, fit_mode(model))
+  colnames(X) <- engine_names(model, colnames(X))
   b <- coef_vector(model)
   X <- X[, intersect(colnames(X), names(b)[!is.na(b)]), drop = FALSE]
   key <- as.character(g[[spec$cell_name]])

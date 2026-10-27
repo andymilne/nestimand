@@ -62,8 +62,15 @@ is fitted over the conditions the design realizes, so every coefficient is estim
 and none is aliased. A covariate, or a product of covariates such as \code{GMSI:x}, has
 slopes over exactly the part of the structure the formula crosses it with:
 \code{chord_type * x} gives one slope per chord type, whatever else the formula crosses
-with chord type. The printed structure shows what will be fitted - the mean structure and
-each set of slopes - and how many of the realized cells each spans.
+with chord type. A covariate may be transformed in the formula - \code{I(x^2)},
+\code{poly(x, 2)}, \code{log(x)}, \code{splines::ns(x, df = 3)} - and the transformed
+term is then a covariate of its own, crossed as the formula crosses it. It is written into
+the fitted formula as written, so a prediction that moves \code{x} moves every term made
+from it, and a basis computed from the data - an orthogonal polynomial, a spline's knots -
+is the fit's own wherever the model is evaluated. A design variable is not transformed in
+the formula, and a covariate is not transformed into a factor there; either belongs in the
+data. The printed structure shows what will be fitted - the mean structure and each set of
+slopes - and how many of the realized cells each spans.
 
 Operators mean in a partially nested design what they mean anywhere:
 \code{response ~ chord_type + inversion} fits one inversion effect shared by every

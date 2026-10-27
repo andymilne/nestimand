@@ -1345,3 +1345,49 @@ for every kind of step.
 Refused, with the reason: a numeric variable as one corner of an interaction
 (its effect within a level is a `by`), and a continuous nested variable, whose
 value where it is undefined is a placeholder that a step would move.
+
+
+## Transformed covariates
+
+A term that transformed a variable - `I(x^2)`, `poly(x, 2)`, `ns(x, 3)` - was
+refused, because the translation read every term as the set of variables
+`all.vars()` reports, and `I(x^2)` would have been fitted as `x`. Hand-made
+columns were the remedy, and they cost what the formula gives for nothing: a
+prediction that moves `x` no longer moves `x^2`, so the effect of `x` had to be
+assembled by hand, and marginaleffects could not do it at all.
+
+Now a transformed term is a covariate part of its own. A term label splits into
+parts on the `:` that joins them, never on one inside a call or in `::`
+(`term_parts()`); a part that is a call is a covariate expression, its
+variables are what `spec$covariates` lists, and the slope sets of the earlier
+change take it as they take a name - `chord_type * poly(x, 2)` gives `poly(x,
+2)` its own design over chord type. The expression is written into the fitting
+formula as written, so the engine evaluates it, and so does marginaleffects
+whenever it moves `x`.
+
+Points worth recording:
+
+- **A data-dependent basis is the fit's, wherever the design is evaluated.** An
+  orthogonal polynomial, a spline's knots and `scale()` are computed from the
+  data they are given, so a design built afresh on a counterfactual grid is a
+  different basis - for `poly(x, 2)` the columns differed by up to 0.67. Every
+  design the package builds on a frame now goes through `fitting_design()`,
+  which takes the terms of the fitting data, with their `predvars`, as
+  `predict()` does. brms keeps the fitted basis for new data too (checked: in-
+  and out-of-sample linear predictors agree to 1e-13 for `poly()` and `ns()`),
+  so the routes agree.
+- **brms renames.** It rewrites the characters it does not allow in a parameter
+  name - `I(x^2)` is `IxE2` - so design columns are matched to coefficients
+  through brms's own rule (`engine_names()`), in `align_design()` and wherever
+  else a name is looked up, rather than by position.
+- **A step along a numeric target is no longer only a size.** With `x` in a
+  polynomial or spline, where the two values sit changes the answer on the
+  linear predictor too, so the low and high values are marginaleffects' own -
+  the mean plus and minus half a standard deviation for `"sd"`, forward from
+  each row for a number, the quartiles, the range - checked against
+  `avg_comparisons()` on a cubic.
+- **Refused, with the reason:** a transformed design variable, whose levels are
+  the conditions the declaration names; a covariate transformed into a factor,
+  which belongs in the data; a call that cannot be evaluated on the data, with
+  the engine's own message - and for `poly(x, 2, "raw")`, where `raw` is taken
+  by position as a second variable, the spelling that works.

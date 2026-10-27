@@ -270,6 +270,22 @@ chk("and its bounds span the step's effect over the conditions",
       b$policy_low <= b$estimate && b$estimate <= b$policy_high &&
         abs(b$policy_low - min(byc)) < 0.01 && abs(b$policy_high - max(byc)) < 0.01 })
 
+## A transformed covariate: brms rewrites the characters it does not allow in a
+## coefficient name - `poly(x1, 2)1` becomes `polyx121` - so the design's
+## columns and the fit's coefficients are matched through its own rule.
+mt <- nest_fit("brm", response_ord ~ chord_type * inversion + chord_type * poly(x1, 2),
+               dcov, nests = n_b, family = cumulative("probit"), init = 0,
+               chains = 2, iter = 1000, warmup = 500, seed = 4, refresh = 0)
+chk("a transformed covariate: the summary names its columns in the formula's terms",
+    { st <- as.data.frame(nest_summary(mt))
+      all(c("poly(x1, 2)1", "chord_typemaj:poly(x1, 2)2") %in% st$term) &&
+        nrow(st) == nrow(brms::fixef(mt)) + 1L })
+chk("and a step along its variable moves both columns, on either route",
+    { a <- as.data.frame(suppressMessages(nest_estimand(mt, x1, bounds = FALSE)))
+      b <- as.data.frame(suppressMessages(nest_estimand(mt, x1, type = "link",
+                                                        bounds = FALSE)))
+      abs(a$estimate - b$estimate) < 0.02 })
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
 cat("If check 2 failed, report the coefficient names printed above: the naming\n")
 cat("rule in latent_draws() needs correcting to match them.\n")

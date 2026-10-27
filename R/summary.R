@@ -65,26 +65,43 @@ nest_summary <- function(model, space = c("effects", "cells"),
   ## fitted on that part's own columns, whose coefficients are already effects
   ## of the variables the formula names; it is reported as fitted, and in cell
   ## space as the slope each cell receives.
+  ## cell coefficients, by the design's names and by the engine's
+  cell_s <- c("(Intercept)", paste0(cn, cells))
+  cell_e <- c("(Intercept)", engine_names(model, paste0(cn, cells)))
+  keep <- cell_e %in% names(b)
   blocks <- list(list(kind = "means", label = character(0),
-                      cols = intersect(c("(Intercept)", paste0(cn, cells)), names(b))))
+                      cols = cell_e[keep], scols = cell_s[keep]))
   g <- cell_grid(spec, data)
   for (cvz in spec$covariates) if (is.numeric(data[[cvz]])) g[[cvz]] <- 0
-  ft <- stats::delete.response(stats::terms(cell_formula(spec)))
-  Xg <- stats::model.matrix(ft, g)
-  col_term <- c("(Intercept)", attr(ft, "term.labels"))[attr(Xg, "assign") + 1L]
+  Xg <- fitting_design(spec, g, "cells")
+  col_term <- c("(Intercept)", attr(stats::terms(cell_formula(spec)),
+                                    "term.labels"))[attr(Xg, "assign") + 1L]
   ## the engine's name for each design column: the same, unless it has
   ## rewritten the characters it does not allow or written a product's
   ## variables in another order
   coef_of <- function(z) {
-    hit <- match(z, names(b))
-    key <- function(s) term_key(vapply(strsplit(s, ":", fixed = TRUE), function(p)
+    hit <- match(engine_names(model, z), names(b))
+    key <- function(s) term_key(vapply(term_parts(s), function(p)
       paste(tolower(gsub("[^A-Za-z0-9]", "", p)), collapse = ":"), ""))
     miss <- is.na(hit)
     if (any(miss)) hit[miss] <- match(key(z[miss]), key(names(b)))
     names(b)[hit]
   }
+  ## a product's parts in the order the formula writes them; a matrix term's
+  ## columns - `poly(x, 2)1` - are placed by the term they belong to
+  order_like <- function(p, vars) {
+    pos <- vapply(p, function(z) {
+      k <- match(z, vars)
+      if (is.na(k)) {
+        hit <- which(startsWith(z, vars))
+        k <- if (length(hit)) hit[which.max(nchar(vars[hit]))] else NA_integer_
+      }
+      as.integer(k) }, 1L)
+    p[order(pos)]
+  }
   cell_piece <- paste0(cn, cells)
   Dc <- if (uses_reduced(spec)) design_columns(spec) else NULL
+  emap <- attr(Dc, "effect_names")
   for (cb in covariate_blocks(spec)) {
     fterms <- block_terms(spec, cb, "cells")
     z <- colnames(Xg)[term_key(col_term) %in% term_key(fterms)]
@@ -92,8 +109,9 @@ nest_summary <- function(model, space = c("effects", "cells"),
     if (!length(z) || anyNA(zb)) next     # not in this fit: left as fitted
     if (length(fterms) == 1L && identical(fterms, paste0(cn, ":", cb$label))) {
       ## A factor covariate contributes one such set per non-reference level,
-      ## `cell<k>:x<level>`, each a separate quantity per cell.
-      pieces <- strsplit(z, ":", fixed = TRUE)
+      ## `cell<k>:x<level>`, and a matrix term one per column, `cell<k>:poly(x,
+      ## 2)1`: each a separate quantity per cell.
+      pieces <- term_parts(z)
       suffix <- vapply(pieces, function(p) paste(p[!p %in% cell_piece],
                                                  collapse = ":"), "")
       for (sx in unique(suffix)) {
@@ -105,28 +123,31 @@ nest_summary <- function(model, space = c("effects", "cells"),
                                              cols = unname(ord))
       }
     } else {
-      numeric_block <- all(vapply(cb$vars, function(v) is.numeric(data[[v]]), TRUE))
-      ## a slope varies over the structure through the design columns it is
-      ## multiplied by; one that names none is the same in every cell
-      W <- NULL
-      if (numeric_block && length(cb$terms)) {
-        W <- matrix(0, length(cells), length(zb), dimnames = list(cells, zb))
-        for (j in seq_along(z)) {
-          dm <- intersect(strsplit(z[j], ":", fixed = TRUE)[[1]], colnames(Dc))
-          W[, j] <- if (length(dm)) Dc[cells, dm[1]] else 1
+      numeric_block <- all(vapply(cb$vars, piece_numeric, TRUE, spec = spec))
+      ## Each column is a design column times a covariate part, or the part
+      ## alone. It is named for the effect the design column carries, then the
+      ## part as the formula writes it, whichever order R named the coefficient
+      ## in; and the columns of one part - one per column of a matrix term -
+      ## form one slope, varying over the structure through the design columns.
+      parts <- term_parts(z)
+      dmp <- lapply(parts, function(p) p[p %in% names(emap)])
+      cov <- lapply(parts, function(p) order_like(p[!p %in% names(emap)], cb$vars))
+      sx <- vapply(cov, paste, "", collapse = ":")
+      lab <- vapply(seq_along(z), function(j)
+        paste(c(emap[dmp[[j]]], cov[[j]]), collapse = ":"), "")
+      for (s1 in unique(sx)) {
+        j <- which(sx == s1)
+        W <- NULL
+        if (numeric_block && length(cb$terms)) {
+          W <- matrix(0, length(cells), length(j), dimnames = list(cells, zb[j]))
+          for (k in seq_along(j))
+            W[, k] <- if (length(dmp[[j[k]]])) Dc[cells, dmp[[j[k]]][1]] else 1
         }
+        blocks[[length(blocks) + 1]] <- list(kind = "fitted", label = s1,
+          cols = zb[j], labels = lab[j], W = W,
+          meaning = if (!length(cb$terms) && numeric_block) "common slope"
+                    else "as fitted")
       }
-      ## named for the effect each column carries, then the product as the
-      ## formula writes it, whichever order R named the coefficient in
-      emap <- attr(Dc, "effect_names")
-      lab <- if (numeric_block) vapply(z, function(zz) {
-        p <- strsplit(zz, ":", fixed = TRUE)[[1]]
-        paste(c(emap[p[p %in% names(emap)]], cb$label), collapse = ":")
-      }, "", USE.NAMES = FALSE) else reduced_labels(spec, z)
-      blocks[[length(blocks) + 1]] <- list(kind = "fitted", label = cb$label,
-        cols = zb, labels = lab, W = W,
-        meaning = if (!length(cb$terms) && numeric_block) "common slope"
-                  else "as fitted")
     }
   }
   used <- unlist(lapply(blocks, `[[`, "cols"))
@@ -136,8 +157,8 @@ nest_summary <- function(model, space = c("effects", "cells"),
   for (bl in blocks) {
     M <- matrix(0, length(cells), length(b), dimnames = list(cells, names(b)))
     if (identical(bl$kind, "means")) {
-      X <- Xg[, intersect(colnames(Xg), bl$cols), drop = FALSE]
-      M[cells, colnames(X)] <- X
+      X <- Xg[, intersect(colnames(Xg), bl$scols), drop = FALSE]
+      M[cells, stats::setNames(bl$cols, bl$scols)[colnames(X)]] <- X
       nm <- cells
     } else if (identical(bl$kind, "slopes")) {
       for (i in seq_along(cells)) M[i, bl$cols[i]] <- 1
@@ -243,9 +264,14 @@ reduced_fit_summary <- function(model, spec, conf_level = 0.95, random = FALSE) 
   ## construction, so there is nothing held at zero to explain
   out$meaning <- "as fitted"
   ## its columns are named syntactically so that every engine carries them
-  ## unaltered; the report names the effect each one stands for
-  out$term <- tryCatch(reduced_labels(spec, out$term),
-                       error = function(e) out$term)
+  ## unaltered; the report names the effect each one stands for. A transformed
+  ## term's name is the one engine that rewrites names - brms - wrote, so it is
+  ## taken back to the design's own first.
+  out$term <- tryCatch({
+    own <- fitted_coef_names(spec, "reduced")
+    back <- stats::setNames(own, engine_names(model, own))
+    reduced_labels(spec, ifelse(out$term %in% names(back), back[out$term], out$term))
+  }, error = function(e) out$term)
   attr(out, "nestimand_space") <- "reduced"
   attr(out, "nestimand_fit") <- spec$fit
   ## a brmsformula deparses to its whole object; one more formula() call reduces

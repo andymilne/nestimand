@@ -247,7 +247,7 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
     ## covariate is either additive - its effect declared common to every
     ## condition - or ordered, or numeric. Which it is decides the remedy.
     additive <- categorical[vapply(categorical, function(v)
-      !any(vapply(strsplit(spec$term_labels, ":"), function(vs)
+      !any(vapply(term_parts(spec$term_labels), function(vs)
         v %in% vs && any(spec$cell_vars %in% vs), TRUE)), TRUE)]
     ordered_f <- setdiff(categorical[vapply(categorical, function(v)
       is.ordered(spec$data[[v]]), TRUE)], additive)
@@ -901,9 +901,8 @@ ordinal_response_type <- function(model, spec, data) {
 linear_map_available <- function(model, spec, data) {
   tryCatch({
     g <- cell_grid(spec, data)
-    rhs <- paste(deparse(cell_formula(spec)[[3]]), collapse = " ")
-    X <- stats::model.matrix(stats::as.formula(paste("~", rhs)), g)
-    need <- setdiff(colnames(X), "(Intercept)")
+    X <- fitting_design(spec, g)
+    need <- engine_names(model, setdiff(colnames(X), "(Intercept)"))
     all(need %in% names(coef_vector(model)))
   }, error = function(e) FALSE)
 }

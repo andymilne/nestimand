@@ -75,7 +75,7 @@ random_terms <- function(spec) {
     lhs_txt <- bl[[k]]$lhs
     lhs <- attr(stats::terms(stats::as.formula(paste("~", lhs_txt))), "term.labels")
     ## a term needs translation only if it reaches across the boundary
-    structural <- vapply(strsplit(lhs, ":"), function(vs)
+    structural <- vapply(term_parts(lhs), function(vs)
       any(vs %in% boundary_vars(spec)), TRUE)
     if (!any(structural))
       return(rewrap(sprintf("(%s %s %s)", lhs_txt, op, grp)))

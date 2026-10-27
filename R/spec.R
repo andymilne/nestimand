@@ -127,10 +127,9 @@ nesting_spec <- function(data, formula, nests = NULL,
   ## the promise merely to ask whether it is NULL would evaluate it and fail
   ne0 <- substitute(nests)
   if (missing(nests) || is.null(ne0)) {
-    cvars <- unique(unlist(strsplit(
+    cvars <- unique(unlist(term_parts(
       attr(stats::terms(formula), "term.labels")[
-        !grepl("|", attr(stats::terms(formula), "term.labels"), fixed = TRUE)],
-      ":", fixed = TRUE)))
+        !grepl("|", attr(stats::terms(formula), "term.labels"), fixed = TRUE)])))
     cvars <- cvars[cvars %in% names(data)]
     cvars <- cvars[vapply(cvars, function(v)
       is.factor(data[[v]]) || is.character(data[[v]]) || is.logical(data[[v]]), TRUE)]
@@ -278,7 +277,7 @@ nesting_spec <- function(data, formula, nests = NULL,
   declared_vars <- unique(c(names(parent), parent, crossed))
   is_design_cat <- function(v)
     v %in% names(data) && !is.numeric(data[[v]]) && !is.ordered(data[[v]])
-  auto_crossed <- setdiff(unique(unlist(lapply(strsplit(labs, ":"), function(vs)
+  auto_crossed <- setdiff(unique(unlist(lapply(term_parts(labs), function(vs)
     if (any(vs %in% declared_vars)) vs))), declared_vars)
   auto_crossed <- auto_crossed[vapply(auto_crossed, is_design_cat, TRUE)]
   if (length(auto_crossed))
@@ -406,28 +405,55 @@ nesting_spec <- function(data, formula, nests = NULL,
   ## per-family realized tables, for reporting
   cells_by_family <- lapply(cat_families, function(f) unique(data[, f, drop = FALSE]))
 
-  ## `all.vars` sees through a transformation - I(x^2), log(x), poly(x, 2) -
-  ## and reports the variable underneath, so a formula written with one would
-  ## be silently reduced to the untransformed column. Refused rather than
-  ## reduced: the fitted model would not be the one that was declared.
-  fixed_terms <- attr(stats::terms(stats::as.formula(
-    paste("~", paste(deparse(formula[[3]]), collapse = " ")))), "term.labels")
-  fixed_terms <- fixed_terms[!grepl("\\|", fixed_terms)]
-  transformed <- fixed_terms[grepl("[A-Za-z._][A-Za-z0-9._]*\\(", fixed_terms)]
-  if (length(transformed))
-    stop("the formula transforms a variable in place: ",
-         paste(unique(sub(".*:", "", transformed)), collapse = ", "),
-         ". The declaration is translated term by term, and a transformation ",
-         "written inside it would be lost. Compute the transformed variable as ",
-         "a column of the data - dat$x2 <- dat$x^2 - and name that column in ",
-         "the formula.")
+  ## A term may transform a covariate - I(x^2), log(x), poly(x, 2), ns(x, 3) -
+  ## and the transformed term is then a covariate of its own, crossed with
+  ## whatever the formula crosses it with. It is written into the fitting
+  ## formula as it was written here, so the engine evaluates it from the
+  ## variable underneath, and a prediction that moves the variable moves every
+  ## term made from it. What cannot be transformed is a design variable: its
+  ## levels are the conditions, and the declaration says what they are.
+  calls <- unique(Filter(function(p) grepl("(", p, fixed = TRUE),
+                         unlist(term_parts(labs))))
+  for (p in calls) {
+    e <- tryCatch(str2lang(p), error = function(err) NULL)
+    if (is.null(e))
+      stop("`", p, "` cannot be read as one term of the formula. A `:` inside ",
+           "a call is read as an interaction; compute the term as a column of ",
+           "the data and name that column instead.", call. = FALSE)
+    vs <- all.vars(e)
+    if (any(vs %in% unlist(families)))
+      stop("`", p, "` transforms the design variable `",
+           paste(intersect(vs, unlist(families)), collapse = "`, `"), "`. A ",
+           "design variable enters as declared, since its levels are the ",
+           "conditions: transform it in the data and declare the result, or ",
+           "write it untransformed.", call. = FALSE)
+    if (length(setdiff(vs, names(data))))
+      stop("`", p, "` names `", paste(setdiff(vs, names(data)), collapse = "`, `"),
+           "`, which is not a column of the data. A transformed term is ",
+           "evaluated from the data, wherever the model is evaluated.",
+           call. = FALSE)
+    val <- tryCatch(eval(e, data, environment(formula)), error = function(err) err)
+    if (inherits(val, "error"))
+      stop("`", p, "` cannot be evaluated on the data: ", conditionMessage(val),
+           if (grepl("^poly\\(", p) && grepl("raw|TRUE|FALSE", p) &&
+               !grepl("raw *=", p))
+             " - poly() takes `raw` by name, as poly(x, 2, raw = TRUE)." else "",
+           call. = FALSE)
+    if (!is.numeric(val))
+      stop("`", p, "` evaluates to a ", class(val)[1], ", not a quantity. A ",
+           "categorical variable made from a covariate is a column of the data ",
+           "in its own right: compute it there, and declare it or cross it as ",
+           "any other.", call. = FALSE)
+  }
   ## The covariates are the variables of the *fixed* terms that are not declared
   ## nesting variables, read from the fixed term labels, which already exclude
   ## the bars. Reading them from `all.vars(formula[[3]])` and then subtracting
   ## everything named in a bar took out the slope variables along with the
   ## grouping factors, so a variable given a random slope lost its fixed effect
-  ## - a random slope with no fixed counterpart, and nothing said.
-  covariates <- setdiff(unique(unlist(strsplit(labs, ":"))), unlist(families))
+  ## - a random slope with no fixed counterpart, and nothing said. A transformed
+  ## term contributes the variables it is made from.
+  covariates <- setdiff(unique(unlist(lapply(unlist(term_parts(labs)), piece_vars))),
+                        unlist(families))
   covariates <- unique(c(covariates, cont_nested))
   ## How each covariate is crossed with the structure is not recorded here: it
   ## is read from the term labels wherever it is needed (`covariate_blocks()`),

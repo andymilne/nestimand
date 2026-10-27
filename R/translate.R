@@ -81,18 +81,72 @@ cell_formula <- function(spec, mode = c("cells", "reduced"), intercept = NULL) {
   ## them, so a formula written in any other order gives the same coefficient
   ## two names on two engines: `dm_a:x2` on one and `x2:dm_a` on the other.
   tm <- c(mean_terms, slope_terms)
-  deg <- lengths(strsplit(sub("^0 \\+ ", "", tm), ":", fixed = TRUE))
+  deg <- lengths(term_parts(sub("^0 \\+ ", "", tm)))
   rhs <- paste(tm[order(deg)], collapse = " + ")
   stats::as.formula(paste(spec$outcome, "~", rhs), env = parent.frame())
+}
+
+## The parts of a term label, or of a coefficient name built from one. A part
+## may be a call - `I(x^2)`, `poly(x, 2, raw = TRUE)`, `splines::ns(x, df = 3)`
+## - so the label is split on the `:` that joins parts, never on one inside a
+## call or in `::`.
+term_parts <- function(labels) {
+  lapply(labels, function(lab) {
+    if (!grepl("[(\\[]|::", lab)) return(strsplit(lab, ":", fixed = TRUE)[[1]])
+    ch <- strsplit(lab, "", fixed = TRUE)[[1]]
+    n <- length(ch); depth <- 0L; cut <- integer(0)
+    for (i in seq_len(n)) {
+      if (ch[i] %in% c("(", "[")) depth <- depth + 1L
+      else if (ch[i] %in% c(")", "]")) depth <- depth - 1L
+      else if (ch[i] == ":" && depth == 0L &&
+               !(i > 1L && ch[i - 1L] == ":") && !(i < n && ch[i + 1L] == ":"))
+        cut <- c(cut, i)
+    }
+    if (!length(cut)) return(lab)
+    substring(lab, c(1L, cut + 1L), c(cut - 1L, n))
+  })
+}
+
+## The variables a part is made from: itself, or those a call names.
+piece_vars <- function(p)
+  if (grepl("(", p, fixed = TRUE)) all.vars(str2lang(p)) else p
+
+## A covariate part is a quantity - a numeric column, or a call on numeric
+## columns, which `nesting_spec()` has checked evaluates to one.
+piece_numeric <- function(spec, p) {
+  v <- piece_vars(p)
+  length(v) > 0L && all(vapply(v, function(z) is.numeric(spec$data[[z]]), TRUE))
 }
 
 ## A fixed term is a product of design variables and covariates. The design
 ## variables say where it varies; the covariates, if any, say what it is a slope
 ## on. Terms with no covariate are the mean structure.
 term_split <- function(spec, labels) {
-  lapply(strsplit(labels, ":", fixed = TRUE), function(vs)
+  lapply(term_parts(labels), function(vs)
     list(design = vs[vs %in% spec$cell_vars],
          covariate = vs[!vs %in% spec$cell_vars]))
+}
+
+## The design the fitting formula gives on any frame, with every data-dependent
+## basis - an orthogonal polynomial, a spline's knots, scale() - fixed where
+## the fit fixed it: from the data the model was fitted to, as predict() does,
+## rather than afresh from whatever rows a grid holds. A basis recomputed on a
+## grid is a different basis, and the coefficients would multiply columns they
+## were not fitted to.
+fitting_design <- function(spec, newdata, mode = "cells") {
+  f <- stats::delete.response(stats::terms(cell_formula(spec, mode)))
+  if (!is.null(spec$formula_in)) environment(f) <- environment(spec$formula_in)
+  d <- spec$data
+  if (uses_reduced(spec)) {
+    d <- reduced_augment(spec, d)
+    if (!all(setdiff(colnames(design_columns(spec)), "(Intercept)") %in% names(newdata)))
+      newdata <- reduced_augment(spec, newdata)
+  }
+  mf <- stats::model.frame(f, d, na.action = stats::na.pass)
+  tt <- attr(mf, "terms")
+  nf <- stats::model.frame(tt, newdata, na.action = stats::na.pass,
+                           xlev = stats::.getXlevels(tt, mf))
+  stats::model.matrix(tt, nf)
 }
 
 ## The mean structure the formula asks for, as written: the terms that name
@@ -157,10 +211,10 @@ block_terms <- function(spec, block, mode = "cells") {
 ## the remedies rather than fitted with aliased columns.
 check_covariate_coding <- function(spec) {
   bl <- covariate_blocks(spec)
-  fac <- unique(unlist(lapply(bl, function(b)
-    b$vars[!vapply(b$vars, function(v) is.numeric(spec$data[[v]]), TRUE)])))
+  vars <- unique(unlist(lapply(unlist(lapply(bl, `[[`, "vars")), piece_vars)))
+  fac <- vars[!vapply(vars, function(v) is.numeric(spec$data[[v]]), TRUE)]
   if (!length(fac)) return(invisible(TRUE))
-  num <- setdiff(unique(unlist(lapply(bl, `[[`, "vars"))), fac)
+  num <- setdiff(vars, fac)
   levs <- lapply(fac, function(v) {
     x <- spec$data[[v]]
     if (is.factor(x)) factor(levels(x), levels = levels(x),
@@ -169,11 +223,16 @@ check_covariate_coding <- function(spec) {
   names(levs) <- fac
   g <- merge(spec$cells, do.call(expand.grid, c(levs, stringsAsFactors = FALSE)),
              by = NULL)
-  g <- g[rep(seq_len(nrow(g)), each = length(bl) + 2L), , drop = FALSE]
-  for (j in seq_along(num)) g[[num[j]]] <- sin(seq_len(nrow(g)) * (j + 0.37))
+  g <- g[rep(seq_len(nrow(g)), each = 2L * length(bl) + 2L), , drop = FALSE]
+  ## values the data holds, spread differently for each variable, so that a
+  ## spline or a polynomial is evaluated where it was fitted and no two
+  ## variables move together
+  for (j in seq_along(num)) {
+    ux <- sort(unique(spec$data[[num[j]]]))
+    g[[num[j]]] <- ux[(seq_len(nrow(g)) * (2L * j + 1L) + j) %% length(ux) + 1L]
+  }
   if (uses_reduced(spec)) g <- reduced_augment(spec, g)
-  f <- cell_formula(spec, as.character(fitting_mode(spec)))
-  X <- stats::model.matrix(stats::delete.response(stats::terms(f)), g)
+  X <- fitting_design(spec, g, as.character(fitting_mode(spec)))
   if (qr(X)$rank < ncol(X)) {
     it <- if (length(fac) > 1) "them" else "it"
     stop("`", paste(fac, collapse = "`, `"), "` ",
@@ -317,7 +376,7 @@ reduced_columns <- function(spec, terms = NULL) {
 ## and `X1:chord_type` are the same term written twice, and two terms() calls on
 ## two formulas will not always agree. Comparisons go through this.
 term_key <- function(z)
-  vapply(strsplit(z, ":", fixed = TRUE),
+  vapply(term_parts(z),
          function(v) paste(sort(v), collapse = ":"), "", USE.NAMES = FALSE)
 
 ## Every design column the fit can name, the mean structure's and those of each
@@ -356,7 +415,7 @@ design_columns <- function(spec) {
 reduced_labels <- function(spec, terms) {
   map <- attr(design_columns(spec), "effect_names")
   vapply(terms, function(z) {
-    parts <- strsplit(z, ":", fixed = TRUE)[[1]]
+    parts <- term_parts(z)[[1]]
     known <- parts %in% names(map)
     paste(c(map[parts[known]], parts[!known]), collapse = ":")
   }, "", USE.NAMES = FALSE)
