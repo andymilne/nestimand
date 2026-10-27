@@ -2658,7 +2658,10 @@ sp_fac <- nesting_spec(fac_dat, response ~ chord_type * inversion * top * traini
 m_fac <- fit_from(sp_fac)
 s_fac <- as.data.frame(nest_summary(m_fac))
 chk("summary: a factor covariate crossed with the cells is translated",
-    sum(grepl("slope on top", s_fac$meaning)) == 2 * nrow(sp_fac$cells))
+    sum(grepl("slope on top\\.[LQ]\\)", s_fac$meaning)) == 2 * nrow(sp_fac$cells))
+chk("summary: and so is its product with a numeric covariate",
+    sum(grepl("slope on top\\.[LQ]:training\\)", s_fac$meaning)) ==
+      2 * nrow(sp_fac$cells))
 chk("summary: and nothing of it is left over as a threshold",
     !any(grepl("threshold", s_fac$meaning)))
 chk("summary: a real threshold is still called one",
@@ -2791,6 +2794,109 @@ chk("random: one left additive in the bar stays additive",
       identical(random_terms(sp_ad),
         paste0("(1 + ", paste(reduced_columns(sp_ad), collapse = " + "),
                " + GMSI | participant)")) })
+
+## ---- covariates are crossed term by term -----------------------------------
+## A covariate is crossed with exactly the part of the structure the formula
+## crosses it with, and a product of covariates is a set of slopes of its own,
+## crossed with whatever the formula crosses that product with. The model is
+## then the one lm() fits to the formula as written, wherever the two codings of
+## the undefined level span the same space.
+cov_dat <- local({
+  d <- dat; set.seed(31)
+  d$x1 <- rnorm(nrow(d))
+  d$g1 <- rnorm(nlevels(d$participant))[as.integer(d$participant)]
+  d$response <- d$response + 0.3 * d$x1 * (d$chord_type == "maj") +
+    0.2 * d$g1 * d$x1
+  d })
+cov_spec <- function(f, ...) suppressMessages(
+  nesting_spec(cov_dat, f, "inversion %in% chord_type", ...))
+cov_fm <- function(sp) gsub("\\s+", " ", paste(deparse(cell_formula(sp)), collapse = " "))
+same_model <- function(f) {
+  sp <- cov_spec(f); m <- suppressMessages(fit_from(sp))
+  hand <- lm(f, data = sp$data)
+  isTRUE(all.equal(unname(fitted(m)), unname(fitted(hand)))) &&
+    df.residual(m) == df.residual(hand) && !anyNA(coef(m))
+}
+f_part <- response ~ chord_type * inversion + chord_type * x1
+chk("covariates: a slope varies over the part of the structure it is crossed with",
+    { fm <- cov_fm(cov_spec(f_part))
+      !grepl("cell:x1", fm, fixed = TRUE) &&
+        grepl("x1 + dm_chord_typedim:x1 + dm_chord_typemin:x1 + dm_chord_typemaj:x1",
+              fm, fixed = TRUE) })
+chk("covariates: and the fit is the model the formula names",
+    same_model(f_part))
+chk("covariates: a product of covariates is a set of slopes of its own",
+    { f <- response ~ chord_type * g1 * (inversion + x1)
+      fm <- cov_fm(cov_spec(f))
+      grepl("g1:x1 + dm_chord_typedim:g1:x1", fm, fixed = TRUE) &&
+        grepl("cell:g1", fm, fixed = TRUE) && same_model(f) })
+chk("covariates: crossed with the whole structure, a slope is one per cell",
+    { fm <- cov_fm(cov_spec(response ~ chord_type * inversion * x1))
+      grepl("cell:x1", fm, fixed = TRUE) && !grepl("dm_", fm, fixed = TRUE) })
+chk("covariates: one product of two covariates alone is a common slope",
+    { fm <- cov_fm(cov_spec(response ~ chord_type * inversion + g1 * x1))
+      grepl("+ g1 + x1 + g1:x1", fm, fixed = TRUE) && !grepl("dm_", fm, fixed = TRUE) })
+chk("covariates: a slope with no main term is coded as R codes it",
+    same_model(response ~ chord_type * inversion + chord_type:x1))
+chk("covariates: and so under a restricted mean structure",
+    same_model(response ~ chord_type + inversion + chord_type:x1))
+chk("covariates: a slope crossed with a nested variable is common where it is undefined",
+    { m <- suppressMessages(fit_from(cov_spec(
+        response ~ chord_type * inversion + x1 + inversion:x1)))
+      sc <- as.data.frame(nest_summary(m, "cells"))
+      sl <- function(k) sc$estimate[sc$term == paste(k, "slope on x1")]
+      abs(sl("aug.none") - sl("maj.0")) < 1e-10 &&
+        abs(sl("dim.0") - sl("maj.0")) < 1e-10 && abs(sl("dim.1") - sl("dim.0")) > 1e-6 })
+chk("covariates: the prior covers the slopes the fit carries",
+    identical(fitted_covariate_names(cov_spec(f_part)),
+              c("x1", paste0("x1:dm_chord_type", c("dim", "min", "maj")))))
+chk("covariates: the printed declaration lists the slopes and what they vary over",
+    { out <- paste(utils::capture.output(print(cov_spec(f_part))), collapse = "\n")
+      grepl("x1 ~ 1 + chord_type  (4 of the 10 realized cells)", out, fixed = TRUE) })
+chk("covariates: a factor crossed with part of the structure is refused, with remedies",
+    { d <- cov_dat
+      d$o <- factor(rep(c("a", "b", "c"), length.out = nrow(d)), ordered = TRUE)
+      e <- err_of(suppressMessages(nesting_spec(d,
+        response ~ chord_type * inversion + chord_type * o, "inversion %in% chord_type")))
+      grepl("only part of the structure", e, fixed = TRUE) &&
+        grepl("`nests`", e, fixed = TRUE) })
+m_part <- suppressMessages(fit_from(cov_spec(f_part)))
+s_part <- as.data.frame(nest_summary(m_part))
+chk("covariates: the summary reports a partly crossed slope as fitted",
+    identical(s_part$meaning[s_part$term == "chord_typemaj:x1"], "as fitted") &&
+      abs(s_part$estimate[s_part$term == "chord_typemaj:x1"] -
+          coef(m_part)[["x1:dm_chord_typemaj"]]) < 1e-10 &&
+      nrow(s_part) == length(coef(m_part)))
+chk("covariates: and in cell space as the slope each condition receives",
+    { sc <- as.data.frame(nest_summary(m_part, "cells")); b <- coef(m_part)
+      abs(sc$estimate[sc$term == "maj.1 slope on x1"] -
+          (b[["x1"]] + b[["x1:dm_chord_typemaj"]])) < 1e-10 })
+chk("covariates: an estimand is the G-computation the formula implies",
+    { sp <- cov_spec(f_part); hand <- lm(f_part, data = sp$data)
+      cl <- sp$cells
+      mu <- vapply(seq_len(nrow(cl)), function(k) {
+        nd <- sp$data; nd$chord_type <- cl$chord_type[k]
+        nd$inversion <- cl$inversion[k]; mean(predict(hand, nd)) }, 0)
+      ct <- tapply(mu, as.character(cl$chord_type), mean)
+      a <- as.data.frame(nest_estimand(m_part, chord_type, policy = "equal",
+                                       bounds = FALSE))
+      b <- as.data.frame(nest_estimand(m_part, chord_type, type = "eta",
+                                       policy = "equal", bounds = FALSE))
+      abs(a$estimate[a$term == "maj - aug"] - (ct[["maj"]] - ct[["aug"]])) < 1e-8 &&
+        isTRUE(all.equal(a$estimate, b$estimate)) })
+chk("random: a covariate's slopes vary over the part of the structure the bar names",
+    { sp <- cov_spec(response ~ chord_type * inversion * x1 +
+                       (inversion + x1 + inversion:x1 | participant), fit = "lmer")
+      X <- covariate_design(sp, covariate_blocks(sp)[[1]])
+      inv <- reduced_names(colnames(X)[attr(X, "term_of") == "inversion"])
+      identical(random_terms(sp),
+        paste0("(1 + ", paste(reduced_columns(sp, "inversion"), collapse = " + "),
+               " + x1 + ", paste(paste0(inv, ":x1"), collapse = " + "),
+               " | participant)")) })
+chk("random: a covariate slope the fixed part lacks is refused, and says why",
+    grepl("`inversion:x1`, which the model formula does not contain",
+          err_of(random_terms(cov_spec(response ~ chord_type * inversion + x1 +
+            (inversion * x1 | participant), fit = "lmer"))), fixed = TRUE))
 
 ## A numeric nested variable is a slope inside the cells, not a cell variable.
 ## It stays visible in the printed structure, since a variable whose values are

@@ -76,7 +76,7 @@ n_b <- "inversion %in% chord_type"
 spb <- nesting_spec(dat, f_b, n_b, fit = "brm")
 
 ## ---- 1. the cell parameterization samples, and the fit is the expected one
-cat("\n[1/6] fitting the cell parameterization (compilation takes a few minutes)\n")
+cat("\n[1/7] fitting the cell parameterization (compilation takes a few minutes)\n")
 mb <- nest_fit("brm", f_b, dat, nests = n_b,
                chains = 2, iter = 1000, warmup = 500, seed = 1, refresh = 0)
 chk("cells sample without divergences or rank warnings",
@@ -88,7 +88,7 @@ chk("the fitted call travels with the model",
 ## latent_draws() assumes brms names the cell coefficients `b_` followed by the
 ## cell label with non-alphanumeric characters stripped. Cell labels contain
 ## full stops (`maj.0`), so this assumption is the one most likely to be wrong.
-cat("\n[2/6] draw-wise translation\n")
+cat("\n[2/7] draw-wise translation\n")
 cat("  brms coefficient names:", paste(head(rownames(brms::fixef(mb)), 4),
                                        collapse = ", "), "\n")
 dr <- try(latent_draws(mb, "chord_type", "equal"), silent = TRUE)
@@ -110,7 +110,7 @@ if (is.data.frame(dr)) {
 ## A `class = "b"` prior spans every population-level coefficient, `training`
 ## included. `pri` is the same translation nest_fit() applies below, so the
 ## audit table and what Stan sampled from describe one object.
-cat("\n[3/6] translated prior, sampled with no data\n")
+cat("\n[3/7] translated prior, sampled with no data\n")
 pri_b <- brms::prior_string("normal(4, 1.5)", class = "b")
 pri <- prior_from_brms(spb, pri_b)$translated
 cat("  prior spans", length(pri$full_mean), "coefficients:",
@@ -157,7 +157,7 @@ chk("the prior mean on the contrast is centred where stated",
 ## ---- 4. brms needs its own spelling for conditional predictions
 ## Frequentist and Bayesian engines disagree on how random effects are excluded,
 ## and a silently wrong spelling produces a different estimand, not an error.
-cat("\n[4/6] conditional predictions on a mixed model\n")
+cat("\n[4/7] conditional predictions on a mixed model\n")
 dat3 <- do.call(rbind, lapply(1:3, function(i) {
   d <- dat; d$response <- d$response + rnorm(nrow(d), 0, 0.3); d }))
 mm <- nest_fit("brm", response ~ chord_type * inversion + training +
@@ -170,7 +170,7 @@ cat("  NOTE: compare against marginaleffects with re_formula = NA, which is the\
 cat("        brms spelling; re.form = NA is silently ignored on a brmsfit.\n")
 
 ## ---- 5. Bayesian summaries: posterior, not delta method --------------------
-cat("\n[5/6] posterior summaries on the latent scale\n")
+cat("\n[5/7] posterior summaries on the latent scale\n")
 le <- latent_estimand(mb, "chord_type", "equal")
 print(le)
 chk("the summary is posterior: no test statistic, no p-value",
@@ -198,7 +198,7 @@ chk("interactions are summarized the same way",
       nrow(li) == 9 && "pd" %in% names(li) && !"p.value" %in% names(li) })
 
 ## ---- 6. eta over the sampled groups ----------------------------------------
-cat("\n[6/6] the linear predictor over the sampled groups\n")
+cat("\n[6/7] the linear predictor over the sampled groups\n")
 avg <- latent_estimand(mb, "chord_type", "equal")
 grp <- latent_estimand(mb, "chord_type", "equal", re_formula = NULL)
 print(grp)
@@ -211,6 +211,39 @@ chk("and it agrees with the prediction route asked the same question",
               route = "cells", type = "response", re_formula = NULL,
               bounds = FALSE)))
       max(abs(pr$estimate - grp$estimate[match(pr$term, grp$term)])) < 0.05 })
+
+## ---- 7. slopes crossed with part of the structure --------------------------
+## A covariate crossed with chord type alone has one slope per chord type, and a
+## product of covariates is a set of slopes of its own. brms rebuilds the
+## formula before naming the coefficients, so the names it gives are checked
+## against the ones the package expects, on an ordinal family with a translated
+## `class = "b"` prior - the combination most likely to expose a mismatch.
+cat("\n[7/7] slopes crossed with part of the structure, and a product of covariates\n")
+dcov <- local({
+  d <- dat; set.seed(7); d$x1 <- rnorm(nrow(d))
+  lat <- d$response + 0.4 * d$x1 * (d$chord_type == "maj") + 0.04 * d$training * d$x1
+  d$response_ord <- factor(cut(lat, 5, labels = FALSE), ordered = TRUE)
+  d })
+f_c <- response_ord ~ chord_type * training * (inversion + x1)
+## init = 0: random starting values on an uncentred product such as
+## training:x1 put the probit linear predictor far enough out that the
+## likelihood underflows and initialization fails
+mc <- nest_fit("brm", f_c, dcov, nests = n_b, family = cumulative("probit"),
+               prior = brms::prior_string("normal(0, 1)", class = "b"), init = 0,
+               chains = 2, iter = 1000, warmup = 500, seed = 3, refresh = 0)
+fx <- rownames(brms::fixef(mc))
+chk("the fitted coefficients are the ones the formula names",
+    setequal(fx[!grepl("^Intercept", fx)],
+             fitted_coef_names(attr(mc, "nestimand_spec"))))
+sc <- as.data.frame(nest_summary(mc))
+chk("the summary names every slope in the formula's own variables",
+    all(c("x1", "chord_typemaj:x1", "training:x1", "chord_typemaj:training:x1",
+          "chord_typemaj:training") %in% sc$term) && !any(grepl("dm_", sc$term)))
+chk("and reports each coefficient once, with the absorbed reference row",
+    nrow(sc) == length(fx) + 1L)
+chk("estimands run on it",
+    nrow(as.data.frame(suppressMessages(nest_estimand(mc, chord_type,
+      policy = "equal", bounds = FALSE)))) == 6)
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
 cat("If check 2 failed, report the coefficient names printed above: the naming\n")

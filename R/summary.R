@@ -57,40 +57,76 @@ nest_summary <- function(model, space = c("effects", "cells"),
   }
   A <- effect_basis(spec)
 
-  ## The coefficients fall into blocks, each holding one quantity per realized
-  ## cell: the cell means, and one set of slopes for every covariate that
-  ## interacts with the cell factor. Each block translates by the same map, so a
-  ## covariate slope becomes a reference-cell slope plus differences from it,
-  ## which is what a chain fit reports.
-  blocks <- list(list(label = character(0),
-                      cols = intersect(c("(Intercept)", paste0(cn, cells)), names(b)),
-                      order = c("(Intercept)", paste0(cn, cells))))
-  ## A numeric covariate contributes one column per cell, named `cell<k>:x`. A
-  ## factor covariate contributes one such set per non-reference level, named
-  ## `cell<k>:x<level>` - so the column name is the variable plus a suffix, and
-  ## matching the variable name exactly found none of them. Each level is its
-  ## own block, since each is a separate quantity per cell. Longer covariate
-  ## names are matched first, and a column already claimed is not re-used, so a
-  ## covariate whose name is a prefix of another does not swallow its columns.
-  claimed <- character(0)
-  for (cv in spec$covariates[order(-nchar(spec$covariates))]) {
-    hit <- names(b)[grepl(paste0("(^|:)", cn), names(b)) &
-                    grepl(paste0("(^|:)", cv, "[^:]*($|:)"), names(b))]
-    hit <- setdiff(hit, claimed)
-    if (!length(hit)) next
-    col_of <- vapply(hit, function(z) {
-      pieces <- strsplit(z, ":", fixed = TRUE)[[1]]
-      pieces <- pieces[startsWith(pieces, cv)]
-      if (length(pieces)) pieces[1] else NA_character_ }, "")
-    for (lv in unique(stats::na.omit(col_of))) {
-      h <- hit[!is.na(col_of) & col_of == lv]
-      ord <- vapply(cells, function(k) {
-        m <- h[grepl(paste0(cn, k, "(:|$)"), h, fixed = FALSE)]
-        if (length(m) == 1) m else NA_character_ }, "")
-      if (anyNA(ord)) next                  # not one slope per cell: leave alone
-      claimed <- c(claimed, unname(ord))
-      blocks[[length(blocks) + 1]] <- list(label = lv, cols = unname(ord),
-                                           order = unname(ord))
+  ## The coefficients fall into blocks. The cell means are one quantity per
+  ## realized cell, and so is each set of slopes the formula crosses with the
+  ## whole structure: each translates by the same map, so a covariate slope
+  ## becomes a reference-cell slope plus differences from it, which is what a
+  ## chain fit reports. A set of slopes crossed with part of the structure is
+  ## fitted on that part's own columns, whose coefficients are already effects
+  ## of the variables the formula names; it is reported as fitted, and in cell
+  ## space as the slope each cell receives.
+  blocks <- list(list(kind = "means", label = character(0),
+                      cols = intersect(c("(Intercept)", paste0(cn, cells)), names(b))))
+  g <- cell_grid(spec, data)
+  for (cvz in spec$covariates) if (is.numeric(data[[cvz]])) g[[cvz]] <- 0
+  ft <- stats::delete.response(stats::terms(cell_formula(spec)))
+  Xg <- stats::model.matrix(ft, g)
+  col_term <- c("(Intercept)", attr(ft, "term.labels"))[attr(Xg, "assign") + 1L]
+  ## the engine's name for each design column: the same, unless it has
+  ## rewritten the characters it does not allow or written a product's
+  ## variables in another order
+  coef_of <- function(z) {
+    hit <- match(z, names(b))
+    key <- function(s) term_key(vapply(strsplit(s, ":", fixed = TRUE), function(p)
+      paste(tolower(gsub("[^A-Za-z0-9]", "", p)), collapse = ":"), ""))
+    miss <- is.na(hit)
+    if (any(miss)) hit[miss] <- match(key(z[miss]), key(names(b)))
+    names(b)[hit]
+  }
+  cell_piece <- paste0(cn, cells)
+  Dc <- if (uses_reduced(spec)) design_columns(spec) else NULL
+  for (cb in covariate_blocks(spec)) {
+    fterms <- block_terms(spec, cb, "cells")
+    z <- colnames(Xg)[term_key(col_term) %in% term_key(fterms)]
+    zb <- coef_of(z)
+    if (!length(z) || anyNA(zb)) next     # not in this fit: left as fitted
+    if (length(fterms) == 1L && identical(fterms, paste0(cn, ":", cb$label))) {
+      ## A factor covariate contributes one such set per non-reference level,
+      ## `cell<k>:x<level>`, each a separate quantity per cell.
+      pieces <- strsplit(z, ":", fixed = TRUE)
+      suffix <- vapply(pieces, function(p) paste(p[!p %in% cell_piece],
+                                                 collapse = ":"), "")
+      for (sx in unique(suffix)) {
+        ord <- vapply(cell_piece, function(k) {
+          m <- zb[suffix == sx & vapply(pieces, function(p) k %in% p, TRUE)]
+          if (length(m) == 1L) m else NA_character_ }, "")
+        if (anyNA(ord)) next              # not one slope per cell: leave alone
+        blocks[[length(blocks) + 1]] <- list(kind = "slopes", label = sx,
+                                             cols = unname(ord))
+      }
+    } else {
+      numeric_block <- all(vapply(cb$vars, function(v) is.numeric(data[[v]]), TRUE))
+      ## a slope varies over the structure through the design columns it is
+      ## multiplied by; one that names none is the same in every cell
+      W <- NULL
+      if (numeric_block && length(cb$terms)) {
+        W <- matrix(0, length(cells), length(zb), dimnames = list(cells, zb))
+        for (j in seq_along(z)) {
+          dm <- intersect(strsplit(z[j], ":", fixed = TRUE)[[1]], colnames(Dc))
+          W[, j] <- if (length(dm)) Dc[cells, dm[1]] else 1
+        }
+      }
+      ## named for the effect each column carries, then the product as the
+      ## formula writes it, whichever order R named the coefficient in
+      emap <- attr(Dc, "effect_names")
+      lab <- if (numeric_block) vapply(z, function(zz) {
+        p <- strsplit(zz, ":", fixed = TRUE)[[1]]
+        paste(c(emap[p[p %in% names(emap)]], cb$label), collapse = ":")
+      }, "", USE.NAMES = FALSE) else reduced_labels(spec, z)
+      blocks[[length(blocks) + 1]] <- list(kind = "fitted", label = cb$label,
+        cols = zb, labels = lab, W = W,
+        meaning = if (!length(cb$terms) && numeric_block) "common slope"
+                  else "as fitted")
     }
   }
   used <- unlist(lapply(blocks, `[[`, "cols"))
@@ -98,23 +134,30 @@ nest_summary <- function(model, space = c("effects", "cells"),
 
   rows <- list()
   for (bl in blocks) {
-    g <- cell_grid(spec, data)
-    for (cvz in spec$covariates) if (is.numeric(data[[cvz]])) g[[cvz]] <- 0
-    if (!length(bl$label)) {
-      rhs <- paste(deparse(cell_formula(spec)[[3]]), collapse = " ")
-      X <- stats::model.matrix(stats::as.formula(paste("~", rhs)), g)
-      X <- X[, intersect(colnames(X), bl$cols), drop = FALSE]
-      M <- matrix(0, length(cells), length(b), dimnames = list(cells, names(b)))
+    M <- matrix(0, length(cells), length(b), dimnames = list(cells, names(b)))
+    if (identical(bl$kind, "means")) {
+      X <- Xg[, intersect(colnames(Xg), bl$cols), drop = FALSE]
       M[cells, colnames(X)] <- X
       nm <- cells
-    } else {
-      M <- matrix(0, length(cells), length(b), dimnames = list(cells, names(b)))
+    } else if (identical(bl$kind, "slopes")) {
       for (i in seq_along(cells)) M[i, bl$cols[i]] <- 1
       nm <- paste0(cells, " slope on ", bl$label)
+    } else if (space == "cells" && !is.null(bl$W)) {
+      M[cells, bl$cols] <- bl$W
+      rownames(M) <- paste0(cells, " slope on ", bl$label)
+      rows[[length(rows) + 1]] <- list(M = M, label = bl$label)
+      next
+    } else {
+      M <- matrix(0, length(bl$cols), length(b), dimnames = list(bl$cols, names(b)))
+      for (k in bl$cols) M[k, k] <- 1
+      rownames(M) <- bl$labels
+      rows[[length(rows) + 1]] <- list(M = M, label = NA_character_,
+                                       meaning = rep(bl$meaning, length(bl$cols)))
+      next
     }
     if (space == "effects") {
       M <- solve(A) %*% M
-      nm <- if (!length(bl$label)) colnames(A)
+      nm <- if (identical(bl$kind, "means")) colnames(A)
             else ifelse(colnames(A) == "(Intercept)", bl$label,
                         paste0(colnames(A), ":", bl$label))
     }
@@ -150,7 +193,8 @@ nest_summary <- function(model, space = c("effects", "cells"),
                       row.names = NULL)
   }
   out$meaning <- unlist(lapply(rows, function(r)
-    block_meaning(spec, r$label, cells, A, space, rownames(r$M))))
+    if (!is.null(r$meaning)) r$meaning
+    else block_meaning(spec, r$label, cells, A, space, rownames(r$M))))
   if (has_thresholds(spec) && nrow(out) && isTRUE(out$std.error[1] == 0))
     out$meaning[1] <- paste0(out$meaning[1], " (fixed at 0: absorbed into the thresholds)")
   if (isTRUE(random))

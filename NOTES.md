@@ -1230,3 +1230,67 @@ The pass also caught a real staleness the automated check had missed:
 `dev/check_docs.R` verifies that every argument *name* appears in the usage, not
 that the defaults match, so a stale set of choices passed it. That gap is worth
 closing.
+
+
+## Covariates are crossed term by term
+
+The mean structure followed the formula; the covariates did not. Each covariate
+was recorded as a name and one flag - does it appear in any term beside a design
+variable - and the fitting formula was built from the flag: `cell:x` (or
+`x + dm_...:x` over every reduced column) if so, `x` if not. Two consequences,
+found on a fit of `chord_type * GMSI * (inversion + top + x1 + x2 + x3)`:
+
+- A covariate crossed with part of the structure was crossed with all of it.
+  `chord_type * x1` asks for four slopes; the fit carried one per realized cell,
+  twenty, and `nest_summary()` reported `chord_typedim:inversion1:x1` and the
+  like - terms the formula does not contain. 48 coefficients too many in that
+  model.
+- A product of covariates was never formed. `GMSI:x1` and `chord_type:GMSI:x1`
+  were dropped without a word - 12 coefficients in that model. Product columns
+  computed by hand restored them, and were over-crossed in their turn.
+
+The rule now is the mean structure's rule, applied to each set of slopes. A
+fixed term splits into its design variables and its covariates
+(`term_split()`); terms are grouped by their covariate product - `x1`, `GMSI`,
+`GMSI:x1` (`covariate_blocks()`) - and each group's design over the realized
+cells is built by `design_over_cells()` from that group's own design terms, with
+an intercept column when the product also enters on its own. A group spanning
+every cell is written `cell:x` in cells mode; any other is written on its own
+columns, `x + dm_chord_typedim:x + ...`. The mean structure is the group with no
+covariate, so `declared_terms()` now takes only the terms that name no
+covariate: `chord_type:x` contributes to the slopes of `x`, not to the mean.
+Checked by comparing column spaces: for all three models of the study script the
+fitted design and the formula's own now have the same rank and the same span.
+
+Points worth recording:
+
+- **A design column's name fixes its values** - the indicator or contrast of the
+  levels it names, with undefined conditions contributing nothing - so a column
+  two designs share is one column. `design_columns()` gathers the mean
+  structure's and every slope set's for `with_reduced()`, the grids and
+  `reduced_labels()`, and stops if two ever disagree.
+- **The random side takes a covariate's random slopes from that covariate's
+  fixed design**, as the mean structure's are taken from `reduced_design()`. A
+  random slope on a covariate-by-structure term the fixed part lacks is refused,
+  as a random structure term always was; a slope the bar names on its own is
+  passed through.
+- **Term order is part of a coefficient's name.** R names a product by the order
+  its variables first appear in the formula, and brms rebuilds the formula with
+  main effects first before naming anything, so `dm_a:x2` written after
+  `x1 + dm_a:x1` is `dm_a:x2` to `model.matrix()` and `x2:dm_a` to brms. The
+  fitting formula is now written in that order, so every engine gives the same
+  names (checked against `brms::make_standata()`); `nest_summary()` also matches
+  names as sets of variables.
+- **A factor covariate crossed with part of the structure is refused.** Beside
+  `cell` rather than beside its own margin, R codes its levels by indicators,
+  which repeat the mean structure. `check_covariate_coding()` tests the fitting
+  design for full rank on a grid of every realized cell and every level, so the
+  answer depends on the declaration rather than the sample, and names the
+  remedies: fold it into the design with `nests`, cross it with the whole
+  structure, or enter it as numeric codes. Such a factor used to be crossed with
+  every cell, so the refusal replaces a model other than the one written.
+- **The printed declaration lists the slopes**, each with the terms it varies
+  over and how many of the realized cells it spans. The fault was invisible
+  because nothing said how a covariate had been crossed.
+- **Fits made before this change carry the old formula** and need refitting
+  before `nest_summary()` or `nest_estimand()` will read them correctly.

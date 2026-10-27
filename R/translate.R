@@ -59,41 +59,133 @@ has_thresholds <- function(spec)
   (identical(spec$fit, "brm") && !is.null(spec$family) &&
      grepl("cumulative|sratio|cratio|acat", spec$family))
 
+## The fitting formula: the mean structure, then one set of slopes for every
+## product of covariates the formula names, each crossed with exactly the part
+## of the structure the formula crosses it with. The mean structure is the cell
+## factor when the formula spans every realized cell and the design's own
+## columns otherwise; a set of slopes is the same, judged on its own terms - so
+## `chord_type * x` gives `x` one slope per chord type, whatever else the
+## formula crosses with chord type.
 cell_formula <- function(spec, mode = c("cells", "reduced"), intercept = NULL) {
   mode <- match.arg(mode)
   if (is.null(intercept)) intercept <- has_thresholds(spec)
-  rhs <- if (mode == "reduced") {
-    z <- setdiff(colnames(reduced_design(spec)), "(Intercept)")
-    ## A covariate crossed with the structure has one slope per column of the
-    ## design *and* one for the column the design does not carry - its intercept,
-    ## which is the reference condition. Without that term the crossing would be
-    ## one slope short of the structure it is crossed with.
-    cov_terms <- unlist(lapply(spec$covariates, function(cv)
-      if (isTRUE(spec$cov_by_cell[[cv]])) c(cv, paste0(z, ":", cv)) else cv))
-    paste(c(z, cov_terms), collapse = " + ")
-  } else if (mode == "cells") {
-    cn <- spec$cell_name
-    cov_terms <- unlist(lapply(spec$covariates, function(cv)
-      if (isTRUE(spec$cov_by_cell[[cv]])) paste0(cn, ":", cv) else cv))
-    paste(c(if (intercept) cn else paste0("0 + ", cn), cov_terms), collapse = " + ")
-  }
+  cn <- spec$cell_name
+  mean_terms <- if (mode == "reduced")
+    setdiff(colnames(reduced_design(spec)), "(Intercept)")
+  else if (intercept) cn else paste0("0 + ", cn)
+  slope_terms <- unlist(lapply(covariate_blocks(spec), function(b)
+    block_terms(spec, b, mode)))
+  ## Written in the order R sorts terms - main effects, then two-way products,
+  ## and so on. R names a product's coefficient by the order its variables
+  ## first appear, and brms rebuilds the formula in this order before naming
+  ## them, so a formula written in any other order gives the same coefficient
+  ## two names on two engines: `dm_a:x2` on one and `x2:dm_a` on the other.
+  tm <- c(mean_terms, slope_terms)
+  deg <- lengths(strsplit(sub("^0 \\+ ", "", tm), ":", fixed = TRUE))
+  rhs <- paste(tm[order(deg)], collapse = " + ")
   stats::as.formula(paste(spec$outcome, "~", rhs), env = parent.frame())
 }
 
-## The structure the formula declares, closed under ancestry: the terms the user
-## wrote, with each nested variable given its parent, since a nested variable
-## has no effect outside the strata it varies in - `inversion` alone is not a
-## term this design admits, and becomes `chord_type:inversion`. This is what is
-## fitted when the declaration asks for less than the saturated structure, and
-## it is a subset of `chain_terms()`, never more.
-## The terms the formula asks for, as written: each term reduced to the design
-## variables it names, and nothing added. This is the whole of what the package
-## fits. A `+` between two variables the design admits an interaction between is
-## a restriction the user stated, and stating it is the point of writing `+`.
+## A fixed term is a product of design variables and covariates. The design
+## variables say where it varies; the covariates, if any, say what it is a slope
+## on. Terms with no covariate are the mean structure.
+term_split <- function(spec, labels) {
+  lapply(strsplit(labels, ":", fixed = TRUE), function(vs)
+    list(design = vs[vs %in% spec$cell_vars],
+         covariate = vs[!vs %in% spec$cell_vars]))
+}
+
+## The mean structure the formula asks for, as written: the terms that name
+## design variables and nothing else, and nothing added. A `+` between two
+## variables the design admits an interaction between is a restriction the user
+## stated, and stating it is the point of writing `+`. A term that also names a
+## covariate is a slope, and belongs to that covariate's set.
 declared_terms <- function(spec, labels = spec$term_labels) {
-  labs <- lapply(strsplit(labels, ":"), function(vs) vs[vs %in% spec$cell_vars])
-  out <- unique(vapply(Filter(length, labs), paste, "", collapse = ":"))
+  parts <- Filter(function(p) length(p$design) && !length(p$covariate),
+                  term_split(spec, labels))
+  out <- unique(vapply(parts, function(p) paste(p$design, collapse = ":"), ""))
   out[order(lengths(strsplit(out, ":")), out)]
+}
+
+## The slopes the formula asks for, one set per product of covariates: `x`,
+## `GMSI`, `GMSI:x`, each with the design terms it is crossed with and whether
+## it also enters on its own. The product is named as R first writes it, and
+## matched as a set of variables, since R orders the variables of a term by
+## where they first appear and two formulas need not agree.
+covariate_blocks <- function(spec, labels = spec$term_labels) {
+  parts <- Filter(function(p) length(p$covariate), term_split(spec, labels))
+  if (!length(parts)) return(list())
+  key <- vapply(parts, function(p) paste(sort(p$covariate), collapse = ":"), "")
+  lapply(unique(key), function(k) {
+    ps <- parts[key == k]
+    dt <- vapply(ps, function(p) paste(p$design, collapse = ":"), "")
+    tm <- unique(dt[nzchar(dt)])
+    list(label = paste(ps[[1]]$covariate, collapse = ":"),
+         vars = ps[[1]]$covariate, slope = any(!nzchar(dt)),
+         terms = tm[order(lengths(strsplit(tm, ":")), tm)])
+  })
+}
+
+## The design one set of slopes varies over: the terms it is crossed with, over
+## the realized cells, with a column for the slope itself when the formula
+## names it alone. Built exactly as the mean structure is, so a slope crossed
+## with the whole structure spans every cell and one crossed with chord type
+## spans the chord types, and nothing the design cannot inform is carried.
+covariate_design <- function(spec, block)
+  design_over_cells(spec, block$terms, intercept = block$slope)
+
+## The fitting terms for one set of slopes. On the cell factor when it spans
+## every realized cell and the mean structure is fitted there too; otherwise on
+## the design's own columns, each multiplied by the covariate product, with the
+## product itself standing for the intercept column.
+block_terms <- function(spec, block, mode = "cells") {
+  X <- covariate_design(spec, block)
+  if (identical(mode, "cells") && ncol(X) == nrow(spec$cells))
+    return(paste0(spec$cell_name, ":", block$label))
+  cols <- colnames(X)
+  c(if ("(Intercept)" %in% cols) block$label,
+    if (length(setdiff(cols, "(Intercept)")))
+      paste0(reduced_names(setdiff(cols, "(Intercept)")), ":", block$label))
+}
+
+## R codes a factor by contrasts or by indicators according to which other
+## terms stand beside it, and the fitting formula cannot always place a factor
+## covariate where its contrasts would be used: crossed with part of the
+## structure, its levels would be coded in full, duplicating the mean
+## structure. Checked on a grid of every realized cell and every level, so the
+## answer depends on the declaration rather than on the sample, and refused with
+## the remedies rather than fitted with aliased columns.
+check_covariate_coding <- function(spec) {
+  bl <- covariate_blocks(spec)
+  fac <- unique(unlist(lapply(bl, function(b)
+    b$vars[!vapply(b$vars, function(v) is.numeric(spec$data[[v]]), TRUE)])))
+  if (!length(fac)) return(invisible(TRUE))
+  num <- setdiff(unique(unlist(lapply(bl, `[[`, "vars"))), fac)
+  levs <- lapply(fac, function(v) {
+    x <- spec$data[[v]]
+    if (is.factor(x)) factor(levels(x), levels = levels(x),
+                             ordered = is.ordered(x)) else sort(unique(x))
+  })
+  names(levs) <- fac
+  g <- merge(spec$cells, do.call(expand.grid, c(levs, stringsAsFactors = FALSE)),
+             by = NULL)
+  g <- g[rep(seq_len(nrow(g)), each = length(bl) + 2L), , drop = FALSE]
+  for (j in seq_along(num)) g[[num[j]]] <- sin(seq_len(nrow(g)) * (j + 0.37))
+  if (uses_reduced(spec)) g <- reduced_augment(spec, g)
+  f <- cell_formula(spec, as.character(fitting_mode(spec)))
+  X <- stats::model.matrix(stats::delete.response(stats::terms(f)), g)
+  if (qr(X)$rank < ncol(X)) {
+    it <- if (length(fac) > 1) "them" else "it"
+    stop("`", paste(fac, collapse = "`, `"), "` ",
+         if (length(fac) > 1) "are factors" else "is a factor",
+         " the formula crosses with only part of the structure. In that ",
+         "position R codes every level by its own column, which repeats the ",
+         "mean structure, so the model would carry coefficients the data cannot ",
+         "tell apart. Name ", it, " in `nests` to make ", it, " part of the ",
+         "categorical design, cross ", it, " with the whole structure, or enter ",
+         it, " as numeric codes.", call. = FALSE)
+  }
+  invisible(TRUE)
 }
 
 ## How many dimensions of the realized-cell space a set of terms spans, which is
@@ -126,12 +218,14 @@ sentinel_absent <- function(spec, tab) {
 ## design cannot inform removed - identically zero first, then linearly
 ## redundant. What remains is full rank by construction, so the model fitted is
 ## the model the formula names and no coefficient has to be held at zero.
-design_over_cells <- function(spec, terms, tab = spec$cells) {
+## Without an intercept the terms are coded as R codes them when nothing stands
+## below them - `chord_type:x` with no `x` gives one slope per chord type.
+design_over_cells <- function(spec, terms, tab = spec$cells, intercept = TRUE) {
   cellid <- as.character(tab[[spec$cell_name]])
   tab <- sentinel_absent(spec, tab)
   s <- sentinel_levels(spec)
-  f <- stats::as.formula(paste("~", if (length(terms))
-    paste(terms, collapse = " + ") else "1"))
+  f <- stats::as.formula(paste("~", if (!intercept) "0 +",
+    if (length(terms)) paste(terms, collapse = " + ") else "1"))
   X <- stats::model.matrix(f, tab)
   tl <- c("(Intercept)", attr(stats::terms(f), "term.labels"))[attr(X, "assign") + 1L]
   for (v in names(s)) {
@@ -226,15 +320,45 @@ term_key <- function(z)
   vapply(strsplit(z, ":", fixed = TRUE),
          function(v) paste(sort(v), collapse = ":"), "", USE.NAMES = FALSE)
 
-## The readable name of a reduced column, for reporting. Unknown names - the
-## covariate crossings the fitting formula forms, and anything the engine adds -
-## are returned with the prefix removed and the separator restored, which is
-## right for `dm_a.b:x` and harmless otherwise.
+## Every design column the fit can name, the mean structure's and those of each
+## set of slopes, one per name. A name fixes the column's values - it is the
+## indicator or contrast of the levels it names, with the undefined conditions
+## contributing nothing - so a column two designs share is one column, and is
+## carried once.
+design_columns <- function(spec) {
+  mats <- c(list(reduced_design(spec)), lapply(covariate_blocks(spec), function(b) {
+    X <- covariate_design(spec, b)
+    eff <- colnames(X)
+    colnames(X) <- reduced_names(eff)
+    attr(X, "effect_names") <- stats::setNames(eff, colnames(X))
+    X
+  }))
+  X <- mats[[1]]; eff <- attr(X, "effect_names")
+  for (M in mats[-1]) {
+    new <- setdiff(colnames(M), c(colnames(X), "(Intercept)"))
+    same <- setdiff(intersect(colnames(M), colnames(X)), "(Intercept)")
+    if (length(same) &&
+        !isTRUE(all.equal(unname(M[rownames(X), same, drop = FALSE]),
+                          unname(X[, same, drop = FALSE]))))
+      stop("internal: the design column(s) `", paste(same, collapse = "`, `"),
+           "` differ between two parts of the model. Report this declaration.")
+    X <- cbind(X, M[rownames(X), new, drop = FALSE])
+    eff <- c(eff, attr(M, "effect_names")[new])
+  }
+  attr(X, "effect_names") <- eff
+  X
+}
+
+## The readable name of a design column, for reporting: the effect it stands
+## for, then any covariate product it multiplies - `chord_typedim:x`, whichever
+## order R happened to write the coefficient in. Names the design does not know
+## - anything the engine adds - are returned unchanged.
 reduced_labels <- function(spec, terms) {
-  map <- attr(reduced_design(spec), "effect_names")
+  map <- attr(design_columns(spec), "effect_names")
   vapply(terms, function(z) {
     parts <- strsplit(z, ":", fixed = TRUE)[[1]]
-    paste(ifelse(parts %in% names(map), map[parts], parts), collapse = ":")
+    known <- parts %in% names(map)
+    paste(c(map[parts[known]], parts[!known]), collapse = ":")
   }, "", USE.NAMES = FALSE)
 }
 
@@ -247,10 +371,10 @@ reduced_names <- function(x)
   ifelse(x == "(Intercept)", "(Intercept)",
          paste0("dm_", gsub("[^A-Za-z0-9._]", ".", x)))
 
-## The data with the reduced design carried alongside it, one column per
+## The data with the design columns carried alongside it, one column per
 ## identified effect, looked up by the cell each row belongs to.
 with_reduced <- function(spec, data = spec$data) {
-  keep <- setdiff(colnames(reduced_design(spec)), "(Intercept)")
+  keep <- setdiff(colnames(design_columns(spec)), "(Intercept)")
   clash <- intersect(keep, names(data))
   if (length(clash))
     stop("the reduced design would overwrite the column(s) `",
@@ -268,7 +392,7 @@ reduced_augment <- function(spec, data) {
     stop("the reduced design is looked up by realized cell, and this frame has ",
          "no `", spec$cell_name, "` column. Grids are translated with ",
          "add_cells() before the design is written onto them.")
-  X <- reduced_design(spec)
+  X <- design_columns(spec)
   keep <- setdiff(colnames(X), "(Intercept)")
   data[keep] <- as.data.frame(X[as.character(data[[spec$cell_name]]), keep,
                                 drop = FALSE], check.names = FALSE)
@@ -298,12 +422,15 @@ is_reduced <- function(spec)
                   error = function(e) FALSE))
 
 ## Does the fit this declaration produces use the design's own columns? The
-## fixed side does when the formula asks for less than the saturated structure;
-## the random side does whenever a bar reaches across the structure, whatever
-## the fixed side is doing. Grids handed to the engine have to carry them in
-## either case.
+## fixed side does when the formula asks for less than the saturated structure,
+## or crosses a covariate with only part of it; the random side does whenever a
+## bar reaches across the structure, whatever the fixed side is doing. Grids
+## handed to the engine have to carry them in any of these cases.
 uses_reduced <- function(spec) {
   if (is_reduced(spec)) return(TRUE)
+  slopes <- tryCatch(unlist(lapply(covariate_blocks(spec), function(b)
+    block_terms(spec, b, "cells"))), error = function(e) NULL)
+  if (any(grepl("dm_", slopes, fixed = TRUE))) return(TRUE)
   re <- tryCatch(random_terms(spec), error = function(e) NULL)
   !is.null(re) && grepl("dm_", re, fixed = TRUE)
 }

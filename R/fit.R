@@ -77,40 +77,43 @@ random_terms <- function(spec) {
     ## a term needs translation only if it reaches across the boundary
     structural <- vapply(strsplit(lhs, ":"), function(vs)
       any(vs %in% boundary_vars(spec)), TRUE)
-    ## covariates travel with the term; anything built from the nesting
-    ## variables is subsumed by the translated structure and must not be
-    ## repeated alongside it
-    covs <- lhs[!vapply(strsplit(lhs, ":"), function(vs)
-      any(vs %in% spec$cell_vars), TRUE)]
-    ## A covariate declared crossed with the structure keeps that crossing: it
-    ## gets a slope per column of the translated design and one for the
-    ## reference condition, exactly as on the fixed side.
-    crossed <- vapply(covs, function(k) {
-      kv <- strsplit(k, ":")[[1]]
-      any(vapply(strsplit(lhs, ":"), function(vs)
-        all(kv %in% vs) && any(vs %in% spec$cell_vars), TRUE))
-    }, TRUE)
     if (!any(structural))
       return(rewrap(sprintf("(%s %s %s)", lhs_txt, op, grp)))
+    refuse <- function(extra)
+      stop("the random term `(", lhs_txt, " ", op, " ", grp, ")` asks for `",
+           paste(extra, collapse = "`, `"), "`, which the model formula does ",
+           "not contain. A random effect for a term the fixed part leaves out ",
+           "says it averages to zero across groups but varies between them - ",
+           "coherent, but not something the formula states. Add the term to ",
+           "the model formula, or drop it from the bar.", call. = FALSE)
     ## The declared structure varying by group: the same columns the fixed side
     ## is fitted on, so the random effects are deviations in exactly the effects
     ## the bar names, and nothing larger.
-    want <- declared_terms(spec, lhs[vapply(strsplit(lhs, ":"), function(vs)
-      any(vs %in% spec$cell_vars), TRUE)])
+    want <- declared_terms(spec, lhs)
     extra <- want[!term_key(want) %in% term_key(declared_terms(spec))]
-    if (length(extra))
-      stop("the random term `(", lhs_txt, " ", op, " ", grp, ")` asks for `",
-           paste(extra, collapse = "`, `"), "`, which the model formula does ",
-           "not contain. A random effect for a term the mean structure leaves ",
-           "out says it averages to zero across groups but varies between them ",
-           "- coherent, but not something the formula states. Add the term to ",
-           "the model formula, or drop it from the bar.")
+    if (length(extra)) refuse(extra)
     cols <- reduced_columns(spec, want)
-    cov_red <- if (!length(covs)) "" else paste(" +", paste(unlist(
-      lapply(seq_along(covs), function(i) if (!crossed[[i]]) covs[[i]] else
-        c(covs[[i]], paste0(cols, ":", covs[[i]])))), collapse = " + "))
-    rewrap(sprintf("(1 + %s%s %s %s)", paste(cols, collapse = " + "),
-                   cov_red, op, grp))
+    ## A covariate's random slopes vary over exactly the part of the structure
+    ## the bar crosses it with, on the columns its fixed slopes are fitted on -
+    ## taken from that design rather than built afresh, for the reason the mean
+    ## structure's are. A slope the bar names on its own is passed through.
+    fixed <- covariate_blocks(spec)
+    slopes <- unlist(lapply(covariate_blocks(spec, lhs), function(b) {
+      fb <- Filter(function(f) setequal(f$vars, b$vars), fixed)
+      ft <- if (length(fb)) fb[[1]]$terms else character(0)
+      extra <- b$terms[!term_key(b$terms) %in% term_key(ft)]
+      if (length(extra)) refuse(paste0(extra, ":", b$label))
+      bc <- character(0)
+      if (length(b$terms)) {
+        X <- covariate_design(spec, fb[[1]])
+        tm <- attr(X, "term_of")
+        cc <- setdiff(colnames(X), "(Intercept)")
+        bc <- reduced_names(cc[term_key(tm[cc]) %in% term_key(b$terms)])
+      }
+      c(if (b$slope) b$label, if (length(bc)) paste0(bc, ":", b$label))
+    }))
+    rewrap(sprintf("(%s %s %s)", paste(c("1", cols, slopes), collapse = " + "),
+                   op, grp))
   }))
   paste(unique(out), collapse = " + ")
 }
@@ -162,8 +165,7 @@ nest_fit <- function(fit, formula, data, family = NULL, nests = NULL,
   ## full - so nothing has to be held at zero, and the columns are ordinary
   ## numeric variables that every engine treats alike.
   aug_code <- NULL
-  if (identical(mode, "reduced") ||
-      (!is.null(re) && grepl("dm_", re, fixed = TRUE))) {  # == uses_reduced()
+  if (uses_reduced(spec)) {
     raw_data_name <- data_name
     raw_data <- data
     data <- with_reduced(spec, data)

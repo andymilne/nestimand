@@ -40,11 +40,17 @@ conditions themselves and need no such gloss.
 These are the model's own coefficients, reparameterized: the transformation is
 exact and no refit or reference grid is involved.
 
-A covariate that interacts with the conditions contributes one slope per cell.
-That is a vector over the same space as the cell means, so it translates by the
-same map: in effect space it becomes a reference-cell slope, named for the
-covariate alone, plus the differences from it. A covariate entering additively is one slope common to every condition
-and is left as fitted, as are ordinal thresholds. As with any intercept, a cell mean is the linear
+A covariate the formula crosses with the whole structure contributes one slope
+per cell. That is a vector over the same space as the cell means, so it
+translates by the same map: in effect space it becomes a reference-cell slope,
+named for the covariate alone, plus the differences from it. A covariate crossed
+with part of the structure - \code{chord_type * x} - has the slopes that part
+gives, reported as fitted and named for the effects they carry (\code{x},
+\code{chord_typemaj:x}); in cell space each condition's row is the slope it
+receives. A product of covariates, such as \code{GMSI:x}, is a set of slopes of
+its own and is read in the same way. A covariate entering additively is one
+slope common to every condition and is left as fitted, as are ordinal
+thresholds. As with any intercept, a cell mean is the linear
 predictor where the covariates are zero, so an uncentred covariate makes it an
 extrapolation; centring covariates gives cell means at the covariate average
 instead. Under a threshold family the reference

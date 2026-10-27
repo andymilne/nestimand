@@ -429,12 +429,10 @@ nesting_spec <- function(data, formula, nests = NULL,
   ## - a random slope with no fixed counterpart, and nothing said.
   covariates <- setdiff(unique(unlist(strsplit(labs, ":"))), unlist(families))
   covariates <- unique(c(covariates, cont_nested))
-
-  ## does the declared formula ask for covariate x structure interaction?
-  cov_by_cell <- vapply(covariates, function(cv)
-    any(vapply(strsplit(labs, ":"), function(vs)
-      cv %in% vs && any(unlist(families) %in% vs), TRUE)), TRUE)
-  names(cov_by_cell) <- covariates
+  ## How each covariate is crossed with the structure is not recorded here: it
+  ## is read from the term labels wherever it is needed (`covariate_blocks()`),
+  ## term by term, since a covariate can be crossed with one part of the
+  ## structure and a product of covariates with another.
 
   ## Does the declared formula ask for less than the saturated structure over
   ## the realized cells? Cells mode fits `~ 0 + cell` whatever was written, so
@@ -449,10 +447,10 @@ nesting_spec <- function(data, formula, nests = NULL,
             if (length(cont_nested) > 1) "are numeric" else "is numeric",
             ", so ", if (length(cont_nested) > 1) "they are " else "it is ",
             "not part of the cell factor: a continuous nested variable enters ",
-            "as a slope within the realized cells - `", cell_name, ":",
-            cont_nested[1], "` - which is what nesting a quantity means. If ",
-            "its values are labels rather than quantities, make it a factor ",
-            "before declaring it.")
+            "as a slope within the realized cells, varying over the part of ",
+            "the structure the formula crosses it with, which is what nesting ",
+            "a quantity means. If its values are labels rather than ",
+            "quantities, make it a factor before declaring it.")
   counts <- table(data[[cell_name]])
   if (all(counts == 1))
     message("every realized cell contains a single observation: the model will be ",
@@ -464,7 +462,7 @@ nesting_spec <- function(data, formula, nests = NULL,
                  parent = parent, crossed = crossed,
                  families = families, cat_families = cat_families,
                  cont_nested = cont_nested, covariates = covariates,
-                 cov_by_cell = cov_by_cell, term_labels = labs,
+                 term_labels = labs,
                  cell_name = cell_name, cell_vars = cell_vars,
                  cells = cells, cell_levels = cell_levels,
                  cells_by_family = cells_by_family,
@@ -487,8 +485,9 @@ nesting_spec <- function(data, formula, nests = NULL,
             "held at zero. The coefficients are named for those columns: ",
             "nest_summary() reads them back as effects of your own variables, ",
             "and reduced_design() shows the columns themselves. (This counts ",
-            "the mean structure alone; covariates and random terms multiply ",
-            "those columns.)")
+            "the mean structure alone; covariate slopes and random terms have ",
+            "columns of their own.)")
+  check_covariate_coding(out)
   out
 }
 
@@ -545,6 +544,18 @@ print.nesting_spec <- function(x, ...) {
         "   design can inform. reduced_design() shows them)\n", sep = "")
   else
     cat("  (effects parameterization: requested by the engine or the priors)\n")
+  bl <- tryCatch(covariate_blocks(x), error = function(e) list())
+  if (length(bl)) {
+    cat("Slopes fitted:\n")
+    for (b in bl) {
+      k <- tryCatch(ncol(covariate_design(x, b)), error = function(e) NA_integer_)
+      cat("  ", b$label, " ~ ",
+          paste(c(if (b$slope) "1" else "0", b$terms), collapse = " + "),
+          if (!length(b$terms)) "  (common to every condition)"
+          else paste0("  (", k, " of the ", nrow(x$cells), " realized cells)"),
+          "\n", sep = "")
+    }
+  }
   invisible(x)
 }
 

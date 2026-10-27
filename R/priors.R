@@ -226,7 +226,8 @@ prior_cell_map <- function(spec) {
 ## from the design matrix rather than assumed, so the prior can be checked
 ## against them before sampling starts.
 fitted_coef_names <- function(spec, mode = "cells") {
-  X <- stats::model.matrix(cell_formula(spec, mode), spec$data)
+  d <- if (uses_reduced(spec)) reduced_augment(spec, spec$data) else spec$data
+  X <- stats::model.matrix(cell_formula(spec, mode), d)
   setdiff(colnames(X), "(Intercept)")
 }
 ## the design matrix prefixes the factor name: `cellaug.none`, not `aug.none`

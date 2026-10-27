@@ -50,16 +50,20 @@ would carry as aliased coefficients, and it makes the variable a legal target of
 estimand.
 
 A declared nesting variable that is \emph{numeric} is not part of the cell factor: a
-continuous nested variable enters as a slope within the realized cells,
-\code{cell:x}, which is what nesting a quantity means. \code{nesting_spec} says so
+continuous nested variable enters as a slope within the realized cells, varying
+over the part of the structure the formula crosses it with - \code{cell:x} when that
+is all of it - which is what nesting a quantity means. \code{nesting_spec} says so
 when it happens, and the printed structure marks the variable, since a variable whose
 values are labels is easily left numeric by accident - convert it to a factor first if
 that is what it is.
 
 The formula says what to fit and \code{nests} says which combinations exist. The model
 is fitted over the conditions the design realizes, so every coefficient is estimable
-and none is aliased. The printed structure shows what will be fitted, and how many of
-the realized cells it spans.
+and none is aliased. A covariate, or a product of covariates such as \code{GMSI:x}, has
+slopes over exactly the part of the structure the formula crosses it with:
+\code{chord_type * x} gives one slope per chord type, whatever else the formula crosses
+with chord type. The printed structure shows what will be fitted - the mean structure and
+each set of slopes - and how many of the realized cells each spans.
 
 Operators mean in a partially nested design what they mean anywhere:
 \code{response ~ chord_type + inversion} fits one inversion effect shared by every
