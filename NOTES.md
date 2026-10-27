@@ -1391,3 +1391,28 @@ Points worth recording:
   which belongs in the data; a call that cannot be evaluated on the data, with
   the engine's own message - and for `poly(x, 2, "raw")`, where `raw` is taken
   by position as a second variable, the spelling that works.
+
+
+## Predictions along a numeric target
+
+`contrast = "none"` gives, for a categorical target, the policy-weighted
+average prediction at each level - the quantity its contrasts are formed from.
+For a numeric target it now gives the same at each of the values named by a new
+argument, `values`: every observed row in every realized condition, the target
+set to the value, the conditions weighted by the policy. The result has one row
+per value and the value in a column named for the target, so it plots as a
+curve; `by` gives a curve per group, and `nest_draws(shape = "long")` carries
+the value as a number. The bounds are, at each value, the range over the
+conditions.
+
+There is no default set of values, since which ones are wanted is the question.
+On the linear predictor each value is one pass over the policy grid
+(`value_contrast_matrix()`), so the grid's design is never held twice; off it
+the grid is stacked once per value (`value_grid()`) and handed to
+`avg_predictions(by = target)`. Either way the cost is the number of values
+times the grid, which is said before anything is computed when it is large, with
+`subsample` as the lever.
+
+`values` is a nestimand argument rather than marginaleffects' `variables`
+because it says one thing - where along the target - while `variables` would
+also have to say which variable, which the target already names.

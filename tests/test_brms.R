@@ -286,6 +286,14 @@ chk("and a step along its variable moves both columns, on either route",
                                                         bounds = FALSE)))
       abs(a$estimate - b$estimate) < 0.02 })
 
+chk("predictions along its variable come with their draws, the values numeric",
+    { ev <- suppressMessages(nest_estimand(mt, x1, contrast = "none",
+              values = c(-1, 0, 1), by = chord_type, bounds = FALSE))
+      dv <- as.data.frame(ev); d <- nest_draws(ev)
+      m <- tapply(d$draw, paste(d$chord_type, d$x1), mean)
+      is.numeric(d$x1) && all(c("chord_type", "term", "x1", "draw") %in% names(d)) &&
+        max(abs(m[paste(dv$chord_type, dv$x1)] - dv$estimate)) < 1e-8 })
+
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
 cat("If check 2 failed, report the coefficient names printed above: the naming\n")
 cat("rule in latent_draws() needs correcting to match them.\n")

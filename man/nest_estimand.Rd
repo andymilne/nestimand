@@ -7,7 +7,9 @@
 \description{
 \code{nest_estimand} returns a labelled contrast table in the original variable names, under
 a stated weighting policy, with partial-identification bounds over all admissible
-policies. The analysis is assembled as text and then evaluated,
+policies. On the linear predictor the estimand is computed from the coefficients;
+on any other scale, by \pkg{marginaleffects} over a policy-weighted grid - see
+\emph{What computes it}. The analysis is assembled as text and then evaluated,
 so \code{show_code} returns the code that ran rather than a reconstruction of it.
 }
 \usage{
@@ -15,14 +17,14 @@ nest_estimand(model, target, policy = "equal", at = NULL, contrast = c("pairwise
          "reference", "sequential", "none"), route = c("g_computation",
          "cells"), weights = NULL, type = NULL, subsample = NULL,
          data = NULL, bounds = TRUE, dry_run = FALSE,
-         by = NULL, ..., .env = parent.frame(), .restrict = NULL)
+         by = NULL, values = NULL, ..., .env = parent.frame(), .restrict = NULL)
 
 nest_draws(x, shape = c("long", "DxP", "PxD", "rvar"),
            names = c("terms", "syntactic"))
 
 add_bounds(est, model, spec, target, contrast = "pairwise", scale = c("response", 
            "latent"), cells = spec$cells, route = c("g_computation",
-           "cells"), data = spec$data, ...)
+           "cells"), data = spec$data, values = NULL, ...)
 
 
 }
@@ -55,8 +57,9 @@ spelling for it is resolved against the model, since it differs between classes
 and releases.}
   \item{route}{over which rows the model is evaluated. \code{"g_computation"} crosses every observed row with every realized cell, so each condition is averaged over the same covariate distribution, giving the population-averaged effect. \code{"cells"} uses one row per realized cell with covariates at their means: the conditional effect at an average covariate value.}
   \item{weights}{unit weights, as a column name or a numeric vector of one weight per row. Where the policy weights the versions of a condition, these weight the rows, standardizing the estimand to a population other than the sample: survey weights, or post-stratification to a target distribution of the covariates. Not available on the \code{"cells"} route, which evaluates one row per condition and so has no units to weight.}
-  \item{contrast}{which comparisons to form among the target's levels: all pairs, each against the first, each against the one before, or none. \code{"none"} returns the policy-weighted prediction for each level rather than differences between them - the quantity the contrasts are formed from, since each row of the policy matrix is already the weighted average of the design rows for one level. A marginal mean on a partially nested design is policy-dependent in exactly the way a contrast is, so taking both from one call is what keeps the mean you report and the contrast you report the same estimand. Bounds, the reorder check, \code{by} and \code{\link{nest_draws}} all apply unchanged; a target naming two variables gives one prediction per realized combination, over the strata where both vary. An interaction - a difference of differences - is asked for by the shape of the target, \code{nest_estimand(m, a:b)}, which crosses no structural boundary and so takes no policy; and the levels an estimand is computed within are named by \code{by}. For a numeric target \code{contrast} is the step compared along it, named as \pkg{marginaleffects} names it: \code{"sd"} and \code{"2sd"} for one and two standard deviations, \code{"iqr"}, \code{"minmax"}, a number for a step of that size, two numbers for the step between them, or a function of the values returning the low and the high value to compare. The moments are those of the data the model was fitted to, and the step moves every term made from the target - \code{I(x^2)} or \code{poly(x, 2)} as well as \code{x} itself. With no \code{contrast} given, the step is one standard deviation, and its size is reported. On the linear predictor the comparison is c'b, and only the size of the step matters; on any other scale the step is passed to \code{marginaleffects::avg_comparisons} as \code{variables}, and means there what that package means by it.}
+  \item{contrast}{which comparisons to form among the target's levels: all pairs, each against the first, each against the one before, or none. \code{"none"} returns the policy-weighted prediction for each level rather than differences between them - the quantity the contrasts are formed from, since each row of the policy matrix is already the weighted average of the design rows for one level. A marginal mean on a partially nested design is policy-dependent in exactly the way a contrast is, so taking both from one call is what keeps the mean you report and the contrast you report the same estimand. Bounds, the reorder check, \code{by} and \code{\link{nest_draws}} all apply unchanged; a target naming two variables gives one prediction per realized combination, over the strata where both vary. An interaction - a difference of differences - is asked for by the shape of the target, \code{nest_estimand(m, a:b)}, which crosses no structural boundary and so takes no policy; and the levels an estimand is computed within are named by \code{by}. For a numeric target \code{contrast} is the step compared along it, named as \pkg{marginaleffects} names it: \code{"sd"} and \code{"2sd"} for one and two standard deviations, \code{"iqr"}, \code{"minmax"}, a number for a step of that size, two numbers for the step between them, or a function of the values returning the low and the high value to compare. With \code{contrast = "none"} a numeric target gives the average prediction at each of the \code{values} instead. The moments are those of the data the model was fitted to, and the step moves every term made from the target - \code{I(x^2)} or \code{poly(x, 2)} as well as \code{x} itself. With no \code{contrast} given, the step is one standard deviation, and its size is reported. On the linear predictor the comparison is c'b, and only the size of the step matters; on any other scale the step is passed to \code{marginaleffects::avg_comparisons} as \code{variables}, and means there what that package means by it.}
   \item{bounds}{attach the partial-identification region. It is computed on the same route as the estimand, one evaluation per single-version policy, so its cost grows with the number of versions: on a design admitting many, \code{bounds = FALSE} is the way to skip it.}
+  \item{values}{for a numeric target with \code{contrast = "none"}, the values at which the policy-weighted average prediction is computed - \code{seq(-2, 2, 0.1)}, say. The result has one row per value, and the value itself in a column named for the target, so it plots as a curve; \code{by} gives one curve per group, and \code{\link{nest_draws}} returns the value as a numeric column too. Every observed row in every realized condition is evaluated at each value, so the cost grows with the number of values, and \code{subsample} bounds it.}
   \item{dry_run}{return the code without computing anything. \code{show_code()} prints the code of a result that has already been computed, since the inner call is evaluated first; this is the way to see the code beforehand.}
   \item{...}{passed to \code{marginaleffects::avg_predictions}, which computes the estimand, and written into the saved code: \code{conf_level}, \code{p_adjust}, \code{vcov}, \code{type}, \code{df} and the rest are supplied this way. See \code{?marginaleffects::avg_predictions} for what it accepts. \code{ndraws} thins the posterior of a \pkg{brms} fit and works on either route: passed to the prediction function, or applied to the draws directly. It is the other lever on a large problem, alongside \code{subsample}, and usually the cheaper, since a posterior has far more draws than the quantities they inform. A \code{hypothesis} supplied here replaces the comparison that \code{contrast} would have formed - the two cannot both be sent - and the direction convention goes with it, the labels then being whatever the engine returns. This is the way to ask for comparisons within each level of a grouped output, as an ordinal fit on the response scale produces: \code{hypothesis = ~ pairwise | group}. When \code{type} names the linear predictor the estimand is computed from the coefficients instead, and \code{conf_level} is the only one of these that applies.}
   \item{.env}{environment in which the assembled code is evaluated.}
@@ -112,6 +115,25 @@ installed; at the time of writing it was:
 Note that \code{linear.predictor} on a \code{clm} is one value per outcome
 category, and is not the contrast \code{eta} computes; and that a \code{clmm}
 admits no type at all, so \code{eta} is the only quantity available there.
+}
+\section{What computes it}{
+On the linear predictor - \code{type = "eta"}, the default on an ordinal family,
+and the response scale under an identity link, where it is the same quantity -
+the estimand is computed from the coefficients as c'b, c being the
+policy-weighted average of the design rows over the grid. No prediction is made
+and \pkg{marginaleffects} is not called; the numbers are those the matching
+\pkg{marginaleffects} call gives on that scale. On every other scale, or when an
+argument meant for \pkg{marginaleffects} is supplied, the policy-weighted grid is
+handed to it:
+
+\tabular{ll}{
+  a categorical target, \code{contrast = "none"} \tab \code{avg_predictions(model, newdata = grid, by = target, wts = grid$.w)}: the average prediction at each level \cr
+  a categorical target, a contrast \tab the same call, with \code{hypothesis} forming the differences between those averages. On the G-computation grid each difference is an average counterfactual comparison - the quantity \code{avg_comparisons()} reports for a factor - with the versions of each level weighted by the policy \cr
+  a numeric target, a step \tab \code{avg_comparisons(model, newdata = grid, variables = list(target = contrast), wts = grid$.w)} \cr
+  a numeric target, \code{contrast = "none"} \tab \code{avg_predictions(model, newdata = grid, by = target, wts = grid$.w)}, over a grid holding each of the \code{values} \cr
+}
+
+\code{show_code()} prints the call that was made and the grid it was made over.
 }
 \section{Policy and route}{
 Two separate choices determine what an across-boundary contrast means, and both
@@ -225,5 +247,7 @@ m3 <- nest_fit("lm", response ~ chord_type * inversion * training, dat,
 nest_estimand(m3, training)                       # one SD, averaged over conditions
 nest_estimand(m3, training, contrast = "2sd", by = chord_type)
 nest_estimand(m3, training, contrast = 1, policy = "hierarchical")
+nest_estimand(m3, training, contrast = "none", values = seq(0, 10, 0.5),
+              by = chord_type)                    # one curve per chord type
 }
 }

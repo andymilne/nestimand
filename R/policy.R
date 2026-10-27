@@ -258,6 +258,18 @@ counterfactual_grid <- function(spec, data = spec$data, policy = NULL,
   g
 }
 
+## The grid for predictions along a numeric target: the policy-weighted grid
+## once for each of the values, the target set to it, so that the average at a
+## value is an average over the same rows and conditions as at every other.
+value_grid <- function(spec, data = spec$data, policy, target, values,
+                       cells = spec$cells, route = "g_computation") {
+  g <- policy_grid(spec, policy, data, cells, route = route)
+  out <- g[rep(seq_len(nrow(g)), times = length(values)), , drop = FALSE]
+  out[[target]] <- rep(values, each = nrow(g))
+  rownames(out) <- NULL
+  out
+}
+
 policy_weights <- function(spec, grid, policy) {
   target <- policy$target
   ## the same construction as versions_of(): a version is named by the other

@@ -13,7 +13,8 @@ operation, so this is G-computation rather than an approximation to it.
 \usage{
 latent_estimand(model, target, policy = "equal", at = NULL, contrast = "pairwise", 
                 data = NULL, conf_level = 0.95, spec = NULL, cells = NULL,
-                ndraws = NULL, weights = NULL, route = "g_computation", re_formula = NA)
+                ndraws = NULL, weights = NULL, route = "g_computation", re_formula = NA,
+                values = NULL)
 
 latent_draws(model, target, policy = "equal", at = NULL, contrast = "pairwise", 
              data = NULL, spec = NULL, cells = NULL)
@@ -27,7 +28,8 @@ policy_contrast_matrix(spec, target, policy, data = spec$data, model = NULL,
   \item{target}{name of the variable whose levels are contrasted, quoted or bare.}
   \item{policy}{a distribution over the versions of a compound condition: one of \code{"equal"}, \code{"proportional"}, \code{"hierarchical"}, \code{"nominated"}, or a named numeric vector of masses.}
   \item{at}{for \code{policy = "nominated"}, a named vector giving the version, e.g. \code{c(inversion = "0")}.}
-  \item{contrast}{\code{"pairwise"}, \code{"reference"}, \code{"sequential"}, or \code{"interaction"}, the last taking two or more targets and giving a difference of differences among cells.}
+  \item{contrast}{\code{"pairwise"}, \code{"reference"}, \code{"sequential"}, or \code{"interaction"}, the last taking two or more targets and giving a difference of differences among cells. For a numeric target, the step along it, or \code{"none"} with \code{values}, as in \code{\link{nest_estimand}}.}
+  \item{values}{for a numeric target with \code{contrast = "none"}, the values at which the average linear predictor is computed.}
   \item{data}{data over which the grid is formed.}
   \item{conf_level}{confidence level for the delta-method interval.}
   \item{cells}{the realized cells to work over. Chosen automatically: a marginal contrast of a nested variable is pooled only over the strata in which it varies, and an interaction over those in which every target varies.}

@@ -3038,6 +3038,53 @@ chk("transformed: a transformation into a factor is refused",
 chk("transformed: poly() given `raw` by position is told to name it",
     grepl("raw = TRUE", err_of(cov_spec(response ~ chord_type * inversion +
                                           poly(x1, 2, "raw"))), fixed = TRUE))
+## ---- predictions along a numeric target -----------------------------------
+## With contrast = "none" a numeric target's estimand is the policy-weighted
+## average prediction at each of the values given - the curve a plot is drawn
+## from, through every term made from the target.
+m_val <- suppressMessages(fit_from(cov_spec(f_poly)))
+sp_val <- attr(m_val, "nestimand_spec")
+vv <- c(-1.5, 0, 1.5)
+val_est <- function(...) as.data.frame(suppressMessages(
+  nest_estimand(m_val, x1, contrast = "none", values = vv, ...)))
+chk("values: the prediction at each value is the G-computation the formula implies",
+    { hand <- lm(f_poly, data = sp_val$data)
+      byc <- val_est(by = chord_type, bounds = FALSE)
+      want <- unlist(lapply(c("aug", "dim", "min", "maj"), function(ct) {
+        cl <- sp_val$cells[sp_val$cells$chord_type == ct, ]
+        vapply(vv, function(v) mean(vapply(seq_len(nrow(cl)), function(k) {
+          nd <- sp_val$data; nd$chord_type <- cl$chord_type[k]
+          nd$inversion <- cl$inversion[k]; nd$x1 <- v; mean(predict(hand, nd)) }, 0)), 0)
+      }))
+      max(abs(byc$estimate - want)) < 1e-8 })
+chk("values: the linear map and avg_predictions agree",
+    { a <- val_est(bounds = FALSE); b <- val_est(bounds = FALSE, vcov = TRUE)
+      isTRUE(all.equal(a$estimate, b$estimate)) &&
+        isTRUE(all.equal(a$std.error, b$std.error, tolerance = 1e-6)) })
+chk("values: the values are a numeric column beside the labels",
+    { a <- val_est(bounds = FALSE)
+      identical(a$x1, vv) && identical(a$term, as.character(vv)) })
+chk("values: the bounds at each value are the range over the conditions",
+    { b <- attr(suppressMessages(nest_estimand(m_val, x1, contrast = "none",
+                                               values = vv)), "nestimand")$bounds
+      cc <- val_est(by = c(chord_type, inversion), bounds = FALSE)
+      lo <- tapply(cc$estimate, cc$x1, min); hi <- tapply(cc$estimate, cc$x1, max)
+      max(abs(b$policy_low - lo[as.character(vv)])) < 1e-10 &&
+        max(abs(b$policy_high - hi[as.character(vv)])) < 1e-10 })
+chk("values: the code view re-runs and reproduces it",
+    { e <- suppressMessages(nest_estimand(m_val, x1, contrast = "none",
+                                          values = seq(-1, 1, 0.5)))
+      env <- new.env(); assign("m_val", m_val, env)
+      rr <- suppressMessages(eval(parse(text = paste(attr(e, "nestimand")$code,
+                                                     collapse = "\n")), envir = env))
+      isTRUE(all.equal(as.data.frame(rr)$estimate, as.data.frame(e)$estimate)) })
+chk("values: asked for without contrast = \"none\", or for a factor, they are refused",
+    grepl("needs them stated", err_of(nest_estimand(m_val, x1, contrast = "none")),
+          fixed = TRUE) &&
+      grepl("is not a numeric target", err_of(nest_estimand(m_val, inversion,
+              contrast = "none", values = 1:2)), fixed = TRUE) &&
+      grepl("compared without them", err_of(nest_estimand(m_val, x1, values = 1:2)),
+            fixed = TRUE))
 chk("numeric target: on an ordinal fit the step is taken on the linear predictor",
     { d <- cov_dat
       d$rord <- factor(cut(d$response, 5, labels = FALSE), ordered = TRUE)

@@ -135,6 +135,35 @@ step_size <- function(spec, target, step) {
 ## that is exactly the average change in prediction, so this is G-computation,
 ## as it is for a categorical target. The two designs are reduced one at a time,
 ## so the grid's design is never held twice.
+## The average design row at each of several values of a numeric target: every
+## observed row in every realized condition, the target set to the value, the
+## conditions weighted by the policy. Its product with the coefficients is the
+## average linear predictor at that value - a curve over the target. Each
+## value is one pass over the grid, so the grid's design is never held more
+## than once. With `by_cell`, the same per realized condition, as a list over
+## the values: what the bounds range over.
+value_contrast_matrix <- function(spec, target, policy, values, data = spec$data,
+                                  model = NULL, cells = spec$cells,
+                                  weights = NULL, route = "g_computation",
+                                  by_cell = FALSE) {
+  g <- policy_grid(spec, policy, data, cells, weights, route)
+  key <- as.character(g[[spec$cell_name]])
+  ws <- if (by_cell) g$.w / stats::ave(g$.w, key, FUN = sum) else g$.w / sum(g$.w)
+  rows <- lapply(values, function(v) {
+    gs <- g; gs[[target]] <- v
+    X <- design_rows(spec, gs, fit_mode(model))
+    if (!is.null(model)) X <- align_design(X, model)
+    if (by_cell) rowsum(X * ws, key)
+    else matrix(as.numeric(crossprod(ws, X)), nrow = 1L,
+                dimnames = list(NULL, colnames(X)))
+  })
+  if (by_cell) return(stats::setNames(rows, as.character(values)))
+  M <- do.call(rbind, rows)
+  rownames(M) <- as.character(values)
+  attr(M, "values") <- values
+  M
+}
+
 ## With `by_cell`, one row per realized condition instead: the step's effect in
 ## each, which is what the bounds range over, from one pass over the grid.
 step_contrast_matrix <- function(spec, target, policy, step, data = spec$data,
@@ -314,13 +343,17 @@ estimand_cells <- function(spec, target, cells = NULL) {
 latent_contrast_matrix <- function(model, spec, target, policy = "equal",
                                    at = NULL, contrast = "pairwise",
                                    data = spec$data, cells = NULL,
-                                   weights = NULL, route = "g_computation") {
+                                   weights = NULL, route = "g_computation",
+                                   values = NULL) {
   ## A numeric target is compared at two of its values, and `contrast` is the
   ## step between them; the policy weights the conditions it is compared in.
   if (is_numeric_target(spec, target)) {
     if (is.null(cells)) cells <- spec$cells
     pol <- if (inherits(policy, "nestimand_policy")) policy
            else nest_policy(spec, target, policy, at, data, cells = cells)
+    if (identical(contrast, "none"))
+      return(value_contrast_matrix(spec, target, pol, values, data, model,
+                                   cells = cells, weights = weights, route = route))
     return(step_contrast_matrix(spec, target, pol, contrast, data, model,
                                 cells = cells, weights = weights, route = route))
   }
@@ -378,11 +411,12 @@ latent_estimand <- function(model, target, policy = "equal", at = NULL,
                             contrast = "pairwise", data = NULL,
                             conf_level = 0.95, spec = NULL, cells = NULL,
                             ndraws = NULL, weights = NULL,
-                            route = "g_computation", re_formula = NA) {
+                            route = "g_computation", re_formula = NA,
+                            values = NULL) {
   spec <- resolve_spec(model, spec)
   if (is.null(data)) data <- spec$data
   C <- latent_contrast_matrix(model, spec, target, policy, at, contrast, data,
-                              cells, weights, route)
+                              cells, weights, route, values)
   ## One row per reported contrast. Anything else means the contrast matrix has
   ## been built over grid rows rather than over conditions, and the result would
   ## be meaningless as well as enormous.
@@ -423,6 +457,7 @@ latent_estimand <- function(model, target, policy = "equal", at = NULL,
       pd = pd, row.names = NULL)
     if (!is.null(attr(C, "strata")))
       out <- cbind(stratum = attr(C, "strata"), out)
+    if (!is.null(attr(C, "values"))) out[[target]] <- attr(C, "values")
     attr(out, "nestimand_scale") <- "linear predictor (latent / link), posterior"
     attr(out, "nestimand_cvecs") <- stats::setNames(
       lapply(seq_len(nrow(C)), function(i) stats::setNames(C[i, ], colnames(C))),
@@ -451,6 +486,7 @@ latent_estimand <- function(model, target, policy = "equal", at = NULL,
                     row.names = NULL)
   if (!is.null(attr(C, "strata")))
     out <- cbind(stratum = attr(C, "strata"), out)
+  if (!is.null(attr(C, "values"))) out[[target]] <- attr(C, "values")
   attr(out, "nestimand_scale") <- "linear predictor (latent / link)"
   attr(out, "nestimand_cvecs") <- stats::setNames(
     lapply(seq_len(nrow(C)), function(i) stats::setNames(C[i, ], colnames(C))),

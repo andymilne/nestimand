@@ -57,7 +57,7 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
                           route = c("g_computation", "cells"),
                           weights = NULL, type = NULL, subsample = NULL,
                           data = NULL, bounds = TRUE,
-                          dry_run = FALSE, by = NULL, ...,
+                          dry_run = FALSE, by = NULL, values = NULL, ...,
                           .env = parent.frame(), .restrict = NULL) {
   ## The declaration travels with the fit, so the model alone is enough.
   spec <- resolve_spec(model)
@@ -199,13 +199,40 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
          "measurement, and a step along it there compares nothing. A step ",
          "along a numeric covariate is available for one that is defined in ",
          "every condition.", call. = FALSE)
-  if (numeric_target) {
+  ## With no contrast, a numeric target's estimand is the policy-weighted
+  ## average prediction at each of the values asked for - the quantity a curve
+  ## over the target is drawn from. There is no default set of values: which
+  ## ones are wanted is the question.
+  numeric_none <- numeric_target && contrast_given && identical(contrast, "none")
+  values_txt <- paste(deparse(substitute(values)), collapse = " ")
+  if (!is.null(values) && !numeric_none)
+    stop("`values` gives the values of a numeric target at which predictions ",
+         "are averaged, with contrast = \"none\"",
+         if (!numeric_target) paste0("; `", paste(target, collapse = ":"),
+                                     "` is not a numeric target")
+         else "; a step along it is compared without them", ".", call. = FALSE)
+  if (numeric_none) {
+    if (is.null(values) || !is.numeric(values) || !length(values) ||
+        !all(is.finite(values)))
+      stop("contrast = \"none\" on the numeric target `", target, "` averages ",
+           "the predictions at the values given by `values` - values = seq(",
+           signif(min(spec$data[[target]], na.rm = TRUE), 2), ", ",
+           signif(max(spec$data[[target]], na.rm = TRUE), 2), ", length.out = ",
+           "41), say - and needs them stated.", call. = FALSE)
+    values <- sort(unique(values))
+    if ("variables" %in% names(as.list(substitute(list(...)))[-1]))
+      stop("the values of `", target, "` are given by `values`, and ",
+           "nest_estimand() writes the grid from them; supply them there ",
+           "instead.", call. = FALSE)
+  }
+  if (numeric_target && !numeric_none) {
     if (!identical(contrast, "step") && contrast_given)
       stop("`", target, "` is numeric, so it has no levels for a \"", contrast,
            "\" comparison: its contrast is a step along it - contrast = \"sd\" ",
            "or \"2sd\" for one or two standard deviations, a number for a step ",
            "in its own units, or \"iqr\", \"minmax\", two numbers or a function, ",
-           "as marginaleffects names them.", call. = FALSE)
+           "as marginaleffects names them - or, with contrast = \"none\", the ",
+           "average prediction at each of the `values` given.", call. = FALSE)
     if (is.null(step)) {
       step <- "sd"
       contrast <- "step"
@@ -235,8 +262,8 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
          ", whose comparisons are \"pairwise\", \"reference\", \"sequential\" ",
          "or \"none\".", call. = FALSE)
   ## how the comparison is named wherever it is reported
-  meta_contrast <- if (numeric_target) paste(deparse(step), collapse = " ")
-                   else contrast
+  meta_contrast <- if (numeric_target && !numeric_none)
+    paste(deparse(step), collapse = " ") else contrast
   if (!numeric_target && !all(target %in% spec$cell_vars)) {
     miss <- setdiff(target, spec$cell_vars)
     in_data <- miss[miss %in% names(spec$data)]
@@ -288,6 +315,22 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
   ## A recursive call from the `by` branch below carries the cells of its group.
   if (!is.null(.restrict)) deg <- .restrict
 
+  ## A curve over a numeric target evaluates the design once per value, over
+  ## every observed row in every condition. Said once, for the whole call,
+  ## before anything is computed.
+  if (numeric_none && is.null(.restrict) && !in_star()) {
+    n_rows <- if (!identical(route, "g_computation")) 1 else
+      if (!is.null(subsample)) subsample else nrow(if (is.null(data)) spec$data else data)
+    n_grid <- n_rows * nrow(spec$cells)
+    if (n_grid * length(values) > 2e7)
+      message("predictions at ", length(values), " values of `", target, "` ",
+              "evaluate the model's design at ", format(n_grid, big.mark = ","),
+              " grid rows for each value", if (isTRUE(bounds)) ", twice with the bounds",
+              ". `subsample = 2000` averages over a random 2,000 units instead, ",
+              "which estimates the same curve with Monte Carlo error; fewer ",
+              "values, or bounds = FALSE, cost proportionately less.")
+  }
+
   ## `by` names design variables whose levels the estimand is computed within,
   ## as it names the grouping of an average in marginaleffects: the target's
   ## contrasts are formed inside each group, with the policy weighted over that
@@ -333,7 +376,7 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
       c2$target <- target
       c2$by <- NULL
       ## the step was settled, and said, once for all the groups
-      if (numeric_target) c2$contrast <- step
+      if (numeric_target && !numeric_none) c2$contrast <- step
       vars_g <- union(if (is.null(deg)) character(0) else deg$vars, byv)
       c2$.restrict <- list(
         vars = vars_g,
@@ -379,7 +422,8 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
     return(structure(res,
       nestimand = list(build = nestimand_build, target = target, by = byv,
                        policy = policy, at = at, contrast = meta_contrast,
-                       step = step,
+                       step = step, numeric_none = numeric_none,
+                       values = if (numeric_none) values,
                        scale = m1$scale, type = m1$type, route = route,
                        groups = groups[varies], bounds = bnd,
                        code = code),
@@ -800,7 +844,7 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
                         model_name, spec_name, data_name, bounds, scale,
                         deg, route, weights_txt, re_note, user_hyp, draws_txt,
                         linear_shortcut, if (exists("eta_re", inherits = FALSE)) eta_re else "",
-                        step = step)
+                        step = step, values_txt = if (numeric_none) values_txt)
   if (!is.null(sub_code)) {
     i <- grep("^library\\(", code)
     at_line <- if (length(i)) max(i) else 1L
@@ -854,7 +898,8 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
   structure(out,
             nestimand = list(build = nestimand_build, target = target,
                              policy = policy, at = at, contrast = meta_contrast,
-                             step = step,
+                             step = step, numeric_none = numeric_none,
+                             values = if (numeric_none) values,
                              scale = scale, type = type, route = route,
                              policy_dropped = policy_dropped,
                              bounds = attr(out, "nestimand_bounds"),
@@ -940,7 +985,8 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
                           scale = "response", deg = NULL,
                           route = "g_computation", weights_txt = NULL,
                           re_note = NULL, user_hyp = FALSE, draws_txt = "",
-                          shortcut = FALSE, eta_re = "", step = NULL) {
+                          shortcut = FALSE, eta_re = "", step = NULL,
+                          values_txt = NULL) {
   cn <- spec$cell_name
   pol_txt <- if (is.character(policy) && length(policy) == 1L)
     sprintf('"%s"', policy)
@@ -992,6 +1038,62 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
   ## predictor the comparison is c'b; anywhere else marginaleffects makes it,
   ## with the step passed through as `variables`, so it means what
   ## marginaleffects means by it.
+  ## Predictions along a numeric target: at each of the values asked for, the
+  ## prediction averaged over every observed row in every realized condition,
+  ## the conditions weighted by the policy - the curve a plot is drawn from.
+  if (!is.null(values_txt)) {
+    cells_arg <- if (is.null(deg)) "" else ", cells = cells"
+    pol_code <- c(
+      "## the policy: a distribution over the realized conditions, each of which",
+      "## the predictions are averaged over",
+      sprintf('pol  <- nest_policy(%s, "%s", %s%s%s)', spec_name, target, pol_txt,
+              at_txt, cells_arg),
+      sprintf("## the values of `%s` at which the predictions are averaged", target),
+      sprintf("vals <- %s", values_txt))
+    bounds_code <- function(latent) if (isTRUE(bounds)) c(
+      "## partial-identification bounds: at each value, the range of the",
+      "## prediction over the realized conditions, which every policy averages",
+      sprintf('est  <- add_bounds(est, %s, %s, "%s", "none", values = vals%s%s%s%s)',
+              model_name, spec_name, target,
+              if (latent) ', scale = "latent"' else "", cells_arg,
+              if (!latent && !identical(route, "g_computation"))
+                sprintf(', route = "%s"', route) else "", dots_txt))
+    if (identical(scale, "latent"))
+      return(c(hdr[1], restrict_note,
+        sprintf("## the average linear predictor at each value of `%s`: every", target),
+        "## observed row in every realized condition, the target set to the value,",
+        "## the conditions weighted by the policy - c'b, value by value.",
+        if (isTRUE(shortcut))
+          c("## the link is the identity, so the response scale and the linear",
+            "## predictor are the same quantity: avg_predictions() over the same",
+            "## grid gives the same answer."),
+        pol_code,
+        sprintf('est  <- latent_estimand(%s, "%s", pol, contrast = "none", values = vals, spec = %s, data = %s%s%s%s%s%s%s)',
+                model_name, target, spec_name, data_name,
+                if (identical(route, "g_computation")) "" else
+                  sprintf(', route = "%s"', route),
+                cells_arg, eta_re,
+                if (is.null(weights_txt)) "" else sprintf(", weights = %s", weights_txt),
+                dots_txt, draws_txt),
+        bounds_code(TRUE), "est"))
+    return(c(hdr, restrict_note, pol_code,
+      "## every observed row in every realized condition, once for each value,",
+      "## with the target set to it",
+      sprintf('grid <- value_grid(%s, %s, pol, "%s", vals%s%s)', spec_name, data_name,
+              target, cells_arg,
+              if (identical(route, "g_computation")) "" else ', route = "cells"'),
+      if (!is.null(weights_txt) && identical(route, "g_computation")) c(
+        "## unit weights: the estimand is standardized to the population those",
+        "## weights describe, rather than to the sample as observed",
+        sprintf('grid$.w <- grid$.w * (%s)[grid$.row]', weights_txt)),
+      re_note,
+      sprintf('est  <- avg_predictions(%s, newdata = grid, by = "%s", wts = grid$.w%s)',
+              model_name, target, dots_txt),
+      "## named in the column every other estimand names its rows in",
+      sprintf('est$term <- as.character(est$%s)', target),
+      bounds_code(FALSE), "est"))
+  }
+
   if (!is.null(step)) {
     step_txt <- paste(deparse(step), collapse = " ")
     size <- step_size(spec, target, step)
@@ -1188,7 +1290,8 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
 
 add_bounds <- function(est, model, spec, target, contrast = "pairwise",
                        scale = c("response", "latent"), cells = spec$cells,
-                       route = c("g_computation", "cells"), data = spec$data, ...) {
+                       route = c("g_computation", "cells"), data = spec$data,
+                       values = NULL, ...) {
   ## The latent route computes from the coefficients, so arguments meant for
   ## the prediction function have nowhere to go. Said plainly, rather than
   ## surfacing as "unused argument" from a function the user did not call.
@@ -1202,13 +1305,17 @@ add_bounds <- function(est, model, spec, target, contrast = "pairwise",
   ## the grid rather than one pass per condition.
   if (is_numeric_target(spec, target) && identical(scale, "latent")) {
     pol <- nest_policy(spec, target, "equal", NULL, data, cells = cells)
-    C <- step_contrast_matrix(spec, target, pol, contrast, data, model,
-                              cells = cells, by_cell = TRUE)
-    vals <- as.numeric(C %*% coef_vector(model)[colnames(C)])
+    at_b <- function(C) as.numeric(C %*% coef_vector(model)[colnames(C)])
     est_df <- as.data.frame(est)
+    ## predictions along the target: the range over the conditions at each value
+    vals <- if (identical(contrast, "none"))
+      lapply(value_contrast_matrix(spec, target, pol, values, data, model,
+                                   cells = cells, by_cell = TRUE), at_b)
+    else list(at_b(step_contrast_matrix(spec, target, pol, contrast, data, model,
+                                        cells = cells, by_cell = TRUE)))
     attr(est, "nestimand_bounds") <- data.frame(
       term = est_df$term, estimate = est_df$estimate,
-      policy_low = min(vals), policy_high = max(vals))
+      policy_low = vapply(vals, min, 0), policy_high = vapply(vals, max, 0))
     return(est)
   }
   vs <- versions_of(spec, target, cells)
@@ -1228,6 +1335,12 @@ add_bounds <- function(est, model, spec, target, contrast = "pairwise",
     if (identical(scale, "latent"))
       return(latent_estimand(model, target, p, contrast = contrast, spec = spec,
                              data = data, cells = cells)$estimate)
+    ## predictions along a numeric target, in one condition, at every value
+    if (is_numeric_target(spec, target) && identical(contrast, "none")) {
+      gv <- value_grid(spec, data, p, target, values, cells, route)
+      return(as.data.frame(marginaleffects::avg_predictions(model, newdata = gv,
+               by = target, wts = gv$.w, ...))$estimate)
+    }
     ## the bounds are the same estimand under other policies, so they are
     ## computed the same way: on whichever grid the estimand itself used
     g <- if (identical(route, "cells")) {
@@ -1578,8 +1691,17 @@ nest_draws <- function(x, shape = c("long", "DxP", "PxD", "rvar"),
       do.call(rbind, lapply(parts, function(z) attr(z, "nestimand_labels")))
     return(shape_draws(relabel_draws(S, names, nm), shape))
   }
-  shape_draws(relabel_draws(estimand_draws(x), names,
-                            attr(x, "nestimand")$target), shape)
+  out <- shape_draws(relabel_draws(estimand_draws(x), names,
+                                   attr(x, "nestimand")$target), shape)
+  ## predictions along a numeric target are labelled by its values, and a plot
+  ## wants them as numbers on an axis rather than as labels
+  meta <- attr(x, "nestimand", exact = TRUE)
+  if (identical(shape, "long") && is.list(meta) && isTRUE(meta$numeric_none) &&
+      "term" %in% names(out)) {
+    out[[meta$target]] <- as.numeric(out$term)
+    out <- out[, c(setdiff(names(out), c(meta$target, "draw")), meta$target, "draw")]
+  }
+  out
 }
 
 ## The label table beside a draws matrix, or one built from its column names for
