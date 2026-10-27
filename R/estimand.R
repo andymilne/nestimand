@@ -38,6 +38,19 @@ check_dots <- function(dots, allow = c("conf_level", "ndraws",
        "and a `:` target for an interaction.", call. = FALSE)
 }
 
+## A numeric variable has no levels, so it cannot be one corner of an
+## interaction: its effect within each level of a design variable is a `by`.
+refuse_numeric_interaction <- function(spec, target) {
+  num <- vapply(target, is_numeric_target, TRUE, spec = spec)
+  if (length(target) < 2L || !any(num)) return(invisible(TRUE))
+  stop("`", paste(target, collapse = ":"), "` combines a numeric variable with ",
+       "others. A numeric target's effect within each level of a design ",
+       "variable is asked for with `by` - nest_estimand(model, ",
+       target[num][1], ", by = ", target[!num][1], ") - and a difference ",
+       "between those effects is a contrast of its draws or its coefficients.",
+       call. = FALSE)
+}
+
 nest_estimand <- function(model, target, policy = "equal", at = NULL,
                           contrast = c("pairwise", "reference", "sequential",
                                        "none"),
@@ -51,8 +64,18 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
   check_model_spec(model, spec)
   ## `contrast` decides one thing: which comparisons are formed among the
   ## target's levels. What is contrasted comes from the target - a `:` target is
-  ## an interaction - and where the contrasts are formed comes from `by`.
-  contrast <- match.arg(contrast)
+  ## an interaction - and where the contrasts are formed comes from `by`. For a
+  ## numeric target the comparison is between two of its values, and `contrast`
+  ## is the step between them, in marginaleffects' vocabulary. Which kind of
+  ## target it is is not known until the target is read, so a step is held here
+  ## until then.
+  contrast_given <- !missing(contrast)
+  step <- NULL
+  if (contrast_given && !(is.character(contrast) && length(contrast) == 1L &&
+        contrast %in% c("pairwise", "reference", "sequential", "none"))) {
+    step <- contrast
+    contrast <- "step"
+  } else contrast <- match.arg(contrast)
   route <- match.arg(route)
   wq <- substitute(weights)
   ## One argument names the quantity, in the engines' own vocabulary; which
@@ -96,6 +119,8 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
     vs <- labs[!grepl(":", labs, fixed = TRUE)]
     inter <- lapply(labs[grepl(":", labs, fixed = TRUE)],
                     function(z) strsplit(z, ":", fixed = TRUE)[[1]])
+    ## said before any part is computed, rather than after the others have been
+    for (k in inter) refuse_numeric_interaction(spec, k)
     if (!length(vs) && length(inter) == 1L) {
       target <- inter[[1]]
       ## `a:b` names a difference of differences - unless no comparison was
@@ -158,12 +183,61 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
   }
   if (is.name(tg)) {
     lit <- deparse(tg)
-    target <- if (lit %in% spec$cell_vars) lit else
+    target <- if (lit %in% c(spec$cell_vars, spec$covariates)) lit else
       tryCatch({ v <- eval(tg, .env)
                  if (is.character(v) && length(v) == 1L) v else lit },
                error = function(e) lit)
   }
-  if (!all(target %in% spec$cell_vars)) {
+  ## A numeric covariate is compared at two of its values in every realized
+  ## condition, and the policy weights the conditions; the comparison is a step
+  ## along it, which `contrast` names.
+  numeric_target <- is_numeric_target(spec, target)
+  refuse_numeric_interaction(spec, target)
+  if (length(target) == 1L && target %in% spec$cont_nested)
+    stop("`", target, "` is a continuous variable nested in the structure, so ",
+         "where it is undefined its value is a placeholder rather than a ",
+         "measurement, and a step along it there compares nothing. A step ",
+         "along a numeric covariate is available for one that is defined in ",
+         "every condition.", call. = FALSE)
+  if (numeric_target) {
+    if (!identical(contrast, "step") && contrast_given)
+      stop("`", target, "` is numeric, so it has no levels for a \"", contrast,
+           "\" comparison: its contrast is a step along it - contrast = \"sd\" ",
+           "or \"2sd\" for one or two standard deviations, a number for a step ",
+           "in its own units, or \"iqr\", \"minmax\", two numbers or a function, ",
+           "as marginaleffects names them.", call. = FALSE)
+    if (is.null(step)) {
+      step <- "sd"
+      contrast <- "step"
+      if (!in_star())
+        message("`", target, "` is numeric, so the comparison is a step along ",
+                "it, and with no `contrast` given the step is one standard ",
+                "deviation (contrast = \"sd\"): ",
+                signif(step_size(spec, target, "sd"), 4), " in the data the ",
+                "model was fitted to. contrast = \"2sd\" doubles it, and a ",
+                "number gives a step in `", target, "`'s own units.")
+    }
+    check_step(step, target)
+    if (is.data.frame(step))
+      stop("a data frame of values to compare is matched to the rows of the ",
+           "grid the estimand is averaged over, which nest_estimand() builds; ",
+           "give a function of the values instead, returning the low and the ",
+           "high value for each.", call. = FALSE)
+    if ("variables" %in% names(as.list(substitute(list(...)))[-1]))
+      stop("the step along `", target, "` is given by `contrast`, and ",
+           "nest_estimand() writes the `variables` argument from it; supply ",
+           "the step there instead.", call. = FALSE)
+  } else if (identical(contrast, "step"))
+    stop("contrast = ", paste(deparse(step), collapse = " "), " is a step along ",
+         "a numeric target, and `", paste(target, collapse = ":"), "` is ",
+         if (all(target %in% spec$cell_vars)) "a categorical design variable"
+         else "not a numeric covariate of the model",
+         ", whose comparisons are \"pairwise\", \"reference\", \"sequential\" ",
+         "or \"none\".", call. = FALSE)
+  ## how the comparison is named wherever it is reported
+  meta_contrast <- if (numeric_target) paste(deparse(step), collapse = " ")
+                   else contrast
+  if (!numeric_target && !all(target %in% spec$cell_vars)) {
     miss <- setdiff(target, spec$cell_vars)
     in_data <- miss[miss %in% names(spec$data)]
     categorical <- in_data[vapply(in_data, function(v)
@@ -194,7 +268,10 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
                   "nests = c(\"", paste(c(spec_nests(spec), ordered_f[1]),
                                         collapse = "\", \""),
                   "\") - to fold it into the cell factor instead.")
-         else " Contrasts of a covariate do not cross the structural boundary and need no policy; compute them directly.")
+         else if (!length(in_data))
+           " Nor is it a variable of the data the model was fitted to."
+         else paste0(" A numeric covariate of the model can be a target too, ",
+                     "compared along a step; `", miss[1], "` is not one."))
   }
 
   ## A marginal contrast of a nested variable is computed only over the strata
@@ -237,8 +314,10 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
     gkey <- deg_key(base, byv)
     tgv <- as.character(base[[target[length(target)]]])
     groups <- unique(gkey)
+    ## a numeric target is compared within every condition, so every group has
+    ## something to compare
     varies <- vapply(groups, function(g)
-      length(unique(tgv[gkey == g])) > 1, TRUE)
+      numeric_target || length(unique(tgv[gkey == g])) > 1, TRUE)
     if (!any(varies))
       stop("`", target[length(target)], "` takes one level in every group of `",
            paste(byv, collapse = "`, `"), "`, so there is no contrast to form ",
@@ -253,6 +332,8 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
       c2 <- cl
       c2$target <- target
       c2$by <- NULL
+      ## the step was settled, and said, once for all the groups
+      if (numeric_target) c2$contrast <- step
       vars_g <- union(if (is.null(deg)) character(0) else deg$vars, byv)
       c2$.restrict <- list(
         vars = vars_g,
@@ -297,7 +378,8 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
     bnd <- if (any(vapply(bnd, is.null, TRUE))) NULL else do.call(rbind, bnd)
     return(structure(res,
       nestimand = list(build = nestimand_build, target = target, by = byv,
-                       policy = policy, at = at, contrast = contrast,
+                       policy = policy, at = at, contrast = meta_contrast,
+                       step = step,
                        scale = m1$scale, type = m1$type, route = route,
                        groups = groups[varies], bounds = bnd,
                        code = code),
@@ -692,9 +774,15 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
            "differences of differences; supply your own hypothesis against a ",
            "single target instead, or drop it and let the interaction stand.")
     if (!in_star())
-    message("using your `hypothesis` instead of contrast = \"", contrast,
-            "\". The comparisons, their names, and which way round each ",
-            "subtraction goes are all as marginaleffects returns them.")
+    message(if (numeric_target)
+              paste0("applying your `hypothesis` to the step along `", target,
+                     "`, as marginaleffects applies it to a comparison: what ",
+                     "it compares, and its names, are as marginaleffects ",
+                     "returns them.")
+            else paste0("using your `hypothesis` instead of contrast = \"",
+                        contrast, "\". The comparisons, their names, and which ",
+                        "way round each subtraction goes are all as ",
+                        "marginaleffects returns them."))
   }
   if (!exists("policy_dropped", inherits = FALSE)) policy_dropped <- FALSE
   sub_code <- NULL
@@ -711,7 +799,8 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
   code <- estimand_code(spec, target, policy, at, contrast, dots_txt,
                         model_name, spec_name, data_name, bounds, scale,
                         deg, route, weights_txt, re_note, user_hyp, draws_txt,
-                        linear_shortcut, if (exists("eta_re", inherits = FALSE)) eta_re else "")
+                        linear_shortcut, if (exists("eta_re", inherits = FALSE)) eta_re else "",
+                        step = step)
   if (!is.null(sub_code)) {
     i <- grep("^library\\(", code)
     at_line <- if (length(i)) max(i) else 1L
@@ -764,7 +853,8 @@ nest_estimand <- function(model, target, policy = "equal", at = NULL,
 
   structure(out,
             nestimand = list(build = nestimand_build, target = target,
-                             policy = policy, at = at, contrast = contrast,
+                             policy = policy, at = at, contrast = meta_contrast,
+                             step = step,
                              scale = scale, type = type, route = route,
                              policy_dropped = policy_dropped,
                              bounds = attr(out, "nestimand_bounds"),
@@ -851,7 +941,7 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
                           scale = "response", deg = NULL,
                           route = "g_computation", weights_txt = NULL,
                           re_note = NULL, user_hyp = FALSE, draws_txt = "",
-                          shortcut = FALSE, eta_re = "") {
+                          shortcut = FALSE, eta_re = "", step = NULL) {
   cn <- spec$cell_name
   pol_txt <- if (is.character(policy) && length(policy) == 1L)
     sprintf('"%s"', policy)
@@ -877,6 +967,81 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
             paste(deg$keep, collapse = ", ")),
     "## would leave its own levels and compare strata instead.",
     sprintf("cells <- %s", cells_txt))
+
+  ## the rows the prediction route averages over, weighted by the policy
+  grid_code <- switch(route,
+    g_computation = c(
+      "## G-computation grid: every row of the data crossed with every realized",
+      "## cell, so each condition is averaged over the same covariate distribution",
+      sprintf('grid <- counterfactual_grid(%s, %s, pol%s)', spec_name, data_name,
+              if (is.null(deg)) "" else ", cells = cells"),
+      if (!is.null(weights_txt)) c(
+        "## unit weights: the estimand is standardized to the population those",
+        "## weights describe, rather than to the sample as observed",
+        sprintf('grid$.w <- grid$.w * (%s)[grid$.row]', weights_txt))),
+    cells = c(
+      "## one row per realized cell, covariates at their means: the conditional",
+      "## effect at an average covariate value",
+      sprintf('grid <- cell_grid(%s)', spec_name),
+      if (!is.null(deg))
+        sprintf('grid <- grid[as.character(grid$%s) %%in%% as.character(cells$%s), ]',
+                cn, cn),
+      sprintf('grid$.w <- policy_weights(%s, grid, pol)', spec_name)))
+
+  ## A step along a numeric target: compared at two of its values in every
+  ## realized condition, the conditions weighted by the policy. On the linear
+  ## predictor the comparison is c'b; anywhere else marginaleffects makes it,
+  ## with the step passed through as `variables`, so it means what
+  ## marginaleffects means by it.
+  if (!is.null(step)) {
+    step_txt <- paste(deparse(step), collapse = " ")
+    size <- step_size(spec, target, step)
+    size_txt <- if (is.na(size)) "a step that can differ from row to row"
+                else sprintf("a step of %s in `%s`'s units", signif(size, 4), target)
+    pol_code <- c(
+      "## the policy: a distribution over the realized conditions, each of which",
+      "## the step is compared in",
+      sprintf('pol  <- nest_policy(%s, "%s", %s%s%s)', spec_name, target, pol_txt,
+              at_txt, if (is.null(deg)) "" else ", cells = cells"))
+    bounds_code <- function(latent) if (isTRUE(bounds)) c(
+      "## partial-identification bounds: the range of the step's effect over the",
+      "## realized conditions, which every policy averages",
+      sprintf('est  <- add_bounds(est, %s, %s, "%s", %s%s%s%s%s)',
+              model_name, spec_name, target, step_txt,
+              if (latent) ', scale = "latent"' else "",
+              if (is.null(deg)) "" else ", cells = cells",
+              if (!latent && !identical(route, "g_computation"))
+                sprintf(', route = "%s"', route) else "", dots_txt))
+    if (identical(scale, "latent"))
+      return(c(hdr[1], restrict_note,
+        sprintf("## a step along `%s`: contrast = %s, %s.", target, step_txt,
+                size_txt),
+        "## On the linear predictor the comparison is c'b, c the change in the",
+        "## design rows between the two values, averaged over every observed row",
+        "## in every condition.",
+        if (isTRUE(shortcut))
+          c("## the link is the identity, so the response scale and the linear",
+            "## predictor are the same quantity: avg_comparisons() gives the",
+            "## same answer."),
+        pol_code,
+        sprintf('est  <- latent_estimand(%s, "%s", pol, contrast = %s, spec = %s, data = %s%s%s%s%s%s%s)',
+                model_name, target, step_txt, spec_name, data_name,
+                if (identical(route, "g_computation")) "" else
+                  sprintf(', route = "%s"', route),
+                if (is.null(deg)) "" else ", cells = cells", eta_re,
+                if (is.null(weights_txt)) "" else sprintf(", weights = %s", weights_txt),
+                dots_txt, draws_txt),
+        bounds_code(TRUE), "est"))
+    return(c(hdr, restrict_note, pol_code, grid_code,
+      sprintf("## a step along `%s`, as marginaleffects defines contrast = %s:",
+              target, step_txt),
+      sprintf("## %s", size_txt), re_note,
+      sprintf('est  <- avg_comparisons(%s, newdata = grid, variables = list(%s = %s),',
+              model_name, target, step_txt),
+      sprintf('                        wts = grid$.w%s)', dots_txt),
+      sprintf('est$term <- "%s"', step_label(step)),
+      bounds_code(FALSE), "est"))
+  }
 
   if (identical(scale, "latent") && identical(contrast, "interaction")) {
     tv <- paste(sprintf('"%s"', target), collapse = ", ")
@@ -985,24 +1150,7 @@ estimand_code <- function(spec, target, policy, at, contrast, dots_txt,
     sprintf("## the policy: a distribution over the versions of each compound condition"),
     sprintf('pol  <- nest_policy(%s, "%s", %s%s%s)', spec_name, target, pol_txt,
             at_txt, if (is.null(deg)) "" else ", cells = cells"),
-    switch(route,
-      g_computation = c(
-        "## G-computation grid: every row of the data crossed with every realized",
-        "## cell, so each condition is averaged over the same covariate distribution",
-        sprintf('grid <- counterfactual_grid(%s, %s, pol%s)', spec_name, data_name,
-                if (is.null(deg)) "" else ", cells = cells"),
-        if (!is.null(weights_txt)) c(
-          "## unit weights: the estimand is standardized to the population those",
-          "## weights describe, rather than to the sample as observed",
-          sprintf('grid$.w <- grid$.w * (%s)[grid$.row]', weights_txt))),
-      cells = c(
-        "## one row per realized cell, covariates at their means: the conditional",
-        "## effect at an average covariate value",
-        sprintf('grid <- cell_grid(%s)', spec_name),
-        if (!is.null(deg))
-          sprintf('grid <- grid[as.character(grid$%s) %%in%% as.character(cells$%s), ]',
-                  cn, cn),
-        sprintf('grid$.w <- policy_weights(%s, grid, pol)', spec_name))),
+    grid_code,
     "## estimand in the original variable space: `by =` names an original",
     sprintf("## factor, not the fitted `%s` predictor", cn), re_note,
     if (user_hyp || identical(contrast, "none"))
@@ -1050,6 +1198,20 @@ add_bounds <- function(est, model, spec, target, contrast = "pairwise",
                    "variables", "newdata")
   scale <- match.arg(scale)
   route <- match.arg(route)
+  ## A numeric target's vertices are the realized conditions, and on the linear
+  ## predictor the step's effect in every one of them comes from one pass over
+  ## the grid rather than one pass per condition.
+  if (is_numeric_target(spec, target) && identical(scale, "latent")) {
+    pol <- nest_policy(spec, target, "equal", NULL, data, cells = cells)
+    C <- step_contrast_matrix(spec, target, pol, contrast, data, model,
+                              cells = cells, by_cell = TRUE)
+    vals <- as.numeric(C %*% coef_vector(model)[colnames(C)])
+    est_df <- as.data.frame(est)
+    attr(est, "nestimand_bounds") <- data.frame(
+      term = est_df$term, estimate = est_df$estimate,
+      policy_low = min(vals), policy_high = max(vals))
+    return(est)
+  }
   vs <- versions_of(spec, target, cells)
   vert <- expand.grid(lapply(vs, seq_along), KEEP.OUT.ATTRS = FALSE)
   if (nrow(vert) > 64) {
@@ -1075,6 +1237,11 @@ add_bounds <- function(est, model, spec, target, contrast = "pairwise",
              as.character(cells[[spec$cell_name]]), , drop = FALSE]
       d$.w <- policy_weights(spec, d, p); d
     } else counterfactual_grid(spec, data, p, cells = cells)
+    ## a numeric target's vertex is the step's effect in one condition
+    if (is_numeric_target(spec, target))
+      return(as.data.frame(marginaleffects::avg_comparisons(model, newdata = g,
+               variables = stats::setNames(list(contrast), target),
+               wts = g$.w, ...))$estimate)
     e <- marginaleffects::avg_predictions(model, newdata = g, by = target,
            wts = g$.w, hypothesis = mfx_hypothesis(contrast), ...)
     mfx_canonical(as.data.frame(e), levels(factor(spec$data[[target]])))$estimate

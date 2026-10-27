@@ -29,6 +29,25 @@ check_target <- function(spec, target) {
   invisible(TRUE)
 }
 
+## A numeric covariate can be a target too: its effect is a comparison between
+## two of its values, made in every realized condition, so the conditions are
+## the versions of one stratum - the whole design, or the group `by` restricts
+## it to - and the policy is a distribution over them. A continuous nested
+## variable is not one: where it is undefined its value is a placeholder, and
+## moving a placeholder is not an effect of anything.
+is_numeric_target <- function(spec, target)
+  is.character(target) && length(target) == 1L &&
+  target %in% spec$covariates && !target %in% spec$cont_nested &&
+  is.numeric(spec$data[[target]])
+
+## The stratum each row of a cell table or grid belongs to: the level of a
+## categorical target, or, for a numeric one, the target's own name, since every
+## condition is a version of the one comparison.
+target_stratum <- function(spec, target, tab) {
+  if (is_numeric_target(spec, target)) rep(target, nrow(tab))
+  else as.character(tab[[target]])
+}
+
 ## Versions of the compound condition within each stratum of `target`.
 ## The stratum is a level of `target`; the versions are the realized
 ## combinations of the variables nested below it in the same family.
@@ -36,7 +55,7 @@ versions_of <- function(spec, target, cells = spec$cells) {
   check_target(spec, target)
   fam <- NULL
   for (f in spec$cat_families) if (target %in% f) fam <- f
-  if (is.null(fam))
+  if (is.null(fam) && !is_numeric_target(spec, target))
     stop("`", target, "` is not a categorical variable of any declared nesting ",
          "family (", paste(unlist(spec$cat_families), collapse = ", "), ").")
   ## The versions of a condition are the realized cells it occurs in, described
@@ -47,7 +66,7 @@ versions_of <- function(spec, target, cells = spec$cells) {
   key <- if (length(others))
     do.call(paste, c(unname(lapply(others, function(v) as.character(cells[[v]]))),
                      sep = ".")) else rep("", nrow(cells))
-  split(key, as.character(cells[[target]]))
+  split(key, target_stratum(spec, target, cells))
 }
 
 ## Strata in which the target does not vary: there the comparison would leave
@@ -118,7 +137,7 @@ nest_policy <- function(spec, target, policy = "equal", at = NULL, data = spec$d
             as.character(cells[[x]]))), sep = ".")),
           as.character(cells[[spec$cell_name]]))
         lapply(names(vs), function(s) {
-          rows <- names(vkey)[as.character(cells[[target]]) == s]
+          rows <- names(vkey)[target_stratum(spec, target, cells) == s]
           cnt <- as.numeric(cellcount[rows])
           stats::setNames(cnt / sum(cnt), vs[[s]])
         }) |> stats::setNames(names(vs))
@@ -183,7 +202,7 @@ hierarchical_weights <- function(spec, target, cells = spec$cells) {
   lab <- if (length(vars))
     do.call(paste, c(unname(lapply(vars, function(v) as.character(cells[[v]]))),
                      sep = ".")) else rep("", nrow(cells))
-  lapply(split(seq_len(nrow(cells)), as.character(cells[[target]])), function(i) {
+  lapply(split(seq_len(nrow(cells)), target_stratum(spec, target, cells)), function(i) {
     w <- rep(1, length(i))
     for (v in vars) {
       anc <- intersect(nest_ancestors(spec, v), c(vars, target))
@@ -247,7 +266,7 @@ policy_weights <- function(spec, grid, policy) {
   vkey <- if (length(others))
     do.call(paste, c(unname(lapply(others, function(v) as.character(grid[[v]]))), sep = "."))
   else rep("", nrow(grid))
-  strat <- as.character(grid[[target]])
+  strat <- target_stratum(spec, target, grid)
   w <- numeric(nrow(grid))
   for (s in unique(strat)) {
     i <- strat == s

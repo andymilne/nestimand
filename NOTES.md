@@ -1307,3 +1307,41 @@ columns of one matrix, and the grouping variables become label columns of the
 long form beside `term` - `drawid, chord_type, term, draw`. The linear-map
 route now labels its draws through `name_draw_columns()`, as the prediction
 route does, so a `stratum` column reaches the long form there too.
+
+
+## A numeric target
+
+`nest_estimand()` refused a numeric covariate as a target, on the ground that
+its contrasts "do not cross the structural boundary and need no policy". That
+holds only while its slope is common to every condition. Once the formula
+crosses it with the structure - `chord_type * GMSI` - its effect differs from
+condition to condition, and an average over conditions needs a weighting as
+much as a categorical contrast does.
+
+A numeric target is now compared at two of its values in every realized
+condition, and the policy weights the conditions. Every condition is a version
+of the one comparison, so the target has a single stratum, named for itself
+(`target_stratum()`), and every policy applies as it is: `equal` weights each
+realized condition alike, `hierarchical` each level of the structure, and
+`nominated` names a level for every design variable. The bounds are the range
+of the step's effect over the conditions, which is the identification region
+for exactly the reason it is for a categorical contrast: every policy is a
+convex combination of single-condition ones. `by` gives the effect within each
+group, from that group's conditions.
+
+`contrast` is the step, in marginaleffects' vocabulary (`"sd"`, `"2sd"`,
+`"iqr"`, `"minmax"`, a number, two numbers, a function), with the moments of
+the data the model was fitted to, as marginaleffects takes them. With none
+given the step is one standard deviation, and its size is said. On the linear
+predictor the comparison is c'b, c the change in the design rows between the
+two values averaged over the policy-weighted grid (`step_contrast_matrix()`);
+there only the size of the step matters, so the direction convention -
+forward, centred or backward, which an option of marginaleffects sets -
+cannot change the answer. Off the linear predictor the step is
+passed to `avg_comparisons()` as `variables` and means what marginaleffects
+means by it; the two routes are checked against each other on an identity link
+for every kind of step.
+
+Refused, with the reason: a numeric variable as one corner of an interaction
+(its effect within a level is a `by`), and a continuous nested variable, whose
+value where it is undefined is a placeholder that a step would move.

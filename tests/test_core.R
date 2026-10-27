@@ -346,8 +346,11 @@ dw <- as.data.frame(ew)
 chk("estimand by parent: three strata x three contrasts, no sentinel",
     nrow(dw) == 9 && !any(grepl("none", dw$term)) &&
     setequal(unique(dw$chord_type), c("dim", "min", "maj")))
-chk("estimand: a non-nesting target is refused",
-    grepl("need no policy", err_of(nest_estimand(m, training))))
+chk("estimand: an additive numeric covariate is a target, its step the same everywhere",
+    { e <- suppressMessages(nest_estimand(m, training))
+      b <- attr(e, "nestimand")$bounds
+      abs(as.data.frame(e)$estimate - coef(m)[["training"]] * sd(dat$training)) < 1e-10 &&
+        abs(b$policy_high - b$policy_low) < 1e-10 })
 chk("estimand: supplied policy is written into the code verbatim",
     any(grepl('c("0" = 0.5, "1" = 0.3, "2" = 0.2)',
         attr(nest_estimand(m, chord_type, policy = c("0" = .5, "1" = .3, "2" = .2),
@@ -2640,7 +2643,7 @@ chk("target: an additive factor is told how to become a target",
 chk("target: a * b * c names three targets, not two",
     { e <- err_of(nest_estimand(mf, chord_type * inversion * training,
                            policy = "equal", bounds = FALSE))
-      grepl("`training` is not among", e, fixed = TRUE) })
+      grepl("training` combines a numeric variable", e, fixed = TRUE) })
 chk("target: a * b still names two",
     inherits(nest_estimand(mf, chord_type * inversion, policy = "equal",
                       bounds = FALSE), "nestimand_estimands"))
@@ -2897,6 +2900,104 @@ chk("random: a covariate slope the fixed part lacks is refused, and says why",
     grepl("`inversion:x1`, which the model formula does not contain",
           err_of(random_terms(cov_spec(response ~ chord_type * inversion + x1 +
             (inversion * x1 | participant), fit = "lmer"))), fixed = TRUE))
+
+## ---- a numeric target ------------------------------------------------------
+## A numeric covariate is compared at two of its values in every realized
+## condition, and the policy weights the conditions. `contrast` is the step, in
+## marginaleffects' vocabulary; on the linear predictor only its size matters,
+## and anywhere else marginaleffects makes the comparison itself.
+f_num <- response ~ chord_type * g1 * (inversion + x1)
+sp_num <- cov_spec(f_num)
+m_num <- suppressMessages(fit_from(sp_num))
+num_est <- function(...) as.data.frame(suppressMessages(
+  nest_estimand(m_num, ..., bounds = FALSE)))
+chk("numeric target: with no contrast the step is one SD, and that is said",
+    { msg <- paste(utils::capture.output(nest_estimand(m_num, x1, bounds = FALSE),
+                                         type = "message"), collapse = " ")
+      grepl("one standard deviation", msg, fixed = TRUE) &&
+        identical(num_est(x1)$estimate, num_est(x1, contrast = "sd")$estimate) &&
+        identical(num_est(x1)$term, "+1 SD") })
+chk("numeric target: the linear map and avg_comparisons agree, step by step",
+    all(vapply(list("sd", "2sd", "iqr", "minmax", 1, c(0, 2)), function(s) {
+      a <- num_est(x1, contrast = s); b <- num_est(x1, contrast = s, vcov = TRUE)
+      isTRUE(all.equal(a$estimate, b$estimate)) &&
+        isTRUE(all.equal(a$std.error, b$std.error, tolerance = 1e-6))
+    }, TRUE)))
+chk("numeric target: the estimand is the G-computation the formula implies",
+    { hand <- lm(f_num, data = sp_num$data); cl <- sp_num$cells
+      s <- sd(sp_num$data$g1); mu <- mean(sp_num$data$g1)
+      eff <- vapply(seq_len(nrow(cl)), function(k) {
+        nd <- sp_num$data; nd$chord_type <- cl$chord_type[k]
+        nd$inversion <- cl$inversion[k]
+        lo <- nd; lo$g1 <- mu - s / 2; hi <- nd; hi$g1 <- mu + s / 2
+        mean(predict(hand, hi) - predict(hand, lo)) }, 0)
+      abs(num_est(g1)$estimate - mean(eff)) < 1e-8 })
+chk("numeric target: `by` gives one effect per group, from that group's conditions",
+    { e <- num_est(x1, contrast = 1, by = chord_type); b <- coef(m_num)
+      ## x1 is crossed with chord type, and so is its product with g1, whose
+      ## part of the step is averaged over the observed g1
+      ct <- c("dim", "min", "maj")
+      sl <- b[["x1"]] + c(0, b[paste0("x1:dm_chord_type", ct)]) +
+        mean(sp_num$data$g1) * (b[["x1:g1"]] + c(0, b[paste0("x1:g1:dm_chord_type", ct)]))
+      isTRUE(all.equal(unname(e$estimate), unname(sl))) &&
+        identical(as.character(e$chord_type), c("aug", "dim", "min", "maj")) })
+chk("numeric target: the policy weights the conditions",
+    { byc <- num_est(x1, contrast = 1, by = chord_type)$estimate
+      n <- c(1, 3, 3, 3)                          # realized conditions per chord type
+      abs(num_est(x1, contrast = 1, policy = "hierarchical")$estimate - mean(byc)) < 1e-10 &&
+        abs(num_est(x1, contrast = 1)$estimate - sum(n * byc) / sum(n)) < 1e-10 &&
+        abs(num_est(x1, contrast = 1, policy = "nominated",
+                    at = c(chord_type = "maj", inversion = "1"))$estimate - byc[4]) < 1e-10 })
+chk("numeric target: the bounds are the range of its effect over the conditions",
+    { e <- suppressMessages(nest_estimand(m_num, x1, contrast = 1))
+      b <- attr(e, "nestimand")$bounds
+      byc <- num_est(x1, contrast = 1, by = chord_type)$estimate
+      abs(b$policy_low - min(byc)) < 1e-10 && abs(b$policy_high - max(byc)) < 1e-10 })
+chk("numeric target: the code view re-runs and reproduces it",
+    { e <- suppressMessages(nest_estimand(m_num, g1, contrast = "2sd"))
+      env <- new.env(); assign("m_num", m_num, env)
+      rr <- suppressMessages(eval(parse(text = paste(attr(e, "nestimand")$code,
+                                                     collapse = "\n")), envir = env))
+      isTRUE(all.equal(as.data.frame(rr)$estimate, as.data.frame(e)$estimate)) })
+chk("numeric target: a factor refuses a step, and a numeric target a pairwise comparison",
+    grepl("is a step along a numeric target",
+          err_of(nest_estimand(m_num, inversion, contrast = "sd")), fixed = TRUE) &&
+      grepl("has no levels for a \"pairwise\" comparison",
+            err_of(nest_estimand(m_num, x1, contrast = "pairwise")), fixed = TRUE) &&
+      grepl("is none of these", err_of(nest_estimand(m_num, x1, contrast = 0)),
+            fixed = TRUE))
+chk("numeric target: an interaction with one is refused before anything is computed",
+    { msg <- utils::capture.output(e <- err_of(nest_estimand(m_num, chord_type * x1)),
+                                   type = "message")
+      grepl("combines a numeric variable", e, fixed = TRUE) && !length(msg) })
+chk("numeric target: a continuous nested variable is not one",
+    { cd <- local({ d <- deep[deep$Z %in% c("none", "z1"), ]
+                    d$X1n <- as.numeric(factor(d$X1)); d })
+      sp_c <- suppressMessages(nesting_spec(cd,
+        response ~ chord_type * inversion * X1n, c(inversion, X1n) %in% chord_type))
+      m_c <- suppressMessages(fit_from(sp_c))
+      grepl("placeholder", err_of(nest_estimand(m_c, X1n)), fixed = TRUE) })
+chk("numeric target: off the linear predictor the step goes to avg_comparisons as given",
+    { d <- cov_dat; d$bin <- as.integer(d$response > stats::median(d$response))
+      m_b <- suppressMessages(nest_fit("glm", bin ~ chord_type * inversion +
+               chord_type * x1, d, family = "binomial", nests = "inversion %in% chord_type"))
+      e <- as.data.frame(suppressMessages(nest_estimand(m_b, x1, contrast = "2sd",
+                                                        bounds = FALSE)))
+      sp <- attr(m_b, "nestimand_spec")
+      g <- counterfactual_grid(sp, sp$data, nest_policy(sp, "x1", "equal"))
+      a <- marginaleffects::avg_comparisons(m_b, newdata = g,
+             variables = list(x1 = "2sd"), wts = g$.w)
+      abs(e$estimate - a$estimate) < 1e-10 && identical(e$term, "+2 SD") })
+chk("numeric target: on an ordinal fit the step is taken on the linear predictor",
+    { d <- cov_dat
+      d$rord <- factor(cut(d$response, 5, labels = FALSE), ordered = TRUE)
+      mo <- suppressMessages(nest_fit("clm", rord ~ chord_type * inversion +
+              chord_type * x1, d, nests = "inversion %in% chord_type"))
+      e <- as.data.frame(suppressMessages(nest_estimand(mo, x1, contrast = 1,
+                                                        by = chord_type, bounds = FALSE)))
+      b <- mo$beta
+      sl <- b[["x1"]] + c(0, b[paste0("x1:dm_chord_type", c("dim", "min", "maj"))])
+      isTRUE(all.equal(unname(e$estimate), unname(sl))) })
 
 ## A numeric nested variable is a slope inside the cells, not a cell variable.
 ## It stays visible in the printed structure, since a variable whose values are

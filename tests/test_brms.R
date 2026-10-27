@@ -254,6 +254,21 @@ chk("an estimand computed within groups keeps its posterior, labelled by group",
       all(c("chord_type", "term") %in% names(d)) &&
         nrow(d) == nrow(db) * length(unique(d$drawid)) &&
         max(abs(m[paste(db$chord_type, db$term)] - db$estimate)) < 0.05 })
+## a numeric target: a step along it, on the linear predictor, draw by draw
+chk("a numeric target gives the posterior of its step, within each group",
+    { en <- suppressMessages(nest_estimand(mc, x1, by = chord_type, bounds = FALSE))
+      dn <- as.data.frame(en); d <- nest_draws(en)
+      m <- tapply(d$draw, d$chord_type, mean)
+      identical(unique(dn$term), "+1 SD") && "pd" %in% names(dn) &&
+        all(c("chord_type", "term") %in% names(d)) &&
+        max(abs(m[as.character(dn$chord_type)] - dn$estimate)) < 1e-8 })
+chk("and its bounds span the step's effect over the conditions",
+    { en <- suppressMessages(nest_estimand(mc, x1, contrast = "2sd"))
+      b <- attr(en, "nestimand")$bounds
+      byc <- as.data.frame(suppressMessages(nest_estimand(mc, x1, contrast = "2sd",
+               by = c(chord_type, inversion), bounds = FALSE)))$estimate
+      b$policy_low <= b$estimate && b$estimate <= b$policy_high &&
+        abs(b$policy_low - min(byc)) < 0.01 && abs(b$policy_high - max(byc)) < 0.01 })
 
 cat(sprintf("\n%d passed, %d failed\n", pass, fail))
 cat("If check 2 failed, report the coefficient names printed above: the naming\n")

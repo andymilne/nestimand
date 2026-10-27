@@ -17,10 +17,28 @@
 policy_contrast_matrix <- function(spec, target, policy, data = spec$data,
                                    model = NULL, cells = spec$cells,
                                    weights = NULL, route = "g_computation") {
-  ## The route says which rows the design is averaged over, here as on the
-  ## prediction side: every observed row crossed with every condition, or one
-  ## row per condition with the covariates at their means. The two coincide
-  ## unless a design column is a nonlinear function of a covariate.
+  g <- policy_grid(spec, policy, data, cells, weights, route)
+  X <- design_rows(spec, g, fit_mode(model))
+  if (!is.null(model)) X <- align_design(X, model)
+  lev <- target_stratum(spec, target, g)
+  levs <- levels(factor(spec$data[[target]]))
+  levs <- levs[levs %in% lev]
+  M <- t(vapply(levs, function(s) {
+    i <- lev == s
+    ws <- g$.w[i] / sum(g$.w[i])
+    as.numeric(crossprod(ws, X[i, , drop = FALSE]))
+  }, numeric(ncol(X))))
+  colnames(M) <- colnames(X)
+  M
+}
+
+## The rows an estimand is averaged over, each weighted by the policy. The route
+## says which rows, here as on the prediction side: every observed row crossed
+## with every condition, or one row per condition with the covariates at their
+## means. The two coincide unless a design column is a nonlinear function of a
+## covariate.
+policy_grid <- function(spec, policy, data = spec$data, cells = spec$cells,
+                        weights = NULL, route = "g_computation") {
   g <- if (identical(route, "cells")) {
     d <- cell_grid(spec, data)
     d <- d[as.character(d[[spec$cell_name]]) %in%
@@ -41,19 +59,103 @@ policy_contrast_matrix <- function(spec, target, policy, data = spec$data,
            nrow(data), " rows: one weight per row is needed.")
     g$.w <- g$.w * wv[g$.row]
   }
-  X <- design_rows(spec, g, fit_mode(model))
-  if (!is.null(model)) X <- align_design(X, model)
-  w <- g$.w / sum(g$.w[!duplicated(g$.row)]) # per-row weights, normalized below
-  lev <- as.character(g[[target]])
-  levs <- levels(factor(spec$data[[target]]))
-  levs <- levs[levs %in% lev]
-  M <- t(vapply(levs, function(s) {
-    i <- lev == s
-    ws <- g$.w[i] / sum(g$.w[i])
-    as.numeric(crossprod(ws, X[i, , drop = FALSE]))
-  }, numeric(ncol(X))))
-  colnames(M) <- colnames(X)
-  M
+  g
+}
+
+## --- a numeric target ------------------------------------------------------
+## A step along a numeric target is named in marginaleffects' vocabulary, so
+## that `contrast` means the same thing whichever route computes it: "sd" and
+## "2sd" span one and two standard deviations around the mean, "iqr" the
+## quartiles, "minmax" the range, a number a step of that size up from each
+## row's own value, two numbers the step between them, and a function of the
+## values the two columns it returns. The moments are those of the data the
+## model was fitted to, as marginaleffects takes them.
+step_values <- function(spec, target, step, x) {
+  check_step(step, target)
+  ref <- spec$data[[target]]
+  if (is.function(step)) {
+    v <- as.data.frame(step(x))
+    if (ncol(v) != 2L || nrow(v) != length(x))
+      stop("a function given as `contrast` takes the values of `", target,
+           "` and returns two columns, the low and the high value to compare, ",
+           "one row per value.", call. = FALSE)
+    return(list(lo = as.numeric(v[[1]]), hi = as.numeric(v[[2]])))
+  }
+  if (is.character(step)) {
+    m <- mean(ref, na.rm = TRUE); s <- stats::sd(ref, na.rm = TRUE)
+    lh <- switch(step,
+      sd = c(m - s / 2, m + s / 2), "2sd" = c(m - s, m + s),
+      iqr = stats::quantile(ref, c(0.25, 0.75), names = FALSE, na.rm = TRUE),
+      minmax = range(ref, na.rm = TRUE))
+    return(list(lo = rep(lh[1], length(x)), hi = rep(lh[2], length(x))))
+  }
+  if (length(step) == 1L) return(list(lo = x, hi = x + step))
+  list(lo = rep(min(step), length(x)), hi = rep(max(step), length(x)))
+}
+
+check_step <- function(step, target) {
+  ok <- is.function(step) ||
+    (is.character(step) && length(step) == 1L &&
+       step %in% c("sd", "2sd", "iqr", "minmax")) ||
+    (is.numeric(step) && all(is.finite(step)) &&
+       ((length(step) == 1L && step != 0) ||
+          (length(step) == 2L && step[1] != step[2])))
+  if (!ok)
+    stop("`", target, "` is numeric, so `contrast` is the step compared along ",
+         "it: \"sd\" or \"2sd\" for one or two standard deviations, \"iqr\" or ",
+         "\"minmax\", a number for a step of that size, two different numbers ",
+         "for the step between them, or a function of the values returning the ",
+         "low and the high value to compare. ", paste(deparse(step), collapse = " "),
+         " is none of these.", call. = FALSE)
+  invisible(TRUE)
+}
+
+## What a step is called in the estimand's `term` column, whichever route
+## computed it.
+step_label <- function(step) {
+  if (is.function(step)) return("custom step")
+  if (is.character(step))
+    return(switch(step, sd = "+1 SD", "2sd" = "+2 SD", iqr = "Q3 - Q1",
+                  minmax = "Max - Min"))
+  if (length(step) == 1L) return(sprintf("%+g", step))
+  sprintf("%g - %g", max(step), min(step))
+}
+
+## The size of a step in the target's own units, for saying what was compared.
+## A function's step can differ from row to row, so it has no single size.
+step_size <- function(spec, target, step) {
+  if (is.function(step)) return(NA_real_)
+  v <- step_values(spec, target, step, spec$data[[target]][1])
+  v$hi - v$lo
+}
+
+## The contrast vector for a step: the change in each design row when the target
+## moves from the low value to the high one, averaged over the policy-weighted
+## grid - every observed row in every realized condition. On a linear scale
+## that is exactly the average change in prediction, so this is G-computation,
+## as it is for a categorical target. The two designs are reduced one at a time,
+## so the grid's design is never held twice.
+## With `by_cell`, one row per realized condition instead: the step's effect in
+## each, which is what the bounds range over, from one pass over the grid.
+step_contrast_matrix <- function(spec, target, policy, step, data = spec$data,
+                                 model = NULL, cells = spec$cells,
+                                 weights = NULL, route = "g_computation",
+                                 by_cell = FALSE) {
+  g <- policy_grid(spec, policy, data, cells, weights, route)
+  v <- step_values(spec, target, step, g[[target]])
+  key <- as.character(g[[spec$cell_name]])
+  ws <- if (by_cell) g$.w / stats::ave(g$.w, key, FUN = sum) else g$.w / sum(g$.w)
+  side <- function(val) {
+    gs <- g; gs[[target]] <- val
+    X <- design_rows(spec, gs, fit_mode(model))
+    if (!is.null(model)) X <- align_design(X, model)
+    if (by_cell) rowsum(X * ws, key)
+    else matrix(as.numeric(crossprod(ws, X)), nrow = 1L,
+                dimnames = list(step_label(step), colnames(X)))
+  }
+  hi <- side(v$hi)
+  lo <- side(v$lo)
+  hi - lo[rownames(hi), colnames(hi), drop = FALSE]
 }
 
 coef_vector <- function(model) {
@@ -199,6 +301,15 @@ latent_contrast_matrix <- function(model, spec, target, policy = "equal",
                                    at = NULL, contrast = "pairwise",
                                    data = spec$data, cells = NULL,
                                    weights = NULL, route = "g_computation") {
+  ## A numeric target is compared at two of its values, and `contrast` is the
+  ## step between them; the policy weights the conditions it is compared in.
+  if (is_numeric_target(spec, target)) {
+    if (is.null(cells)) cells <- spec$cells
+    pol <- if (inherits(policy, "nestimand_policy")) policy
+           else nest_policy(spec, target, policy, at, data, cells = cells)
+    return(step_contrast_matrix(spec, target, pol, contrast, data, model,
+                                cells = cells, weights = weights, route = route))
+  }
   ## Several variables named at once are one condition, not several targets:
   ## an interaction contrasts differences between their combinations, and no
   ## contrast reports the combinations themselves. Both work over the same
